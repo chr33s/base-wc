@@ -1,6 +1,6 @@
 {
   "name": "@chr33s/base-wc",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Base UI ported to dependency-free, light-DOM web components.",
   "files": [
     "dist",
