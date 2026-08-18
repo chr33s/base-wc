@@ -1,0 +1,263 @@
+/* ===========================================================================
+   Feedback & display
+   =========================================================================== */
+.progress {
+  display: block;
+  height: 8px;
+  background: var(--surface-2);
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 0.5rem 0;
+}
+.progress .bar {
+  display: block;
+  height: 100%;
+  width: calc(var(--progress, 0) * 100%);
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.2s;
+}
+.progress[data-state="indeterminate"] .bar {
+  width: 40%;
+  animation: indeterminate 1.2s infinite ease-in-out;
+}
+@keyframes indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(350%);
+  }
+}
+
+.meter {
+  display: block;
+  height: 8px;
+  background: var(--surface-2);
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 0.5rem 0;
+}
+.meter .bar {
+  display: block;
+  height: 100%;
+  width: calc(var(--meter, 0) * 100%);
+  border-radius: 999px;
+  background: var(--ok);
+}
+.meter[data-state="suboptimal"] .bar {
+  background: var(--warn);
+}
+.meter[data-state="poor"] .bar {
+  background: var(--danger);
+}
+
+.avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-weight: 600;
+}
+.avatar.sm {
+  width: 34px;
+  height: 34px;
+  font-size: 0.85rem;
+}
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.avatar[data-state="error"] img,
+.avatar[data-state="loading"] img {
+  display: none;
+}
+.avatar[data-state="loaded"] [data-avatar-fallback] {
+  display: none;
+}
+
+.sep {
+  display: block;
+  height: 1px;
+  background: var(--border);
+  border: 0;
+  margin: 0.8rem 0;
+}
+.sep.vertical {
+  width: 1px;
+  height: 1.1em;
+  margin: 0;
+}
+
+.scrollarea {
+  display: block;
+  position: relative;
+  height: 160px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.scrollarea .sv {
+  display: block;
+  height: 100%;
+  overflow: auto;
+  padding: 0.6rem 0.8rem;
+  scrollbar-width: none;
+}
+.scrollarea .sv::-webkit-scrollbar {
+  display: none;
+}
+.scrollarea .sb {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  bottom: 4px;
+  width: 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+.scrollarea .sb[hidden] {
+  display: none;
+}
+.scrollarea .sth {
+  display: block;
+  width: 100%;
+  border-radius: 999px;
+  background: var(--muted);
+  opacity: 0.6;
+}
+
+/* toasts — Sonner-style stack. The viewport computes each toast's geometry as
+   CSS vars (--index 0=front, --z, --offset) + data-* hooks; these rules turn
+   them into the peek/scale (collapsed) and spread (expanded, on hover) transforms. */
+.toast-viewport {
+  position: fixed;
+  margin: 0;
+  inset: auto 1rem 1rem auto;
+  width: min(92vw, 22rem);
+  height: var(--stack-height, 0px);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  --toast-peek: 14px; /* how far each stacked toast peeks out behind the front */
+  --toast-scale: 0.05; /* how much each stacked toast shrinks */
+  transition: height 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+ui-toast {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.7rem 0.9rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  z-index: var(--z, 1);
+  opacity: var(--swipe-opacity, 1);
+  transform-origin: center bottom;
+  touch-action: pan-y;
+  transition:
+    transform 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.3s ease;
+  /* collapsed: lift + shrink by stack depth */
+  transform: translateX(var(--swipe-x, 0px))
+    translateY(calc(var(--index, 0) * var(--toast-peek) * -1))
+    scale(calc(1 - var(--index, 0) * var(--toast-scale)));
+}
+/* expanded (viewport hovered/focused): spread to each toast's resting offset */
+.toast-viewport[data-expanded] ui-toast {
+  transform: translateX(var(--swipe-x, 0px)) translateY(calc(var(--offset, 0px) * -1)) scale(1);
+}
+/* top-anchored viewports peek + expand downward and grow from the top edge */
+.toast-viewport[data-position="top"] {
+  inset: 1rem 1rem auto auto;
+}
+.toast-viewport[data-position="top"] ui-toast {
+  top: 0;
+  bottom: auto;
+  transform-origin: center top;
+  transform: translateX(var(--swipe-x, 0px)) translateY(calc(var(--index, 0) * var(--toast-peek)))
+    scale(calc(1 - var(--index, 0) * var(--toast-scale)));
+}
+.toast-viewport[data-position="top"][data-expanded] ui-toast {
+  transform: translateX(var(--swipe-x, 0px)) translateY(var(--offset, 0px)) scale(1);
+}
+/* toasts past the visible limit fade out while the stack is collapsed */
+ui-toast[data-hidden] {
+  opacity: 0;
+}
+/* follow the finger 1:1 while swiping to dismiss */
+ui-toast[data-swiping] {
+  transition: opacity 0.3s ease;
+  cursor: grabbing;
+}
+ui-toast[data-type="success"] {
+  border-left-color: var(--ok);
+}
+ui-toast[data-type="error"] {
+  border-left-color: var(--danger);
+}
+ui-toast[data-type="warning"] {
+  border-left-color: var(--warn);
+}
+/* enter/exit: slide from the anchored edge (prefixed to out-specify the
+   expanded-stack transform, and placed last so it wins on equal specificity). */
+.toast-viewport ui-toast[data-state="closed"] {
+  opacity: 0;
+  transform: translateY(100%) scale(0.9);
+}
+.toast-viewport[data-position="top"] ui-toast[data-state="closed"] {
+  transform: translateY(-100%) scale(0.9);
+}
+@starting-style {
+  ui-toast[data-open] {
+    opacity: 0;
+    transform: translateY(100%) scale(0.9);
+  }
+  .toast-viewport[data-position="top"] ui-toast[data-open] {
+    transform: translateY(-100%) scale(0.9);
+  }
+}
+[data-toast-title] {
+  font-weight: 600;
+}
+[data-toast-description] {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+[data-toast-action],
+[data-toast-close] {
+  justify-self: start;
+  margin-top: 0.3rem;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  padding: 0;
+}
+[data-toast-close] {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.5rem;
+  color: var(--muted);
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+/* theme toggle glyphs */
+:root[data-theme="dark"] .theme-light {
+  display: none;
+}
+:root:not([data-theme="dark"]) .theme-dark {
+  display: none;
+}

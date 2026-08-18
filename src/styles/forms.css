@@ -1,0 +1,364 @@
+/* ===========================================================================
+   Form controls
+   =========================================================================== */
+.field-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+}
+.field-row.indent {
+  padding-left: 1.4rem;
+}
+
+/* switch — enhances a native checkbox; the input overlays the track (invisible,
+   still the control) so styling works with or without JS (`:has(input:checked)`
+   pre-JS, `[data-state]` post-upgrade). */
+ui-switch.switch {
+  display: inline-block;
+  width: 40px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--border);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.15s;
+  flex: none;
+}
+ui-switch.switch input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+ui-switch.switch:has(input:checked),
+ui-switch.switch[data-state="checked"] {
+  background: var(--accent);
+}
+ui-switch.switch .thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+}
+ui-switch.switch:has(input:checked) .thumb,
+ui-switch.switch[data-state="checked"] .thumb {
+  transform: translateX(16px);
+}
+ui-switch.switch:has(input:focus-visible) {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 999px;
+}
+
+/* checkbox — enhances a native checkbox (same overlay pattern as the switch). */
+ui-checkbox.checkbox {
+  display: inline-grid;
+  place-items: center;
+  position: relative;
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+  flex: none;
+}
+ui-checkbox.checkbox input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+ui-checkbox.checkbox:has(input:checked),
+ui-checkbox.checkbox:has(input:indeterminate),
+ui-checkbox.checkbox[data-state="checked"],
+ui-checkbox.checkbox[data-state="indeterminate"] {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+/* The tick renders on the host itself, so a bare
+   `<ui-checkbox class="checkbox"><input type="checkbox" /></ui-checkbox>` shows a
+   mark with no extra child (e.g. the row/select-all boxes in `ui-table`). A
+   legacy `.tick` span, if authored, is hidden so it can't disturb the grid. */
+ui-checkbox.checkbox::after {
+  color: var(--accent-fg);
+  font-size: 0.8rem;
+  line-height: 1;
+}
+ui-checkbox.checkbox .tick {
+  display: none;
+}
+ui-checkbox.checkbox:has(input:checked)::after,
+ui-checkbox.checkbox[data-state="checked"]::after {
+  content: "✓";
+}
+ui-checkbox.checkbox:has(input:indeterminate)::after,
+ui-checkbox.checkbox[data-state="indeterminate"]::after {
+  content: "–";
+}
+ui-checkbox.checkbox:has(input:focus-visible) {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* radio — enhances a native radio; the input overlays the dot so it works with
+   or without JS (`:has(input:checked)` pre-JS, `[data-state]` post-upgrade). */
+ui-radio.radio {
+  display: inline-grid;
+  place-items: center;
+  position: relative;
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+  flex: none;
+}
+ui-radio.radio input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+ui-radio.radio:has(input:checked),
+ui-radio.radio[aria-checked="true"],
+ui-radio.radio[data-state="checked"] {
+  border-color: var(--accent);
+}
+ui-radio.radio .pip {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: scale(0);
+  transition: transform 0.12s;
+}
+ui-radio.radio:has(input:checked) .pip,
+ui-radio.radio[aria-checked="true"] .pip,
+ui-radio.radio[data-state="checked"] .pip {
+  transform: scale(1);
+}
+ui-radio.radio:has(input:focus-visible),
+ui-radio:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 50%;
+}
+
+/* toggle */
+ui-toggle.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+  background: var(--surface);
+}
+ui-toggle.toggle[aria-pressed="true"],
+ui-toggle.toggle[data-state="on"] {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: transparent;
+}
+ui-toggle:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.toolbar-row {
+  display: inline-flex;
+  gap: 0.3rem;
+  align-items: center;
+  margin-top: 0.6rem;
+  padding: 0.3rem;
+  background: var(--surface-2);
+  border-radius: 8px;
+}
+ui-toggle-group,
+ui-toolbar {
+  display: inline-flex;
+}
+
+/* number field */
+.numfield {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.scrub {
+  cursor: ew-resize;
+  user-select: none;
+  padding: 0.3rem 0.4rem;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--muted);
+  touch-action: none;
+}
+.scrub[data-scrubbing] {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+/* slider */
+ui-slider.slider {
+  display: block;
+  padding: 0.8rem 0;
+}
+/* native-first single slider: style the range input; the component publishes the
+   value fraction as `--slider`, which fills the track (works with or without JS). */
+ui-slider .range {
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--accent) calc(var(--slider, 0) * 100%),
+    var(--border) 0
+  );
+  cursor: pointer;
+  outline: none;
+}
+ui-slider .range::-webkit-slider-thumb {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--accent);
+  cursor: grab;
+}
+ui-slider .range::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--accent);
+  cursor: grab;
+}
+ui-slider .range:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+ui-slider .track {
+  display: block;
+  position: relative;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border);
+}
+ui-slider .fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: calc(var(--slider, 0) * 100%);
+  background: var(--accent);
+  border-radius: 999px;
+}
+ui-slider .fill.range {
+  left: calc(var(--slider-start, 0) * 100%);
+  width: calc((var(--slider-end, 0) - var(--slider-start, 0)) * 100%);
+}
+ui-slider .thumb {
+  position: absolute;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  margin-left: -8px;
+  transform: translateY(-50%);
+  background: var(--surface);
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  cursor: grab;
+}
+ui-slider .thumb:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* otp */
+ui-otp-field.otp {
+  display: inline-flex;
+  gap: 0.4rem;
+}
+ui-otp-field.otp input {
+  width: 2.6rem;
+  height: 3rem;
+  text-align: center;
+  font-size: 1.2rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+}
+ui-otp-field.otp input:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+
+/* field / fieldset / form */
+.form {
+  display: grid;
+  gap: 1rem;
+  max-width: 26rem;
+}
+.fieldset {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  display: grid;
+  gap: 0.8rem;
+}
+.fieldset legend {
+  padding: 0 0.4rem;
+  font-weight: 600;
+}
+.field {
+  display: grid;
+  gap: 0.3rem;
+}
+.field [data-field-label] {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.field-desc {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.field-error {
+  font-size: 0.8rem;
+  color: var(--danger);
+}
+.field-error:empty {
+  display: none;
+}
+ui-field[data-invalid] .input {
+  border-color: var(--danger);
+}
+.error-summary {
+  padding: 0.6rem 0.8rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+.error-summary[hidden] {
+  display: none;
+}
