@@ -92,8 +92,13 @@ export function roving(container: HTMLElement, options: RovingOptions): Roving {
     items.forEach((el, n) => {
       el.tabIndex = n === i ? 0 : -1;
     });
-    items[i].focus();
-    options.onMove?.(items[i], i);
+    // `i` is already wrapped or clamped into range and an empty list returned
+    // above, so this cannot be undefined — but the index signature says it can,
+    // and the compiler is right to insist the narrowing be written down.
+    const target = items[i];
+    if (target === undefined) return;
+    target.focus();
+    options.onMove?.(target, i);
   };
 
   const onKeydown = (e: KeyboardEvent) => {
@@ -126,7 +131,9 @@ export function roving(container: HTMLElement, options: RovingOptions): Roving {
       // Suppress the default action (Space scrolls the page on non-button
       // custom-element items) before activating.
       e.preventDefault();
-      options.onActivate(items[current], current);
+      const item = items[current];
+      if (item === undefined) return;
+      options.onActivate(item, current);
     }
   };
 
