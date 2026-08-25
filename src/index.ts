@@ -48,6 +48,87 @@ export { type AvatarState, UIAvatar } from "./avatar.ts";
 export { UIBanner } from "./banner.ts";
 export { type CalendarChangeDetail, UICalendar, UICalendarPopup } from "./calendar.ts";
 export { UIDateField } from "./date-field.ts";
+export { UIChartAxis, UIChartGrid } from "./chart-axis.ts";
+export { UIChartBar } from "./chart-bar.ts";
+export {
+  type AxisPosition,
+  type AxisRegistration,
+  type ChartListener,
+  type ChartRow,
+  type ChartState,
+  ChartStore,
+  type ChartValue,
+  getSeriesType,
+  type HighlightScope,
+  type HighlightState,
+  isMarkFaded,
+  isMarkHighlighted,
+  isNumberValue,
+  isSeriesFaded,
+  isSeriesHighlighted,
+  type MarkDescriptor,
+  mergeExtent,
+  numberAttribute,
+  numericExtent,
+  parseTable,
+  registerSeriesType,
+  type SeriesHit,
+  type SeriesRegistration,
+  type SeriesRenderContext,
+  type SeriesTypeDefinition,
+  type StackedValue,
+  stackSeries,
+  type StackOffset,
+  toNumeric,
+} from "./chart-core.ts";
+export {
+  type AxisScaleOptions,
+  axisScale,
+  categoricalDomain,
+  categoryRows,
+  DEFAULT_TICK_COUNT,
+  seriesExtremum,
+} from "./chart-domain.ts";
+export { UIChartLegend, type UIChartToggleDetail } from "./chart-legend.ts";
+export { UIChartLine } from "./chart-line.ts";
+export { UIChartPie } from "./chart-pie.ts";
+export { ChartPlot, type GridSpec } from "./chart-plot.ts";
+export { UIChartReferenceLine } from "./chart-reference-line.ts";
+export {
+  type CategoryValue,
+  categoryKey,
+  type ContinuousScale,
+  type DiscreteScale,
+  type Scale,
+  type ScaleType,
+  bandScale,
+  createScale,
+  isDiscreteScale,
+  linearScale,
+  linearTicks,
+  logScale,
+  niceLinearDomain,
+  pointScale,
+  powScale,
+  sqrtScale,
+  timeScale,
+} from "./chart-scale.ts";
+export { UIChartScatter } from "./chart-scatter.ts";
+export { SERIES_ATTRIBUTES, UIChartSeries } from "./chart-series.ts";
+export {
+  type ArcParams,
+  type CurveType,
+  type PieOptions,
+  type PieSlice,
+  type Point,
+  arcPath,
+  areaPath,
+  linePath,
+  pieAngles,
+  round,
+} from "./chart-shape.ts";
+export { UIChartTooltip } from "./chart-tooltip.ts";
+export { UIChart, type UIChartHighlightDetail, type UIChartSelectDetail } from "./chart.ts";
 export { UICheckbox, UICheckboxGroup } from "./checkbox.ts";
 export { type ChipRemoveDetail, UIChip } from "./chip.ts";
 export { UICollapsible } from "./collapsible.ts";
@@ -67,6 +148,7 @@ export { UIField } from "./field.ts";
 export { UIFieldset } from "./fieldset.ts";
 export { type FocusTrapOptions, getFocusable, trapFocus } from "./focus-trap.ts";
 export { UIForm } from "./form.ts";
+export { UIGauge } from "./gauge.ts";
 export { nextId } from "./id.ts";
 export { closeGroup, isGroupWarm, openGroup } from "./intent.ts";
 export { connectLightDom } from "./lifecycle.ts";

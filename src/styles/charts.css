@@ -1,0 +1,322 @@
+/* ===========================================================================
+   Charts — a demo skin only. The components ship no CSS: every rule below is
+   plain page styling hooked onto ui-chart's data-* state (`data-series-index`,
+   `data-legend-index`, `data-highlighted`, `data-faded`, `data-hidden`) and the
+   `--tick` / `--gauge` fractions it publishes. Each series' palette slot is
+   published both ways — as `data-series-index` and as `--series-index` — and
+   this skin picks the attribute, since CSS can select on it directly; a
+   consumer computing colours arithmetically would use the property instead.
+   The categorical palette (--chart-1…-8, declared in foundation.css) was chosen
+   and validated with the `dataviz` skill — fixed slot order, never cycled for a
+   9th series.
+   =========================================================================== */
+
+.chart {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  /* Every row a chart might need is explicit — x-axis and legend are each
+     "auto" (sized to content), "plot" gets a floor via minmax() rather than a
+     bare 1fr: a plain `1fr` only distributes space left over *after* the auto
+     rows are sized, so if a consumer also gives .chart a fixed total height
+     smaller than plot-floor + the auto rows' real height, the tracks overflow
+     the box (and everything below spills onto whatever follows in the page)
+     instead of shrinking further — give `.chart` an intrinsic height (no
+     fixed `height`, `width` only) so the box grows to fit its rows instead. */
+  grid-template-rows: minmax(200px, 1fr) auto auto;
+  grid-template-areas:
+    "y-axis plot"
+    ".      x-axis"
+    "legend legend";
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  color: var(--text);
+}
+.chart > svg {
+  grid-area: plot;
+  /* The plot is a hard visual boundary — nothing drawn inside it (marks,
+     strokes, arcs) is meant to render past its own box. `niceLinearDomain`
+     (see chart.ts) keeps auto-computed axes from placing a data point
+     exactly on this edge, but that's a default-appearance nicety, not a
+     containment guarantee: an author-supplied `min`/`max` is never nice-d,
+     and a mark's own stroke-width/radius is centered on its point regardless
+     — clip here so a value that does land on the edge is cropped cleanly by
+     the chart's own box, not left to whatever happens to be on the
+     surrounding page (sometimes clipped, sometimes not, depending on
+     context — the bug this replaces). */
+  overflow: hidden;
+}
+.chart > ui-chart-axis[position="bottom"],
+.chart > ui-chart-axis[position="top"] {
+  grid-area: x-axis;
+  height: 1.4rem;
+}
+.chart > ui-chart-axis[position="left"],
+.chart > ui-chart-axis[position="right"] {
+  grid-area: y-axis;
+  width: 2.75rem;
+}
+.chart > ui-chart-legend {
+  grid-area: legend;
+  margin-top: 0;
+}
+/* Config-only children — no visual footprint of their own; their effect is
+   entirely inside the generated <svg>. */
+.chart > ui-chart-bar,
+.chart > ui-chart-line,
+.chart > ui-chart-pie,
+.chart > ui-chart-scatter,
+.chart > ui-chart-reference-line,
+.chart > ui-chart-grid {
+  display: none;
+}
+/* The authored dataset table is the no-JS/accessible fallback — visually
+   hidden (not display:none, which would also drop it from the a11y tree)
+   once the chart has actually rendered. */
+.chart[data-state="rendered"] > table {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---- axes ---- */
+.chart ui-chart-axis {
+  position: relative;
+  display: block;
+  color: var(--muted);
+}
+.chart ui-chart-axis [data-part="tick"] {
+  position: absolute;
+  white-space: nowrap;
+}
+.chart ui-chart-axis[position="bottom"] [data-part="tick"] {
+  top: 0.25rem;
+  inset-inline-start: calc(var(--tick, 0) * 100%);
+  transform: translateX(-50%);
+}
+.chart ui-chart-axis[position="left"] [data-part="tick"] {
+  /* --tick is 0 at the plot's bottom pixel edge (the value axis' range is
+     inverted so larger values land at a smaller y) — offset from the axis
+     box's own top by the complement, and right-align toward the plot. */
+  top: calc((1 - var(--tick, 0)) * 100%);
+  inset-inline-end: 0.25rem;
+  transform: translateY(-50%);
+}
+
+/* ---- grid + band hit rects ---- */
+.chart [data-part="grid-line"] {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+.chart [data-part="band"] {
+  transition: fill 0.1s;
+}
+/* The chart publishes `data-highlighted` on the active band, so the column
+   tint follows keyboard navigation and nearest-datum hover too — not just the
+   pointer being physically over this rect. */
+.chart [data-part="band"][data-highlighted] {
+  fill: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+/* ---- series color (fixed slot order — never cycled past 8) ---- */
+.chart [data-series-index="0"],
+ui-chart-legend button[data-legend-index="0"] {
+  color: var(--chart-1);
+}
+.chart [data-series-index="1"],
+ui-chart-legend button[data-legend-index="1"] {
+  color: var(--chart-2);
+}
+.chart [data-series-index="2"],
+ui-chart-legend button[data-legend-index="2"] {
+  color: var(--chart-3);
+}
+.chart [data-series-index="3"],
+ui-chart-legend button[data-legend-index="3"] {
+  color: var(--chart-4);
+}
+.chart [data-series-index="4"],
+ui-chart-legend button[data-legend-index="4"] {
+  color: var(--chart-5);
+}
+.chart [data-series-index="5"],
+ui-chart-legend button[data-legend-index="5"] {
+  color: var(--chart-6);
+}
+.chart [data-series-index="6"],
+ui-chart-legend button[data-legend-index="6"] {
+  color: var(--chart-7);
+}
+.chart [data-series-index="7"],
+ui-chart-legend button[data-legend-index="7"] {
+  color: var(--chart-8);
+}
+
+/* ---- marks ---- */
+.chart [data-part="mark"] {
+  fill: currentColor;
+}
+.chart [data-type="bar"] [data-part="mark"] {
+  transition:
+    x 0.2s,
+    y 0.2s,
+    width 0.2s,
+    height 0.2s,
+    opacity 0.15s;
+}
+.chart [data-part="stroke"] {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2px;
+}
+.chart [data-part="area"] {
+  fill: currentColor;
+  opacity: 0.15;
+}
+.chart [data-part="arc"] {
+  fill: currentColor;
+  stroke: var(--surface);
+  stroke-width: 2px;
+}
+/* Scoped to the annotation itself: `[data-part="label"]` alone would also
+   match the tooltip's own label cells, and out-specify their rule. */
+.chart [data-type="reference-line"] [data-part="line"] {
+  fill: none;
+  stroke: var(--danger);
+  stroke-width: 1.5px;
+  stroke-dasharray: 4 3;
+}
+.chart [data-type="reference-line"] [data-part="label"] {
+  fill: var(--danger);
+  font-size: 0.7rem;
+}
+
+/* A pie is one series whose *slices* carry the categories, so the palette runs
+   across the arcs rather than across series groups. */
+.chart [data-type="pie"] [data-part="arc"]:nth-child(1) {
+  color: var(--chart-1);
+}
+.chart [data-type="pie"] [data-part="arc"]:nth-child(2) {
+  color: var(--chart-2);
+}
+.chart [data-type="pie"] [data-part="arc"]:nth-child(3) {
+  color: var(--chart-3);
+}
+.chart [data-type="pie"] [data-part="arc"]:nth-child(4) {
+  color: var(--chart-4);
+}
+.chart [data-type="pie"] [data-part="arc"]:nth-child(5) {
+  color: var(--chart-5);
+}
+.chart [data-type="pie"] [data-part="arc"]:nth-child(6) {
+  color: var(--chart-6);
+}
+.chart [data-type="pie"] [data-part="arc"]:nth-child(7) {
+  color: var(--chart-7);
+}
+.chart [data-type="pie"] [data-part="arc"]:nth-child(8) {
+  color: var(--chart-8);
+}
+.chart [data-faded] {
+  opacity: 0.3;
+  transition: opacity 0.15s;
+}
+.chart [data-highlighted] {
+  filter: brightness(1.12);
+}
+
+/* ---- legend ---- */
+ui-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.4rem;
+}
+/* The `role="listitem"` wrapper is layout-transparent — it exists only so
+   `aria-pressed` on the button inside it stays valid (see chart-legend.ts's
+   module doc); the button itself is still the flex item. */
+ui-chart-legend [role="listitem"] {
+  display: contents;
+}
+ui-chart-legend button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+}
+ui-chart-legend button:hover {
+  background: var(--surface-2);
+}
+ui-chart-legend button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+ui-chart-legend [data-part="swatch"] {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: currentColor;
+}
+ui-chart-legend button[data-hidden] {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+
+/* ---- tooltip ---- */
+ui-chart-tooltip {
+  margin: 0;
+  padding: 0.5rem 0.7rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  font-size: 0.78rem;
+  pointer-events: none;
+}
+ui-chart-tooltip [data-part="table"] {
+  border-collapse: collapse;
+}
+ui-chart-tooltip [data-part="label"] {
+  color: var(--muted);
+  padding-inline-end: 0.6rem;
+}
+ui-chart-tooltip [data-part="value"] {
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+
+/* ---- sparkline recipe: <ui-chart><ui-chart-line values="…"></ui-chart-line></ui-chart>, no axes/grid/legend ---- */
+.sparkline {
+  display: inline-grid;
+  width: 120px;
+  height: 32px;
+  min-height: 0;
+}
+.sparkline [data-part="stroke"] {
+  stroke-width: 1.5px;
+}
+
+/* ---- gauge ---- */
+.gauge {
+  display: inline-block;
+  color: var(--accent);
+}
+.gauge [data-part="track"] {
+  fill: var(--surface-2);
+}
+.gauge [data-part="value"] {
+  fill: currentColor;
+  transition: d 0.2s;
+}

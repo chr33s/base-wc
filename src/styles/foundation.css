@@ -18,6 +18,21 @@
   --ring: color-mix(in srgb, var(--accent) 40%, transparent);
   --shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
   --radius: 10px;
+  /* Categorical chart palette — validated (CVD ΔE, contrast) against this
+     file's own --surface/--bg via the dataviz skill's validator; fixed slot
+     order, never cycled/regenerated for a 9th series (fold into "Other" or
+     facet instead). Three light-mode slots (aqua/yellow/magenta) read below
+     3:1 against --surface — by design, marks carry the only color here (axis
+     ticks, legend labels, and tooltip text all stay in --text/--muted, never
+     series color), satisfying the relief rule structurally. */
+  --chart-1: #2a78d6; /* blue */
+  --chart-2: #eb6834; /* orange */
+  --chart-3: #1baf7a; /* aqua */
+  --chart-4: #eda100; /* yellow */
+  --chart-5: #e87ba4; /* magenta */
+  --chart-6: #008300; /* green */
+  --chart-7: #4a3aa7; /* violet */
+  --chart-8: #e34948; /* red */
   color-scheme: light;
 }
 :root[data-theme="dark"] {
@@ -33,6 +48,14 @@
   --ok: #4ade80;
   --warn: #fbbf24;
   --shadow: 0 10px 34px rgba(0, 0, 0, 0.5);
+  --chart-1: #3987e5;
+  --chart-2: #d95926;
+  --chart-3: #199e70;
+  --chart-4: #c98500;
+  --chart-5: #d55181;
+  --chart-6: #008300;
+  --chart-7: #9085e9;
+  --chart-8: #e66767;
   color-scheme: dark;
 }
 

@@ -28,8 +28,8 @@ assumptions):
 ## Native-first form controls (the default contract)
 
 The **default** way to author a leaf control that has a native equivalent is to
-wrap a **real native control** — the component enhances it rather than replacing
-it. For server-rendered, no-JS-first pages this is the contract to reach for:
+wrap a **real native control** — the component enhances it, never replaces it.
+For server-rendered, no-JS-first pages this is the contract to reach for:
 
 ```html
 <ui-switch><input type="checkbox" name="notify" /></ui-switch>
@@ -43,9 +43,9 @@ it. For server-rendered, no-JS-first pages this is the contract to reach for:
 
 With no JS that native control is fully functional and submits on its own. On
 upgrade the component **adopts** it (`native.ts` → `adoptedControl()`): the
-native element is the single source of truth for the form value — so
-`ElementInternals` is **not** used in this mode, there is no double submission —
-and the component follows one of two patterns:
+native element is the single source of truth for the form value, so
+`ElementInternals` is **not** used in this mode and nothing submits twice. From
+there the component follows one of two patterns:
 
 - **Style-in-place** (`ui-switch`, `ui-checkbox`): the native input **is** the
   control — overlay it on the visual, and the component only announces it
@@ -97,23 +97,25 @@ ui-select:not(:defined) > select {
 
 ### Fallback matrix
 
-| Component                                                            | No-JS baseline                   | Upgrade pattern                                             |
-| -------------------------------------------------------------------- | -------------------------------- | ----------------------------------------------------------- |
-| `ui-switch`, `ui-checkbox`                                           | `<input type=checkbox>` required | Native style-in-place; no standalone fallback               |
-| `ui-select`                                                          | `<select>`                       | Retires native select; direct `ui-select-option` is JS-only |
-| `ui-number-field`                                                    | `<input type=number>`            | Native style-in-place, or standalone spinbutton             |
-| `ui-slider`                                                          | Single `<input type=range>`      | Native single slider, or standalone multi-thumb range       |
-| `ui-radio-group`                                                     | Native radio inputs              | Native style-in-place, or standalone radiogroup             |
-| `ui-search-field`                                                    | `<input type=search>`            | Native style-in-place + clear/debounced `search`            |
-| `ui-date-field`, `ui-color-field`                                    | Native date/color inputs         | Retire native input; picker writes back to it               |
-| `ui-drop-zone`                                                       | `<input type=file>`              | Retire native input; drag/drop writes accepted files        |
-| `ui-table`                                                           | `<table>`                        | Native table enhancer; sort/select/pagination hooks         |
-| `ui-combobox`                                                        | —                                | JS store/listbox control, form-associated                   |
-| `ui-autocomplete`                                                    | Authored input                   | JS suggestion listbox; input text is the form value         |
-| `ui-collapsible`, `ui-accordion`, `ui-tabs`                          | Authored triggers/panels         | ARIA wiring, disclosure/roving behaviour                    |
-| `ui-menu`, `ui-popover`, `ui-dialog`, `ui-drawer`, `ui-context-menu` | Authored trigger/content         | Popover top layer + JS positioning/dismissal                |
-| `ui-meter`, `ui-progress`                                            | —                                | Custom ARIA elements with CSS variable fill hooks           |
-| `ui-toast`, `ui-scroll-area`, `ui-preview-card`, `ui-tooltip`        | —                                | JS enhancement-only; `ui-tooltip` can degrade to `title`    |
+| Component                                                            | No-JS baseline                   | Upgrade pattern                                               |
+| -------------------------------------------------------------------- | -------------------------------- | ------------------------------------------------------------- |
+| `ui-switch`, `ui-checkbox`                                           | `<input type=checkbox>` required | Native style-in-place; no standalone fallback                 |
+| `ui-select`                                                          | `<select>`                       | Retires native select; direct `ui-select-option` is JS-only   |
+| `ui-number-field`                                                    | `<input type=number>`            | Native style-in-place, or standalone spinbutton               |
+| `ui-slider`                                                          | Single `<input type=range>`      | Native single slider, or standalone multi-thumb range         |
+| `ui-radio-group`                                                     | Native radio inputs              | Native style-in-place, or standalone radiogroup               |
+| `ui-search-field`                                                    | `<input type=search>`            | Native style-in-place + clear/debounced `search`              |
+| `ui-date-field`, `ui-color-field`                                    | Native date/color inputs         | Retire native input; picker writes back to it                 |
+| `ui-drop-zone`                                                       | `<input type=file>`              | Retire native input; drag/drop writes accepted files          |
+| `ui-table`                                                           | `<table>`                        | Native table enhancer; sort/select/pagination hooks           |
+| `ui-chart`                                                           | `<table>`                        | Authored table renders as-is with no JS; SVG plot is JS-only  |
+| `ui-gauge`                                                           | —                                | JS-only SVG arc + `--gauge` fraction (the `ui-meter` pattern) |
+| `ui-combobox`                                                        | —                                | JS store/listbox control, form-associated                     |
+| `ui-autocomplete`                                                    | Authored input                   | JS suggestion listbox; input text is the form value           |
+| `ui-collapsible`, `ui-accordion`, `ui-tabs`                          | Authored triggers/panels         | ARIA wiring, disclosure/roving behaviour                      |
+| `ui-menu`, `ui-popover`, `ui-dialog`, `ui-drawer`, `ui-context-menu` | Authored trigger/content         | Popover top layer + JS positioning/dismissal                  |
+| `ui-meter`, `ui-progress`                                            | —                                | Custom ARIA elements with CSS variable fill hooks             |
+| `ui-toast`, `ui-scroll-area`, `ui-preview-card`, `ui-tooltip`        | —                                | JS enhancement-only; `ui-tooltip` can degrade to `title`      |
 
 ## Shared infrastructure (`build once, reuse everywhere`)
 
@@ -136,50 +138,59 @@ ui-select:not(:defined) > select {
 
 ## Components
 
-| Element                                               | Base UI         | Notes                                                                                                                                                                                                                    |
-| ----------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ui-menu` (+ popup, item, checkbox/radio item, group) | Menu / Submenu  | Roving focus, typeahead, top-layer popup; `submenu` → nested side-anchored menu; `menuitemcheckbox`/`menuitemradio` items and labelled `role=group`s.                                                                    |
-| `ui-menubar`                                          | Menubar         | Roving across sibling menus; arrow/hover crosses + opens the adjacent menu.                                                                                                                                              |
-| `ui-context-menu`                                     | Context Menu    | Menu opened at the pointer (`openAt` virtual anchor); right-click / touch long-press.                                                                                                                                    |
-| `ui-navigation-menu` (+ list/item/content)            | Navigation Menu | Hover-intent panels, one open at a time; morph size vars; RTL roving triggers.                                                                                                                                           |
-| `ui-combobox` (+ popup/viewport/spacer/empty, chips)  | Combobox        | Store-backed **virtualized** listbox; fixed row pool over 10,000+ items; form-associated; `multiple` → chips + `[data-combobox-clear]`.                                                                                  |
-| `ui-switch`                                           | Switch          | Form-associated `role=switch` toggle.                                                                                                                                                                                    |
-| `ui-separator`                                        | Separator       | `role=separator` / decorative.                                                                                                                                                                                           |
-| `ui-popover` (+ popup)                                | Popover         | Anchored **non-modal** popup; title/description labelling + `[data-popover-close]`.                                                                                                                                      |
-| `ui-dialog` (+ popup, backdrop)                       | Dialog / Alert  | **Modal**: focus trap + scroll lock + `aria-modal`; `static`, or `alert` → `alertdialog`.                                                                                                                                |
-| `ui-drawer` (+ popup, backdrop)                       | Drawer          | Edge-anchored modal; swipe-to-dismiss + `[data-drawer-swipe]` swipe-to-open; `side`, `--drawer-offset`, `--drawer-keyboard-inset`.                                                                                       |
-| `ui-scroll-area` (+ viewport/scrollbar/thumb)         | Scroll Area     | Overlay scrollbars; overflow detection, proportional thumb, drag-to-scroll.                                                                                                                                              |
-| `ui-radio-group` (+ radio)                            | Radio Group     | Roving, selection-follows-focus, single form value.                                                                                                                                                                      |
-| `ui-toggle` / `ui-toggle-group`                       | Toggle (Group)  | `aria-pressed` buttons; group does single/multiple roving selection.                                                                                                                                                     |
-| `ui-checkbox` (+ group)                               | Checkbox        | Form-associated tri-state; group derives a "select all" master.                                                                                                                                                          |
-| `ui-select` (+ popup, option, group)                  | Select          | Trigger + listbox popup, `activedescendant` nav, typeahead, form value; labelled option groups + `data-selected` hook; `multiple` selection.                                                                             |
-| `ui-autocomplete` (+ popup/list/empty)                | Autocomplete    | Combobox core, `selectionMode: none` — form value is the input text.                                                                                                                                                     |
-| `ui-toolbar`                                          | Toolbar         | `role=toolbar`, one roving tab stop across mixed controls, orientation.                                                                                                                                                  |
-| `ui-progress`                                         | Progress        | `role=progressbar`; determinate/indeterminate; `--progress` fill.                                                                                                                                                        |
-| `ui-meter`                                            | Meter           | `role=meter`; low/high/optimum → `optimal`/`suboptimal`/`poor`.                                                                                                                                                          |
-| `ui-avatar`                                           | Avatar          | Image load/error → fallback state machine (`data-state`).                                                                                                                                                                |
-| `ui-tooltip` (+ content)                              | Tooltip         | Hover/focus intent + delay groups; `role=tooltip`, `aria-describedby`.                                                                                                                                                   |
-| `ui-preview-card` (+ content)                         | Preview Card    | Hover-card; interactive content stays open when the pointer moves in.                                                                                                                                                    |
-| `ui-number-field`                                     | Number Field    | `role=spinbutton`, steppers + keys, clamp/snap, form value; `[data-number-scrub]` drag-to-change (Pointer Lock).                                                                                                         |
-| `ui-slider` (+ track, thumb)                          | Slider          | `role=slider`, keyboard + pointer, orientation, `--slider` fraction, form value; multi-thumb **range** with `min-distance`.                                                                                              |
-| `ui-field`                                            | Field           | Label/description/error IDREF wiring + validity in light DOM.                                                                                                                                                            |
-| `ui-fieldset`                                         | Fieldset        | `role=group` labelled legend; disabled propagation.                                                                                                                                                                      |
-| `ui-form`                                             | Form            | Submit-time validation over its fields; focus first invalid, error summary.                                                                                                                                              |
-| `ui-otp-field`                                        | OTP Field       | Multi-cell code input; caret movement, paste distribution, masking, form value.                                                                                                                                          |
-| `ui-collapsible`                                      | Collapsible     | Single disclosure; `aria-expanded`, `data-state` for height animation.                                                                                                                                                   |
-| `ui-accordion` (+ item)                               | Accordion       | Single/multiple sections; APG header arrow-nav; region cross-refs.                                                                                                                                                       |
-| `ui-tabs` (+ tab-list)                                | Tabs            | `role=tablist` roving; auto/manual activation; panel cross-refs; orientation.                                                                                                                                            |
-| `ui-toast` (+ viewport)                               | Toast           | Top-layer live region + manager (`add`/`dismiss`/`clear`, `toast()`); **Sonner-style stack** (peek + hover-expand, `visible` limit, swipe-to-dismiss), auto-dismiss w/ hover-pause, action/close, `role=status`/`alert`. |
-| `ui-calendar` (+ popup)                               | — (beyond)      | Month `role=grid`; 2D roving nav, min/max/disabled days, form value; also the popover content for `ui-date-field`.                                                                                                       |
-| `ui-date-field`                                       | — (beyond)      | Native-first `<input type=date>` enhancer: trigger opens a `ui-calendar` popover, writes the ISO pick back to the input.                                                                                                 |
-| `ui-color-picker` (+ popup)                           | — (beyond)      | Saturation/brightness plane (`role=slider`) + hue range + hex input; form value (`#rrggbb`).                                                                                                                             |
-| `ui-color-field`                                      | — (beyond)      | Native-first `<input type=color>` enhancer: swatch trigger opens a `ui-color-picker` popover.                                                                                                                            |
-| `ui-drop-zone`                                        | — (beyond)      | Native-first `<input type=file>` drag/drop target; `accept` filtering, `data-dragging`, `change` with the accepted files.                                                                                                |
-| `ui-search-field`                                     | — (beyond)      | Native-first `<input type=search>`: clear affordance, Escape-to-clear, debounced `search` event.                                                                                                                         |
-| `ui-chip`                                             | — (beyond)      | Compact, optionally-removable token; `remove` event, Delete/Backspace, `[data-state]` exit.                                                                                                                              |
-| `ui-banner`                                           | — (beyond)      | Persistent inline `role=status`/`alert` (the non-transient sibling of `ui-toast`); dismissible with exit animation.                                                                                                      |
-| `ui-table`                                            | — (beyond)      | Enhances a native `<table>`: sortable headers, select-all/row selection, loading + pagination events, list-layout cell metadata, and row click delegation.                                                               |
-| `ui-arrow`                                            | Arrow           | Caret centered on the anchor by the positioner (`data-side`); place inside any anchored popup.                                                                                                                           |
+| Element                                               | Base UI          | Notes                                                                                                                                                                                                                                                                             |
+| ----------------------------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ui-menu` (+ popup, item, checkbox/radio item, group) | Menu / Submenu   | Roving focus, typeahead, top-layer popup; `submenu` → nested side-anchored menu; `menuitemcheckbox`/`menuitemradio` items and labelled `role=group`s.                                                                                                                             |
+| `ui-menubar`                                          | Menubar          | Roving across sibling menus; arrow/hover crosses + opens the adjacent menu.                                                                                                                                                                                                       |
+| `ui-context-menu`                                     | Context Menu     | Menu opened at the pointer (`openAt` virtual anchor); right-click / touch long-press.                                                                                                                                                                                             |
+| `ui-navigation-menu` (+ list/item/content)            | Navigation Menu  | Hover-intent panels, one open at a time; morph size vars; RTL roving triggers.                                                                                                                                                                                                    |
+| `ui-combobox` (+ popup/viewport/spacer/empty, chips)  | Combobox         | Store-backed **virtualized** listbox; fixed row pool over 10,000+ items; form-associated; `multiple` → chips + `[data-combobox-clear]`.                                                                                                                                           |
+| `ui-switch`                                           | Switch           | Form-associated `role=switch` toggle.                                                                                                                                                                                                                                             |
+| `ui-separator`                                        | Separator        | `role=separator` / decorative.                                                                                                                                                                                                                                                    |
+| `ui-popover` (+ popup)                                | Popover          | Anchored **non-modal** popup; title/description labelling + `[data-popover-close]`.                                                                                                                                                                                               |
+| `ui-dialog` (+ popup, backdrop)                       | Dialog / Alert   | **Modal**: focus trap + scroll lock + `aria-modal`; `static`, or `alert` → `alertdialog`.                                                                                                                                                                                         |
+| `ui-drawer` (+ popup, backdrop)                       | Drawer           | Edge-anchored modal; swipe-to-dismiss + `[data-drawer-swipe]` swipe-to-open; `side`, `--drawer-offset`, `--drawer-keyboard-inset`.                                                                                                                                                |
+| `ui-scroll-area` (+ viewport/scrollbar/thumb)         | Scroll Area      | Overlay scrollbars; overflow detection, proportional thumb, drag-to-scroll.                                                                                                                                                                                                       |
+| `ui-radio-group` (+ radio)                            | Radio Group      | Roving, selection-follows-focus, single form value.                                                                                                                                                                                                                               |
+| `ui-toggle` / `ui-toggle-group`                       | Toggle (Group)   | `aria-pressed` buttons; group does single/multiple roving selection.                                                                                                                                                                                                              |
+| `ui-checkbox` (+ group)                               | Checkbox         | Form-associated tri-state; group derives a "select all" master.                                                                                                                                                                                                                   |
+| `ui-select` (+ popup, option, group)                  | Select           | Trigger + listbox popup, `activedescendant` nav, typeahead, form value; labelled option groups + `data-selected` hook; `multiple` selection.                                                                                                                                      |
+| `ui-autocomplete` (+ popup/list/empty)                | Autocomplete     | Combobox core, `selectionMode: none` — form value is the input text.                                                                                                                                                                                                              |
+| `ui-toolbar`                                          | Toolbar          | `role=toolbar`, one roving tab stop across mixed controls, orientation.                                                                                                                                                                                                           |
+| `ui-progress`                                         | Progress         | `role=progressbar`; determinate/indeterminate; `--progress` fill.                                                                                                                                                                                                                 |
+| `ui-meter`                                            | Meter            | `role=meter`; low/high/optimum → `optimal`/`suboptimal`/`poor`.                                                                                                                                                                                                                   |
+| `ui-avatar`                                           | Avatar           | Image load/error → fallback state machine (`data-state`).                                                                                                                                                                                                                         |
+| `ui-tooltip` (+ content)                              | Tooltip          | Hover/focus intent + delay groups; `role=tooltip`, `aria-describedby`.                                                                                                                                                                                                            |
+| `ui-preview-card` (+ content)                         | Preview Card     | Hover-card; interactive content stays open when the pointer moves in.                                                                                                                                                                                                             |
+| `ui-number-field`                                     | Number Field     | `role=spinbutton`, steppers + keys, clamp/snap, form value; `[data-number-scrub]` drag-to-change (Pointer Lock).                                                                                                                                                                  |
+| `ui-slider` (+ track, thumb)                          | Slider           | `role=slider`, keyboard + pointer, orientation, `--slider` fraction, form value; multi-thumb **range** with `min-distance`.                                                                                                                                                       |
+| `ui-field`                                            | Field            | Label/description/error IDREF wiring + validity in light DOM.                                                                                                                                                                                                                     |
+| `ui-fieldset`                                         | Fieldset         | `role=group` labelled legend; disabled propagation.                                                                                                                                                                                                                               |
+| `ui-form`                                             | Form             | Submit-time validation over its fields; focus first invalid, error summary.                                                                                                                                                                                                       |
+| `ui-otp-field`                                        | OTP Field        | Multi-cell code input; caret movement, paste distribution, masking, form value.                                                                                                                                                                                                   |
+| `ui-collapsible`                                      | Collapsible      | Single disclosure; `aria-expanded`, `data-state` for height animation.                                                                                                                                                                                                            |
+| `ui-accordion` (+ item)                               | Accordion        | Single/multiple sections; APG header arrow-nav; region cross-refs.                                                                                                                                                                                                                |
+| `ui-tabs` (+ tab-list)                                | Tabs             | `role=tablist` roving; auto/manual activation; panel cross-refs; orientation.                                                                                                                                                                                                     |
+| `ui-toast` (+ viewport)                               | Toast            | Top-layer live region + manager (`add`/`dismiss`/`clear`, `toast()`); **Sonner-style stack** (peek + hover-expand, `visible` limit, swipe-to-dismiss), auto-dismiss w/ hover-pause, action/close, `role=status`/`alert`.                                                          |
+| `ui-calendar` (+ popup)                               | — (beyond)       | Month `role=grid`; 2D roving nav, min/max/disabled days, form value; also the popover content for `ui-date-field`.                                                                                                                                                                |
+| `ui-date-field`                                       | — (beyond)       | Native-first `<input type=date>` enhancer: trigger opens a `ui-calendar` popover, writes the ISO pick back to the input.                                                                                                                                                          |
+| `ui-color-picker` (+ popup)                           | — (beyond)       | Saturation/brightness plane (`role=slider`) + hue range + hex input; form value (`#rrggbb`).                                                                                                                                                                                      |
+| `ui-color-field`                                      | — (beyond)       | Native-first `<input type=color>` enhancer: swatch trigger opens a `ui-color-picker` popover.                                                                                                                                                                                     |
+| `ui-drop-zone`                                        | — (beyond)       | Native-first `<input type=file>` drag/drop target; `accept` filtering, `data-dragging`, `change` with the accepted files.                                                                                                                                                         |
+| `ui-search-field`                                     | — (beyond)       | Native-first `<input type=search>`: clear affordance, Escape-to-clear, debounced `search` event.                                                                                                                                                                                  |
+| `ui-chip`                                             | — (beyond)       | Compact, optionally-removable token; `remove` event, Delete/Backspace, `[data-state]` exit.                                                                                                                                                                                       |
+| `ui-banner`                                           | — (beyond)       | Persistent inline `role=status`/`alert` (the non-transient sibling of `ui-toast`); dismissible with exit animation.                                                                                                                                                               |
+| `ui-table`                                            | — (beyond)       | Enhances a native `<table>`: sortable headers, select-all/row selection, loading + pagination events, list-layout cell metadata, and row click delegation.                                                                                                                        |
+| `ui-arrow`                                            | Arrow            | Caret centered on the anchor by the positioner (`data-side`); place inside any anchored popup.                                                                                                                                                                                    |
+| `ui-chart` (+ axis, grid)                             | — (MUI X Charts) | SVG plot container: dataset from an authored `<table>` (accessible no-JS fallback) or `.data`; axes/grid declared as child elements; `ui-chart-axis` renders real HTML tick text (`--tick` fraction), no SVG text measurement. See [`### ui-chart contract`](#ui-chart-contract). |
+| `ui-chart-bar`                                        | — (MUI X Charts) | Bar series; grouped side-by-side or `stack`-grouped (mixed-sign split above/below zero).                                                                                                                                                                                          |
+| `ui-chart-line`                                       | — (MUI X Charts) | Line series; `curve` (linear/step ×3/monotone), optional `area` fill (stackable) and point `marks`, `connect-nulls` gap bridging.                                                                                                                                                 |
+| `ui-chart-pie`                                        | — (MUI X Charts) | Pie/donut; `inner-radius`/`pad-angle`/`sort`; slice `data-index` always tracks the original row regardless of paint order.                                                                                                                                                        |
+| `ui-chart-scatter`                                    | — (MUI X Charts) | x/y-pair series over two continuous axes; rows missing either coordinate are skipped.                                                                                                                                                                                             |
+| `ui-chart-reference-line`                             | — (MUI X Charts) | Fixed horizontal/vertical annotation line + label at a constant axis value; never contributes to the axis domain.                                                                                                                                                                 |
+| `ui-chart-legend`                                     | — (MUI X Charts) | One toggle button per series (visibility + `toggle` event); hover highlights the whole series.                                                                                                                                                                                    |
+| `ui-chart-tooltip`                                    | — (MUI X Charts) | Pointer-following popover; `trigger` `axis` (all series at the hovered index) or `item` (one series); generated table or an authored `<template>`.                                                                                                                                |
+| `ui-gauge`                                            | — (MUI X Charts) | Standalone SVG-arc meter (the `ui-meter` idiom, drawn as an arc); `--gauge` fraction, `role=meter`.                                                                                                                                                                               |
 
 ### `ui-table` contract
 
@@ -202,6 +213,56 @@ readable. The enhancer owns only behaviour and `data-*` hooks:
 - Row click delegation: `<tr click-delegate="action-id">`; the target action must
   already exist in the row for keyboard/screen-reader access.
 
+### `ui-chart` contract
+
+A chart family ported from [`@mui/x-charts`](https://github.com/mui/mui-x/tree/master/packages/x-charts)
+(v9.12.0, MIT). Charts render **SVG**, not a shipped visual style: marks carry only
+structural attributes (`x`/`y`/`width`/`height`/`d`/`cx`/`cy`/`r`, plus the `fill="none"` a stroked
+line needs — structure, not paint), so an unstyled chart renders as unstyled black shapes, and
+`src/styles/charts.css` here is only a demo skin. The library never chooses a color.
+
+- Dataset: an authored `<table>` inside `<ui-chart>` (columns keyed by header text; `<time
+datetime>` cells parse as dates, `data-value` overrides a cell's display text) — this is the
+  no-JS-accessible fallback and it **stays** the accessible representation after upgrade (the
+  generated `<svg>` is `aria-hidden`). A `.data` property setter accepts the same shape
+  programmatically and wins over the table.
+- Axes/grid/series are **child elements**, not props: `<ui-chart-axis position="bottom|top|left|right"
+key="…" scale="band|point|linear|log|sqrt|time">`, `<ui-chart-grid axis="x|y">` (grid lines are
+  opt-in — no `ui-chart-grid`, no lines), and one series element per series
+  (`ui-chart-bar`/`-line`/`-pie`/`-scatter`, in paint order = document order). `ui-chart-axis`
+  generates real HTML `<span data-part="tick" style="--tick: 0…1">` children (a fraction, the
+  `ui-progress`/`ui-slider` idiom) — axis text is never SVG, so there is no text-measurement/
+  auto-sizing machinery to port from MUI; layout around the plot is ordinary consumer CSS grid, not
+  component-computed margins.
+- Every series element shares one attribute surface (`key`, `label`, `highlight`, `fade`) from a
+  common base class, and registers with `ui-chart`, which keeps the registrations in document order
+  as its single source of truth (`chart.getSeries()`). A series' position in that list is its
+  palette slot — the `--series-index`/`data-series-index` on its marks, its legend swatch and its
+  tooltip row all agree, and stay put while other series are toggled. Stacking is opt-in per series
+  (`stack="…"`); `<ui-chart stack-offset="none|diverging">` chooses how a stack accumulates, with
+  `diverging` splitting mixed-sign values above and below the zero baseline.
+- Interaction: band-scale axes get invisible per-category hit rects
+  (`[data-part="band"]`, structurally `fill="transparent"` — required for pointer hit-testing, the
+  same exception as `fill="none"` on a stroke) for whole-column axis-trigger hover; on a continuous
+  axis, a series type that carries its own coordinates (scatter) resolves the nearest datum through
+  its own hit test, and otherwise the pointer's x is inverted through the scale. Hovering a mark
+  directly (it paints over its band) highlights that specific series+index. `ArrowLeft`/`ArrowRight`
+  walk the highlighted index once the chart is focused; `Escape` clears. `ui-chart-legend` toggles a series' visibility and highlights it on
+  hover; `ui-chart-tooltip` is a `popover="manual"` pointer-follower driven by the `highlight` event.
+- Events (bubble from `ui-chart`): `select` (`{series, seriesIndex, index, value}`, mark click) and
+  `highlight` (`{series, seriesIndex, index}`, any highlight change — pointer, keyboard, legend).
+  `ui-chart-legend` additionally emits its own `toggle` (`{series, hidden}`).
+- Scope: bar, line/area, pie/donut, scatter, reference line, legend, tooltip, and a standalone
+  `ui-gauge` — the MIT-licensed subset of MUI X Charts. Radar and a path-morphing animation engine
+  are deferred (a stretch milestone); zoom/pan, export, heatmap, funnel, sankey,
+  candlestick, geo/map, WebGL rendering, and every other Pro/Premium feature are out of scope
+  entirely — none of it is MIT-licensed.
+- Kernel: `chart-scale.ts` (linear/log/sqrt/time/band/point scales + ticks) and `chart-shape.ts`
+  (line/area curve generators, arc paths, pie angle allocation) are a **from-scratch
+  reimplementation** of the relevant d3-scale/d3-shape (ISC © Mike Bostock) subset — this package
+  ships zero runtime dependencies, so nothing is vendored; both are pinned against fixtures captured
+  from real d3 output (`chart-scale.dom.test.ts`, `chart-shape.dom.test.ts`).
+
 ```ts
 import "@chr33s/base-wc/elements"; // register every custom element
 ```
@@ -217,7 +278,7 @@ Storybook tooling is a `devDependency` and never ships with the components.
 
 ### Entry points & bundle size
 
-The package has three flavours of entry point (see `package.json` `exports`):
+The package has four flavours of entry point (see `package.json` `exports`):
 
 | Import                              | Effect                                                                                                                | Tree-shakes?                             |
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
@@ -237,18 +298,16 @@ import { UISwitch } from "@chr33s/base-wc/switch"; // ✅ per-file, registers ui
 import "@chr33s/base-wc/switch"; // ⚠️ dropped in a tree-shaking build — registers nothing
 ```
 
-`import { UISelect }` bundles ~11 kB and registers `ui-select`; combobox / menu /
-slider / toast and the rest are absent. Because every non-`elements.ts` file is
-side-effect-free (see `package.json` `sideEffects`), a **bare** `import` of a
-component file is treeshaken away — reach for its class instead, or import
-`elements.ts` for the whole set. (Sizes are minified and not gzipped, measured
-by bundling a single consumer import with Vite: about 11 kB for `UISelect`,
-1.4 kB for `UISwitch` alone, against 125.5 kB for the whole
-`elements.ts` set.)
-The shared-infra modules (`anchor`, `dismiss`, `roving`, `focus-trap`,
-`transitions`, …) are pure too, so unused helpers drop out. Rule of thumb:
-**`elements.ts` when you want everything; named class imports when bundle size
-matters.**
+That 11 kB is `UISelect` plus only the shared infra it uses; combobox / menu /
+slider / toast and the rest are absent. Every non-`elements.ts` file is
+side-effect-free (see `package.json` `sideEffects`), which is why the bare
+`import` above registers nothing, and the shared-infra modules (`anchor`,
+`dismiss`, `roving`, `focus-trap`, `transitions`, …) are pure too, so unused
+helpers drop out. (Sizes are minified and not gzipped, measured by bundling a
+single consumer import with Vite: about 11 kB for `UISelect`, 1.4 kB for `UISwitch`
+alone, against 163.6 kB for the whole `elements.ts` set, charts included.)
+Rule of thumb: **`elements.ts` when you want everything; named class imports
+when bundle size matters.**
 
 > **In non-tree-shaking contexts** (Vitest, `vp dev`) a bare
 > `import ".../index.ts"` still evaluates every re-export and registers
@@ -288,20 +347,14 @@ and mounts into `index.html`, a blank host page.
 
 ## Port status
 
-**Complete.** Every Base UI component is ported: Menu (+ Submenu, checkbox/radio
-items, groups), Menubar, Context Menu, Navigation Menu, Combobox (virtualized),
-Switch, Separator, Popover, Dialog (+ Alert), Drawer, Scroll Area, Radio Group,
-Toggle (+ Group), Checkbox (+ Group), Select (+ groups), Autocomplete, Toolbar,
-Number Field, Slider, OTP Field, Field, Fieldset, Form, Collapsible, Accordion,
-Tabs, Progress, Meter, Avatar, Tooltip, Preview Card, **Toast**, **Arrow** — on
-the shared Positioner (point + side anchoring, arrow alignment) / Dismissal /
-light-DOM lifecycle / combobox state / normalization / focus-trap / scroll-lock /
-roving / hover-intent / transitions / direction (RTL) infrastructure.
+**Complete.** Every Base UI component in the [Components](#components) table is
+ported, Menu through **Toast** and **Arrow**, on the shared infrastructure
+modules listed above; the two tables carry the full inventory.
 
-Overlays defer their hide via `runExit` so a CSS `[data-state]` exit animation
-plays out; composites flip their horizontal arrows under RTL. Logic is covered
-by happy-dom `*.dom.test.ts`; layout / gesture / animation / `ElementInternals`
-behaviours are verified end-to-end in `ui.e2e.test.ts` (Playwright/Chromium).
+Beyond Base UI, a **charts** family (bar, line/area, pie, scatter, reference
+line, legend, tooltip, gauge) is ported from MUI X Charts — see
+[`### ui-chart contract`](#ui-chart-contract) above and [`## Charts`](#charts)
+below.
 
 ### Base UI parity — known deltas
 
@@ -340,3 +393,22 @@ components are _intentionally_ **not** ported. This is a headless _behavioural_
 library — styling and composition are delegated to consumer CSS
 (`src/styles.css` here is only a demo theme). Their absence is a boundary, not a
 backlog.
+
+## Charts
+
+A third lineage, beyond Base UI and Shopify App Home: `ui-chart` (+ `-axis`,
+`-grid`, `-bar`, `-line`, `-pie`, `-scatter`, `-reference-line`, `-legend`,
+`-tooltip`) and a standalone `ui-gauge`, ported from
+[`@mui/x-charts`](https://github.com/mui/mui-x/tree/master/packages/x-charts)
+(v9.12.0, MIT). Charts render SVG — the one place this package is not purely
+headless — but they sit on the same side of its contract as `ui-table`: the
+library owns **behaviour and geometry** (scales, stacking, pointer→datum
+inversion, ARIA, `data-*` state), the consumer owns **all paint**. The
+markup/event contract, scope, and deferred/out-of-scope lists live in
+[`### ui-chart contract`](#ui-chart-contract) above.
+
+**Known simplifications**, each noted in its module's own doc comment: d3-arc
+derives `padAngle` from radius and arc length, where `arcPath` uses a simple
+angular inset (visually equivalent); `cornerRadius` (rounded slice corners) is
+not implemented; `ui-chart-tooltip`'s pointer-follow positioning does not yet
+clamp to the viewport edge.
