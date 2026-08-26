@@ -52,6 +52,16 @@ describe("ui-checkbox (enhances a native checkbox)", () => {
     expect(el.getAttribute("data-state")).toBe("indeterminate");
   });
 
+  it("the disabled setter drives the native control and the data-disabled hook", async () => {
+    const { el, input } = await mount();
+    el.disabled = true;
+    expect(input.disabled).toBe(true);
+    expect(el.hasAttribute("data-disabled")).toBe(true);
+    el.disabled = false;
+    expect(input.disabled).toBe(false);
+    expect(el.hasAttribute("data-disabled")).toBe(false);
+  });
+
   it("no-ops without an authored native control", async () => {
     document.body.innerHTML = `<ui-checkbox></ui-checkbox>`;
     await Promise.resolve();

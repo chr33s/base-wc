@@ -105,6 +105,44 @@ describe("ui-menu", () => {
     expect(onSelect.mock.calls[0][0].value).toBe("delete");
   });
 
+  it("Space extends a pending typeahead search instead of activating", async () => {
+    document.body.innerHTML = `
+      <ui-menu>
+        <button data-menu-trigger>File</button>
+        <ui-menu-popup>
+          <ui-menu-item value="new-file">New File</ui-menu-item>
+          <ui-menu-item value="new-window">New Window</ui-menu-item>
+        </ui-menu-popup>
+      </ui-menu>`;
+    await Promise.resolve();
+    const menu = document.querySelector("ui-menu")!;
+    const trigger = document.querySelector<HTMLButtonElement>("[data-menu-trigger]")!;
+    const popup = document.querySelector("ui-menu-popup")!;
+    const items = [...document.querySelectorAll("ui-menu-item")];
+    const onSelect = vi.fn<(e: Event) => void>();
+    menu.addEventListener("menu-select", onSelect);
+    trigger.click(); // active = New File
+    for (const ch of ["n", "e", "w", " ", "w"]) key(popup, ch);
+    expect(onSelect).not.toHaveBeenCalled(); // Space searched, didn't activate
+    expect(items[1].hasAttribute("data-highlighted")).toBe(true); // "New Window"
+    expect(popup.hasAttribute("data-open")).toBe(true);
+  });
+
+  it("opens via openAt() in the same task as connection (sync-wire guard)", async () => {
+    document.body.innerHTML = `
+      <ui-menu>
+        <ui-menu-popup>
+          <ui-menu-item value="cut">Cut</ui-menu-item>
+          <ui-menu-item value="copy">Copy</ui-menu-item>
+        </ui-menu-popup>
+      </ui-menu>`;
+    const menu = document.querySelector("ui-menu")!;
+    menu.openAt(40, 20); // no microtask wait — must wire synchronously
+    expect(menu.open).toBe(true);
+    expect(document.querySelector("ui-menu-popup")!.hasAttribute("data-open")).toBe(true);
+    expect(document.activeElement).toBe(document.querySelector("ui-menu-item"));
+  });
+
   it("Escape closes without selecting", async () => {
     const { menu, trigger, popup } = await mount();
     const onSelect = vi.fn<(e: Event) => void>();

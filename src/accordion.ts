@@ -10,15 +10,19 @@
  * `[data-accordion-content]`.
  */
 import { connectLightDom } from "./lifecycle.ts";
+import { define } from "./define.ts";
 import { nextId } from "./id.ts";
+import { scopedQuery } from "./query.ts";
+import { resolveNavKey } from "./roving.ts";
+import { syncDisclosure } from "./collapsible.ts";
 
 export class UIAccordion extends HTMLElement {
   #wired = false;
 
-  get multiple(): boolean {
+  get multiple() {
     return this.hasAttribute("multiple");
   }
-  get value(): string | string[] | null {
+  get value() {
     const open = this.#items()
       .filter((item) => item.open)
       .map((item) => item.value);
@@ -34,10 +38,16 @@ export class UIAccordion extends HTMLElement {
   }
 
   #wire() {
+    // Only wire once at least one complete trigger+content pair exists, so a
+    // wiring pass that beats the parser sees connectLightDom retry on the next
+    // light-DOM mutation instead of silently claiming an empty host.
+    const pairs = this.#items()
+      .map((item) => ({ item, ...this.#parts(item) }))
+      .filter((pair) => pair.trigger && pair.content);
+    if (pairs.length === 0) return;
     this.#wired = true;
-    for (const item of this.#items()) {
-      const trigger = item.querySelector<HTMLElement>("[data-accordion-trigger]");
-      const content = item.querySelector<HTMLElement>("[data-accordion-content]");
+
+    for (const { item, trigger, content } of pairs) {
       if (!trigger || !content) continue;
       if (!trigger.id) trigger.id = nextId("ui-accordion-trigger");
       if (!content.id) content.id = nextId("ui-accordion-content");
@@ -58,25 +68,26 @@ export class UIAccordion extends HTMLElement {
     for (const item of this.#items()) this.#syncItem(item);
   }
 
-  #items(): UIAccordionItem[] {
-    return [...this.querySelectorAll<UIAccordionItem>("ui-accordion-item")];
+  // Child queries are scoped so an accordion nested inside an item's content
+  // keeps ownership of its own items, triggers, and contents.
+  #items() {
+    return scopedQuery<UIAccordionItem>(this, "ui-accordion-item");
   }
-  #triggers(): HTMLElement[] {
+  #parts(item: UIAccordionItem) {
+    return {
+      trigger: scopedQuery(item, "[data-accordion-trigger]")[0] ?? null,
+      content: scopedQuery(item, "[data-accordion-content]")[0] ?? null,
+    };
+  }
+  #triggers() {
     return this.#items()
-      .map((item) => item.querySelector<HTMLElement>("[data-accordion-trigger]"))
+      .map((item) => this.#parts(item).trigger)
       .filter((el): el is HTMLElement => el != null);
   }
 
   #syncItem(item: UIAccordionItem) {
-    const trigger = item.querySelector<HTMLElement>("[data-accordion-trigger]");
-    const content = item.querySelector<HTMLElement>("[data-accordion-content]");
-    const state = item.open ? "open" : "closed";
-    trigger?.setAttribute("aria-expanded", String(item.open));
-    item.setAttribute("data-state", state);
-    if (content) {
-      content.toggleAttribute("hidden", !item.open);
-      content.setAttribute("data-state", state);
-    }
+    const { trigger, content } = this.#parts(item);
+    syncDisclosure(trigger, content, item, item.open);
   }
 
   #toggle(item: UIAccordionItem) {
@@ -96,14 +107,13 @@ export class UIAccordion extends HTMLElement {
 
   #onKeydown = (e: KeyboardEvent) => {
     const triggers = this.#triggers();
-    const i = triggers.indexOf(document.activeElement as HTMLElement);
-    if (i < 0) return;
-    let target = -1;
-    if (e.key === "ArrowDown") target = (i + 1) % triggers.length;
-    else if (e.key === "ArrowUp") target = (i - 1 + triggers.length) % triggers.length;
-    else if (e.key === "Home") target = 0;
-    else if (e.key === "End") target = triggers.length - 1;
-    if (target >= 0) {
+    const current = triggers.indexOf(document.activeElement as HTMLElement);
+    if (current < 0) return;
+    const target = resolveNavKey(e.key, triggers.length, current, {
+      orientation: "vertical",
+      loop: true,
+    });
+    if (target !== null) {
       e.preventDefault();
       triggers[target].focus();
     }
@@ -111,18 +121,22 @@ export class UIAccordion extends HTMLElement {
 }
 
 export class UIAccordionItem extends HTMLElement {
-  get open(): boolean {
+  get open() {
     return this.hasAttribute("open");
   }
-  get value(): string {
-    const siblings = [...(this.parentElement?.querySelectorAll("ui-accordion-item") ?? [])];
-    return this.getAttribute("value") ?? String(siblings.indexOf(this));
+  get value() {
+    const explicit = this.getAttribute("value");
+    if (explicit != null) return explicit;
+    // Fall back to the index within the owning accordion's own items (nested
+    // accordions' items and wrapper elements must not shift the numbering).
+    const owner = this.closest("ui-accordion");
+    const items = owner ? scopedQuery(owner, "ui-accordion-item") : [this];
+    return String(items.indexOf(this));
   }
 }
 
-if (!customElements.get("ui-accordion")) customElements.define("ui-accordion", UIAccordion);
-if (!customElements.get("ui-accordion-item"))
-  customElements.define("ui-accordion-item", UIAccordionItem);
+define("ui-accordion", UIAccordion);
+define("ui-accordion-item", UIAccordionItem);
 
 declare global {
   interface HTMLElementTagNameMap {

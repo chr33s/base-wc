@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import "./chart.ts";
 import "./chart-line.ts";
+import { getSeriesType, registerSeriesType } from "./chart-core.ts";
 import type { UIChart } from "./chart.ts";
 import { bandScale, linearScale } from "./chart-scale.ts";
 import { type Point, areaPath, linePath, round } from "./chart-shape.ts";
@@ -10,14 +11,18 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-// `ui-chart` wires via `connectLightDom`, which defers to a microtask so a
-// component can wait for late-authored light-DOM parts. Awaiting one
-// microtask flushes it (and every child element's own `connectLightDom`
-// microtask, queued in the same tick) — every registration/render after that
-// is synchronous, so no further waiting is needed.
-async function mountChart(inner: string, size = true): Promise<UIChart> {
+// `ui-chart` wires via `connectLightDom` (a microtask) and batches its full
+// renders onto a microtask of their own — mounting K children paints once,
+// and any later mutation defers its re-render the same way. A zero-delay
+// macrotask drains all of it (wiring, registrations, observer deliveries and
+// the coalesced render), so tests assert on settled DOM.
+function flush() {
+  return new Promise((resolve) => setTimeout(resolve));
+}
+
+async function mountChart(inner: string, size = true) {
   document.body.innerHTML = `<ui-chart${size ? ' width="400" height="200"' : ""}>${inner}</ui-chart>`;
-  await Promise.resolve();
+  await flush();
   return document.querySelector("ui-chart")!;
 }
 
@@ -61,7 +66,7 @@ function expectedScales() {
   return { xScale, yScale };
 }
 
-function strokeOf(chart: UIChart, key = "Revenue"): SVGPathElement {
+function strokeOf(chart: UIChart, key = "Revenue") {
   return chart.querySelector<SVGPathElement>(
     `[data-part="series"][data-series="${key}"] [data-part="stroke"]`,
   )!;
@@ -375,6 +380,85 @@ describe("ui-chart-line: regression — a sharp spike to the data max must not t
       const cy = Number(mark.getAttribute("cy"));
       expect(cy).toBeGreaterThan(0);
       expect(cy).toBeLessThan(200);
+    }
+  });
+});
+
+describe("ui-chart-line: unstacked area zero baseline", () => {
+  const AUTO_AXES = `
+    <ui-chart-axis position="bottom" key="Month" scale="band"></ui-chart-axis>
+    <ui-chart-axis position="left"></ui-chart-axis>
+  `;
+  const HIGH_TABLE = `
+    <table>
+      <thead><tr><th>Month</th><th>Revenue</th></tr></thead>
+      <tbody>
+        <tr><td>Jan</td><td>101</td></tr>
+        <tr><td>Feb</td><td>134</td></tr>
+        <tr><td>Mar</td><td>120</td></tr>
+      </tbody>
+    </table>
+  `;
+
+  it("regression: an unstacked area keeps y=0 in the auto-derived domain, so the fill stays inside the plot", async () => {
+    // `computeMarks` fills an unstacked area down to `yScale(0)` — the same
+    // zero-baseline geometry as a bar — but `getExtremum` used to report only
+    // the raw data extent, so with data like [101, 134] the domain excluded 0
+    // and the fill extrapolated hundreds of pixels below the plot box.
+    const chart = await mountChart(
+      `${HIGH_TABLE}${AUTO_AXES}<ui-chart-line key="Revenue" area></ui-chart-line>`,
+    );
+    const area = chart.querySelector('[data-part="area"]')!;
+    const ys = [...area.getAttribute("d")!.matchAll(/,(-?[\d.]+)/g)].map((m) => Number(m[1]));
+    expect(ys.length).toBeGreaterThan(0);
+    for (const y of ys) {
+      expect(y).toBeGreaterThanOrEqual(0);
+      expect(y).toBeLessThanOrEqual(200.001); // mountChart's default height
+    }
+    // The baseline genuinely sits at y(0) — the plot's bottom edge, since the
+    // merged [0, 134] domain nice-rounds to [0, 140].
+    expect(Math.max(...ys)).toBeCloseTo(200, 3);
+  });
+
+  it("a bare line with the same data is not forced to a zero baseline", async () => {
+    const chart = await mountChart(
+      `${HIGH_TABLE}${AUTO_AXES}<ui-chart-line key="Revenue"></ui-chart-line>`,
+    );
+    // The raw [101, 134] extent nice-rounds to [100, 140] — no tick at 0.
+    const axis = chart.querySelectorAll("ui-chart-axis")[1]!;
+    const ticks = [...axis.querySelectorAll<HTMLElement>('[data-part="tick"]')].map(
+      (t) => t.textContent,
+    );
+    expect(ticks.length).toBeGreaterThan(0);
+    expect(ticks).not.toContain("0");
+  });
+});
+
+describe("ui-chart: batched rendering", () => {
+  it("mounts with a single coalesced render, not one per registered child", async () => {
+    // Wrap the registered "line" renderer with a counter: `computeMarks` runs
+    // exactly once per visible series per full render, so K renders for a
+    // 2-line chart would show up as 2K calls here. Mounting used to render
+    // once per registration (~7 full renders before first paint).
+    const lineType = getSeriesType("line")!;
+    let calls = 0;
+    registerSeriesType({
+      ...lineType,
+      computeMarks: (context) => {
+        calls += 1;
+        return lineType.computeMarks(context);
+      },
+    });
+    try {
+      await mountChart(`
+        ${TABLE}${AXES}
+        <ui-chart-grid axis="y"></ui-chart-grid>
+        <ui-chart-line key="Revenue"></ui-chart-line>
+        <ui-chart-line key="Revenue" area></ui-chart-line>
+      `);
+      expect(calls).toBe(2);
+    } finally {
+      registerSeriesType(lineType);
     }
   });
 });

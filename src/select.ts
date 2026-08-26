@@ -2,8 +2,10 @@
  * `ui-select` — a trigger + listbox popup single-select (Base UI's Select). When
  * open, focus sits on the `role="listbox"` popup and a virtual "active" option
  * moves with the arrow keys / typeahead (`aria-activedescendant`), with `Enter`
- * committing it. The popup reuses the shared stack ({@link anchor} positioning,
- * the Popover-API top layer, {@link onOutsidePress} light-dismiss). The
+ * committing it. The popup reuses the shared {@link overlay} (trigger ARIA, CSS
+ * anchor pairing, {@link anchor} positioning, the Popover-API top layer,
+ * {@link onOutsidePress} light-dismiss) and the shared {@link listNav} keyboard
+ * + typeahead engine (clamp policy — a select does not wrap past its ends). The
  * `multiple` attribute makes it a multi-select listbox (`aria-multiselectable`):
  * options toggle without closing and `value` is a `string[]`.
  *
@@ -26,12 +28,13 @@
  * nothing with scripting off. The selected option carries `data-selected` for an
  * item-indicator (check-mark) style hook.
  */
+import { define } from "./define.ts";
+import { type FormControl, formControl } from "./form-control.ts";
 import { connectLightDom } from "./lifecycle.ts";
-import { SUPPORTS_ANCHOR } from "./anchor.ts";
-import { nextId } from "./id.ts";
+import { labelFrom, nextId } from "./id.ts";
+import { listNav, type ListNav } from "./list-nav.ts";
 import { adoptedControl, retireNative } from "./native.ts";
 import { type Overlay, overlay } from "./overlay.ts";
-import { normalize } from "./text.ts";
 
 /** Detail of the `change` event dispatched when the selection changes. */
 export interface SelectChangeDetail {
@@ -45,7 +48,15 @@ export interface SelectChangeDetail {
 export class UISelect extends HTMLElement {
   static formAssociated = true;
 
-  #internals: ElementInternals | null = this.attachInternals?.() ?? null;
+  #formControl: FormControl = formControl(this, {
+    adopted: () => this.#native != null,
+    value: () => this.#selectedInOrder()[0] ?? null, // any selection satisfies `required`
+    onReset: () => this.#onFormReset(),
+    onFormDisabled: (disabled) => {
+      this.#formDisabled = disabled;
+      this.toggleAttribute("data-disabled", disabled);
+    },
+  });
   #uid = nextId("select");
   #trigger: HTMLElement | null = null;
   #valueEl: HTMLElement | null = null;
@@ -53,29 +64,61 @@ export class UISelect extends HTMLElement {
   /** An adopted native `<select>` (progressive-enhancement mode), else `null`. */
   #native: HTMLSelectElement | null = null;
   #wired = false;
-  #isOpen = false;
+  #formDisabled = false;
   #activeIndex = -1;
   #selected = new Set<string>();
   #placeholder = "";
   #overlay: Overlay | null = null;
-  #typeahead = "";
-  #typeaheadTimer = 0;
+  #nav: ListNav = listNav({
+    count: () => this.#options().length,
+    activeIndex: () => this.#activeIndex,
+    onActive: (i) => this.#setActive(i),
+    loop: false, // POLICY: a select clamps at its ends (no wrap)
+    onCommit: (i) => this.#activate(i),
+    onCancel: () => this.#close(),
+    onTab: () => this.#close({ restoreFocus: false }),
+    label: (i) => {
+      const option = this.#options()[i];
+      return option ? this.#labelOf(option) : "";
+    },
+  });
 
-  get form(): HTMLFormElement | null {
-    return this.#internals?.form ?? null;
+  get form() {
+    return this.#formControl.form;
   }
-  get name(): string | null {
+  get name() {
     return this.getAttribute("name");
   }
+  get validity() {
+    return this.#formControl.validity;
+  }
+  get validationMessage() {
+    return this.#formControl.validationMessage;
+  }
+  checkValidity() {
+    return this.#formControl.checkValidity();
+  }
+  reportValidity() {
+    return this.#formControl.reportValidity();
+  }
+  formResetCallback() {
+    this.#formControl.handleReset();
+  }
+  formDisabledCallback(disabled: boolean) {
+    this.#formControl.handleDisabled(disabled);
+  }
   /** Multi-select mode — options toggle without closing; `value` is an array. */
-  get multiple(): boolean {
+  get multiple() {
     return this.hasAttribute("multiple");
   }
-  get value(): string | string[] | null {
+  get value() {
     const vals = this.#selectedInOrder();
     return this.multiple ? vals : (vals[0] ?? null);
   }
   set value(next: string | string[] | null) {
+    // Wire synchronously if the value is set in the same task as connection so
+    // the trigger label reflects it (the imperative entry-point guard).
+    if (!this.#wired) this.#wire();
     const arr = next == null ? [] : Array.isArray(next) ? next : [next];
     this.#applySelection(new Set(this.multiple ? arr : arr.slice(0, 1)));
   }
@@ -96,19 +139,10 @@ export class UISelect extends HTMLElement {
     if (!this.#trigger || !this.#popup) return;
     this.#wired = true;
 
-    // A bare <button> defaults to type=submit; force type=button so opening the
-    // listbox never submits an enclosing form.
-    if (this.#trigger instanceof HTMLButtonElement && !this.#trigger.hasAttribute("type")) {
-      this.#trigger.type = "button";
-    }
-    if (!this.#popup.id) this.#popup.id = nextId("ui-select-popup");
     this.#popup.setAttribute("role", "listbox");
     if (this.multiple) this.#popup.setAttribute("aria-multiselectable", "true");
     this.#popup.tabIndex = -1;
     this.#placeholder = this.#valueEl?.textContent?.trim() ?? "";
-    this.#trigger.setAttribute("aria-haspopup", "listbox");
-    this.#trigger.setAttribute("aria-expanded", "false");
-    this.#trigger.setAttribute("aria-controls", this.#popup.id);
     this.#trigger.addEventListener("click", this.#onTriggerClick);
     this.#trigger.addEventListener("keydown", this.#onTriggerKeydown);
     this.#popup.addEventListener("keydown", this.#onPopupKeydown);
@@ -122,25 +156,22 @@ export class UISelect extends HTMLElement {
 
     // Label each option group from its <ui-select-group-label>.
     for (const group of this.querySelectorAll("ui-select-group")) {
-      const label = group.querySelector("ui-select-group-label");
-      if (label) {
-        if (!label.id) label.id = nextId("ui-select-group-label");
-        group.setAttribute("aria-labelledby", label.id);
-      }
-    }
-
-    if (SUPPORTS_ANCHOR) {
-      const name = `--select-${nextId("anchor")}`;
-      this.#trigger.style.setProperty("anchor-name", name);
-      this.#popup.style.setProperty("position-anchor", name);
+      labelFrom(
+        group,
+        "aria-labelledby",
+        group.querySelector("ui-select-group-label"),
+        "ui-select-group-label",
+      );
     }
 
     this.#overlay = overlay(this.#popup, {
-      anchor: { ref: () => this.#trigger, options: { offset: 6, padding: 8 } },
+      anchor: { ref: () => this.#trigger, options: { offset: 6, padding: 8 }, pair: "select" },
       dismiss: {
         within: () => [this.#popup, this.#trigger],
         onDismiss: () => this.#close({ restoreFocus: false }),
       },
+      trigger: { element: this.#trigger, haspopup: "listbox", controls: "ui-select-popup" },
+      events: this,
     });
 
     const preselected = this.#allOptions()
@@ -229,45 +260,40 @@ export class UISelect extends HTMLElement {
     for (const opt of this.#native.options) opt.selected = this.#selected.has(opt.value);
   }
 
-  #allOptions(): HTMLElement[] {
+  #allOptions() {
     return [...this.querySelectorAll<HTMLElement>("ui-select-option")];
   }
-  #options(): HTMLElement[] {
+  #options() {
     return this.#allOptions().filter((o) => !o.hasAttribute("disabled"));
   }
 
-  #labelOf(option: HTMLElement): string {
+  #labelOf(option: HTMLElement) {
     return option.textContent?.trim() ?? "";
   }
-  #valueOf(option: HTMLElement): string {
+  #valueOf(option: HTMLElement) {
     return option.getAttribute("value") ?? this.#labelOf(option);
   }
   /** Selected values in DOM order. */
-  #selectedInOrder(): string[] {
+  #selectedInOrder() {
     return this.#allOptions()
       .map((o) => this.#valueOf(o))
       .filter((v) => this.#selected.has(v));
   }
 
   #open() {
-    if (this.#isOpen || !this.#popup || !this.#trigger) return;
-    this.#isOpen = true;
-    this.#trigger.setAttribute("aria-expanded", "true");
-    this.#overlay?.show();
-    this.#popup.focus();
+    if (!this.#overlay?.show()) return;
+    this.#popup?.focus();
     const options = this.#options();
     const current = options.findIndex((o) => this.#selected.has(this.#valueOf(o)));
     this.#setActive(current >= 0 ? current : 0);
   }
 
   #close({ restoreFocus = true }: { restoreFocus?: boolean } = {}) {
-    if (!this.#isOpen || !this.#popup) return;
-    this.#isOpen = false;
+    if (!this.#overlay?.open) return;
     this.#activeIndex = -1;
-    this.#trigger?.setAttribute("aria-expanded", "false");
-    this.#popup.removeAttribute("aria-activedescendant");
+    this.#popup?.removeAttribute("aria-activedescendant");
     this.#allOptions().forEach((o) => o.removeAttribute("data-highlighted"));
-    this.#overlay?.hide();
+    this.#overlay.hide();
     if (restoreFocus) this.#trigger?.focus();
   }
 
@@ -304,17 +330,36 @@ export class UISelect extends HTMLElement {
   }
 
   #syncFormValue() {
-    // In native-adoption mode the retired `<select>` is the form value.
-    if (this.#native || !this.#internals) return;
+    // In native-adoption mode the retired `<select>` is the form value — the
+    // controller's `adopted` guard keeps `setValue` inert there.
     const values = this.#selectedInOrder();
     const name = this.name;
     if (this.multiple && name) {
       const data = new FormData();
       for (const v of values) data.append(name, v);
-      this.#internals.setFormValue(data);
+      this.#formControl.setValue(data);
     } else {
-      this.#internals.setFormValue(values[0] ?? null);
+      this.#formControl.setValue(values[0] ?? null);
     }
+  }
+
+  /** `form.reset()`: restore the markup's `selected` options (native mode: the
+   * browser restores the retired `<select>`'s defaults; re-seed from it). */
+  #onFormReset() {
+    if (!this.#wired) return;
+    if (this.#native) {
+      queueMicrotask(() => {
+        const native = this.#native;
+        if (!native) return;
+        const values = [...native.selectedOptions].map((o) => o.value);
+        this.#applySelection(new Set(this.multiple ? values : values.slice(0, 1)));
+      });
+      return;
+    }
+    const preselected = this.#allOptions()
+      .filter((o) => o.hasAttribute("selected"))
+      .map((o) => this.#valueOf(o));
+    this.#applySelection(new Set(this.multiple ? preselected : preselected.slice(0, 1)));
   }
 
   /** Choose the option at `index` (into the enabled list). In `multiple` mode
@@ -345,11 +390,13 @@ export class UISelect extends HTMLElement {
   }
 
   #onTriggerClick = () => {
-    if (this.#isOpen) this.#close();
+    if (this.#formDisabled) return;
+    if (this.#overlay?.open) this.#close();
     else this.#open();
   };
 
   #onTriggerKeydown = (e: KeyboardEvent) => {
+    if (this.#formDisabled) return;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       this.#open();
@@ -357,44 +404,7 @@ export class UISelect extends HTMLElement {
   };
 
   #onPopupKeydown = (e: KeyboardEvent) => {
-    switch (e.key) {
-      case "ArrowDown":
-        e.preventDefault();
-        this.#setActive(this.#activeIndex + 1);
-        break;
-      case "ArrowUp":
-        e.preventDefault();
-        this.#setActive(this.#activeIndex - 1);
-        break;
-      case "Home":
-        e.preventDefault();
-        this.#setActive(0);
-        break;
-      case "End":
-        e.preventDefault();
-        this.#setActive(this.#options().length - 1);
-        break;
-      case "Enter":
-        e.preventDefault();
-        if (this.#activeIndex >= 0) this.#activate(this.#activeIndex);
-        break;
-      case " ":
-        e.preventDefault();
-        // Space extends a pending typeahead search (so multi-word labels are
-        // reachable); it only commits when no search is in progress.
-        if (this.#typeahead) this.#typeaheadTo(" ");
-        else if (this.#activeIndex >= 0) this.#activate(this.#activeIndex);
-        break;
-      case "Escape":
-        e.preventDefault();
-        this.#close();
-        break;
-      case "Tab":
-        this.#close({ restoreFocus: false });
-        break;
-      default:
-        if (e.key.length === 1) this.#typeaheadTo(e.key);
-    }
+    this.#nav.handle(e);
   };
 
   #onOptionClick = (e: MouseEvent) => {
@@ -403,20 +413,6 @@ export class UISelect extends HTMLElement {
     const index = this.#options().indexOf(option);
     if (index >= 0) this.#activate(index);
   };
-
-  #typeaheadTo(char: string) {
-    clearTimeout(this.#typeaheadTimer);
-    this.#typeahead += char;
-    this.#typeaheadTimer = window.setTimeout(() => (this.#typeahead = ""), 500);
-    // Diacritic-/case-insensitive match, consistent with combobox/autocomplete.
-    const q = normalize(this.#typeahead);
-    if (!q) return;
-    const options = this.#options();
-    const start = this.#activeIndex + 1;
-    const ordered = [...options.slice(start), ...options.slice(0, start)];
-    const match = ordered.find((o) => normalize(this.#labelOf(o)).startsWith(q));
-    if (match) this.#setActive(options.indexOf(match));
-  }
 }
 
 export class UISelectPopup extends HTMLElement {
@@ -444,13 +440,11 @@ export class UISelectGroupLabel extends HTMLElement {
   }
 }
 
-if (!customElements.get("ui-select")) customElements.define("ui-select", UISelect);
-if (!customElements.get("ui-select-popup")) customElements.define("ui-select-popup", UISelectPopup);
-if (!customElements.get("ui-select-option"))
-  customElements.define("ui-select-option", UISelectOption);
-if (!customElements.get("ui-select-group")) customElements.define("ui-select-group", UISelectGroup);
-if (!customElements.get("ui-select-group-label"))
-  customElements.define("ui-select-group-label", UISelectGroupLabel);
+define("ui-select", UISelect);
+define("ui-select-popup", UISelectPopup);
+define("ui-select-option", UISelectOption);
+define("ui-select-group", UISelectGroup);
+define("ui-select-group-label", UISelectGroupLabel);
 
 declare global {
   interface HTMLElementTagNameMap {

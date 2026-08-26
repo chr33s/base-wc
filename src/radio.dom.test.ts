@@ -77,6 +77,31 @@ describe("ui-radio-group", () => {
     expect(radios[3].getAttribute("aria-checked")).toBe("true");
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it("formResetCallback restores the preset (checked-attribute) selection", async () => {
+    const { group, radios } = await mount();
+    radios[3].click(); // Enterprise
+    expect(group.value).toBe("ent");
+    group.formResetCallback();
+    expect(group.value).toBe("pro"); // back to the authored `checked` radio
+    expect(radios[1].getAttribute("aria-checked")).toBe("true");
+    expect(radios[3].getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("reports valueMissing while required with no selection", async () => {
+    document.body.innerHTML = `
+      <ui-radio-group name="plan" required>
+        <ui-radio value="free">Free</ui-radio>
+        <ui-radio value="pro">Pro</ui-radio>
+      </ui-radio-group>`;
+    await Promise.resolve();
+    const group = document.querySelector("ui-radio-group")!;
+    expect(group.validity.valueMissing).toBe(true);
+    expect(group.checkValidity()).toBe(false);
+    group.querySelectorAll("ui-radio")[1].click();
+    expect(group.validity.valid).toBe(true);
+    expect(group.checkValidity()).toBe(true);
+  });
 });
 
 describe("ui-radio-group — adopts native radios (no-JS fallback)", () => {
@@ -125,5 +150,19 @@ describe("ui-radio-group — adopts native radios (no-JS fallback)", () => {
     expect(inputOf(radios[0]).checked).toBe(true);
     expect(radios[0].getAttribute("data-state")).toBe("checked");
     expect(group.value).toBe("free");
+  });
+
+  it("formResetCallback re-syncs data-state after the browser restores the radios", async () => {
+    const { group, radios, inputOf } = await mountNative();
+    inputOf(radios[2]).click(); // select ent
+    expect(radios[2].getAttribute("data-state")).toBe("checked");
+    // Emulate `form.reset()`: the browser restores each input's defaultChecked,
+    // then invokes the host's formResetCallback.
+    inputOf(radios[2]).checked = false;
+    inputOf(radios[1]).checked = true;
+    (group as unknown as { formResetCallback(): void }).formResetCallback();
+    await Promise.resolve(); // the re-sync waits for the reset pass to finish
+    expect(radios[1].getAttribute("data-state")).toBe("checked");
+    expect(radios[2].getAttribute("data-state")).toBe("unchecked");
   });
 });

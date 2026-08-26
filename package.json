@@ -1,6 +1,6 @@
 {
   "name": "@chr33s/base-wc",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Base UI ported to dependency-free, light-DOM web components.",
   "files": [
     "dist",
@@ -11,8 +11,10 @@
   "type": "module",
   "sideEffects": [
     "./dist/elements.js",
+    "./src/elements.ts",
     "./dist/*.css",
-    "./dist/styles/*.css"
+    "./src/*.css",
+    "./src/styles/*.css"
   ],
   "exports": {
     ".": {
@@ -26,6 +28,7 @@
     "./styles.css": "./dist/styles.css",
     "./src": "./src/index.ts",
     "./src/elements": "./src/elements.ts",
+    "./src/*.css": "./src/*.css",
     "./src/*": "./src/*.ts",
     "./*": {
       "types": "./dist/*.d.ts",
@@ -40,7 +43,7 @@
     "fix": "vp check --fix",
     "test": "vp test",
     "test:e2e": "playwright test",
-    "test:package": "npm run build && node scripts/check-package.mjs"
+    "test:package": "npm run build && node scripts/check-package.ts"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",
@@ -57,8 +60,8 @@
     "vite": "npm:@voidzero-dev/vite-plus-core@0.2.9"
   },
   "allowScripts": {
-    "esbuild@0.28.1": true,
-    "fsevents@2.3.3": true
+    "esbuild": true,
+    "fsevents": true
   },
   "ref": {
     "github.com/mui/base-ui": "849a0561321fd4e409512b5a8a4134d928598aa0",

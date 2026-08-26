@@ -78,4 +78,61 @@ describe("ui-tabs", () => {
     expect(tabs.value).toBe("d");
     expect(onChange.mock.calls[0][0]).toEqual({ value: "d" });
   });
+
+  it("leaves a nested ui-tabs' tabs and panels to the nested instance", async () => {
+    document.body.innerHTML = `
+      <ui-tabs id="outer" value="one">
+        <ui-tab-list>
+          <button data-tab value="one">One</button>
+          <button data-tab value="two">Two</button>
+        </ui-tab-list>
+        <div data-tab-panel value="one">
+          <ui-tabs id="inner" value="a">
+            <ui-tab-list>
+              <button data-tab value="a">A</button>
+              <button data-tab value="b">B</button>
+            </ui-tab-list>
+            <div data-tab-panel value="a" id="inner-a">Inner A</div>
+            <div data-tab-panel value="b" id="inner-b">Inner B</div>
+          </ui-tabs>
+        </div>
+        <div data-tab-panel value="two">Outer two</div>
+      </ui-tabs>`;
+    await Promise.resolve();
+    const outer = document.querySelector<HTMLElement & { value: string | null }>("#outer")!;
+    const inner = document.querySelector<HTMLElement & { value: string | null }>("#inner")!;
+    const outerTabs = [...outer.querySelectorAll<HTMLButtonElement>("ui-tab-list")[0].children];
+    const innerA = document.querySelector<HTMLElement>("#inner-a")!;
+    const innerB = document.querySelector<HTMLElement>("#inner-b")!;
+
+    // Re-selecting on the outer tabs must not hide the nested panels whose
+    // values don't match the outer selection.
+    (outerTabs[1] as HTMLElement).click();
+    (outerTabs[0] as HTMLElement).click();
+    expect(outer.value).toBe("one");
+    expect(innerA.hidden).toBe(false);
+    expect(innerB.hidden).toBe(true);
+
+    // Selecting inside the nested tabs stays inside it.
+    inner.querySelector<HTMLButtonElement>("[data-tab][value='b']")!.click();
+    expect(inner.value).toBe("b");
+    expect(innerB.hidden).toBe(false);
+    expect(outer.value).toBe("one");
+  });
+
+  it("wires children that arrive after the connect microtask", async () => {
+    document.body.innerHTML = "<ui-tabs></ui-tabs>";
+    const tabs = document.querySelector("ui-tabs")!;
+    await Promise.resolve(); // wiring attempt runs against the empty host
+    tabs.innerHTML = `
+      <ui-tab-list>
+        <button data-tab value="late">Late</button>
+      </ui-tab-list>
+      <div data-tab-panel value="late">Late panel</div>`;
+    await new Promise((r) => setTimeout(r, 0)); // MutationObserver retry
+
+    expect(tabs.querySelector("ui-tab-list")!.getAttribute("role")).toBe("tablist");
+    expect(tabs.value).toBe("late");
+    expect(tabs.querySelector<HTMLElement>("[data-tab-panel]")!.hidden).toBe(false);
+  });
 });

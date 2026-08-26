@@ -83,4 +83,46 @@ describe("ui-otp-field", () => {
     typeInto(cells()[0], "a");
     expect(cells()[0].value).toBe("a"); // letters allowed in alphanumeric mode
   });
+
+  it("reacts to length/mask/mode attribute changes (not read-once)", async () => {
+    const { otp, cells } = await mount('length="4"');
+    otp.setAttribute("length", "6");
+    expect(cells().length).toBe(6);
+    expect(cells()[5].getAttribute("aria-label")).toBe("Character 6 of 6");
+    otp.setAttribute("mask", "");
+    expect(cells()[0].type).toBe("password");
+    otp.removeAttribute("mask");
+    expect(cells()[0].type).toBe("text");
+    otp.setAttribute("mode", "alphanumeric");
+    expect(cells()[0].getAttribute("inputmode")).toBe("text");
+  });
+
+  it("supports disabled via the attribute, disabling every cell", async () => {
+    const { otp, cells } = await mount('length="4"');
+    otp.setAttribute("disabled", "");
+    expect(otp.disabled).toBe(true);
+    expect(cells().every((c) => c.disabled)).toBe(true);
+    otp.removeAttribute("disabled");
+    expect(otp.disabled).toBe(false);
+    expect(cells().every((c) => !c.disabled)).toBe(true);
+  });
+
+  it("formDisabledCallback disables the cells (disabled fieldset ancestor)", async () => {
+    const { otp, cells } = await mount('length="4"');
+    otp.formDisabledCallback(true);
+    expect(otp.disabled).toBe(true);
+    expect(cells().every((c) => c.disabled)).toBe(true);
+    otp.formDisabledCallback(false);
+    expect(cells().every((c) => !c.disabled)).toBe(true);
+  });
+
+  it("formResetCallback clears the cells", async () => {
+    const { otp, cells } = await mount('length="4"');
+    typeInto(cells()[0], "1");
+    typeInto(cells()[1], "2");
+    expect(otp.value).toBe("12");
+    otp.formResetCallback();
+    expect(otp.value).toBe("");
+    expect(cells().every((c) => c.value === "")).toBe(true);
+  });
 });

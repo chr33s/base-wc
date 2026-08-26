@@ -2,16 +2,18 @@
  * `ui-tooltip` — a hover/focus tooltip (Base UI's Tooltip). Non-focusable
  * supplementary text anchored to a trigger and wired as its `aria-describedby`.
  * Pointer hover opens after an intent delay (instant on keyboard focus) and
- * closes after a short close delay; `Escape` dismisses. Delay is shared across a
- * named `group` via {@link isGroupWarm} so adjacent tooltips open instantly once
- * one has. Reuses {@link anchor} positioning and the Popover-API top layer.
+ * closes after a short close delay; `Escape` dismisses. The timer state machine
+ * is the shared {@link hoverIntent}; delay is shared across a named `group` via
+ * {@link isGroupWarm} so adjacent tooltips open instantly once one has. Reuses
+ * {@link overlay} for CSS anchor pairing, {@link anchor} positioning and the
+ * Popover-API top layer.
  *
  * Markup: a `[data-tooltip-trigger]` and a `<ui-tooltip-content>`.
  */
+import { define } from "./define.ts";
 import { connectLightDom } from "./lifecycle.ts";
-import { SUPPORTS_ANCHOR } from "./anchor.ts";
 import { nextId } from "./id.ts";
-import { closeGroup, isGroupWarm, openGroup } from "./intent.ts";
+import { closeGroup, hoverIntent, type HoverIntent, isGroupWarm, openGroup } from "./intent.ts";
 import { overlay, type Overlay } from "./overlay.ts";
 
 export class UITooltip extends HTMLElement {
@@ -19,31 +21,22 @@ export class UITooltip extends HTMLElement {
   #content: HTMLElement | null = null;
   #arrow: HTMLElement | null = null;
   #wired = false;
-  #isOpen = false;
-  #openTimer = 0;
-  #closeTimer = 0;
   #overlay: Overlay | null = null;
-  /**
-   * Guard against opening from a `pointerenter` the browser fires when the
-   * trigger renders *under* a resting cursor (mount / re-render) rather than an
-   * intentional hover. Disarmed while already hovered at wire time; re-armed once
-   * the pointer actually leaves.
-   */
-  #armed = true;
+  #intent: HoverIntent | null = null;
 
-  get open(): boolean {
-    return this.#isOpen;
+  get open() {
+    return this.#overlay?.open ?? false;
   }
-  get #group(): string | null {
+  get #group() {
     return this.getAttribute("group");
   }
-  get #delay(): number {
+  get #delay() {
     return Number(this.getAttribute("delay") ?? 600);
   }
-  get #closeDelay(): number {
+  get #closeDelay() {
     return Number(this.getAttribute("close-delay") ?? 300);
   }
-  get #skipDelay(): number {
+  get #skipDelay() {
     return Number(this.getAttribute("skip-delay") ?? 300);
   }
 
@@ -64,76 +57,49 @@ export class UITooltip extends HTMLElement {
 
     if (!this.#content.id) this.#content.id = nextId("ui-tooltip");
     this.#trigger.setAttribute("aria-describedby", this.#content.id);
-    // If the trigger mounts under a resting cursor, ignore opens until it leaves.
-    this.#armed = !this.#trigger.matches(":hover");
-    this.#trigger.addEventListener("pointerenter", this.#scheduleOpen);
-    this.#trigger.addEventListener("pointerleave", this.#scheduleClose);
-    this.#trigger.addEventListener("focus", this.#openNow);
-    this.#trigger.addEventListener("blur", this.#closeNow);
+    this.#intent = hoverIntent({
+      isOpen: () => this.open,
+      open: () => this.#open(),
+      close: () => this.#close(),
+      openDelay: () => this.#delay,
+      closeDelay: () => this.#closeDelay,
+      warm: () => isGroupWarm(this.#group),
+      // If the trigger mounts under a resting cursor, ignore opens until it leaves.
+      armed: !this.#trigger.matches(":hover"),
+    });
+    this.#trigger.addEventListener("pointerenter", () => this.#intent?.scheduleOpen());
+    this.#trigger.addEventListener("pointerleave", () => this.#intent?.scheduleClose());
+    this.#trigger.addEventListener("focus", () => this.#intent?.openNow());
+    this.#trigger.addEventListener("blur", () => this.#intent?.closeNow());
     this.#trigger.addEventListener("keydown", this.#onKeydown);
-
-    if (SUPPORTS_ANCHOR) {
-      const name = `--tooltip-${nextId("anchor")}`;
-      this.#trigger.style.setProperty("anchor-name", name);
-      this.#content.style.setProperty("position-anchor", name);
-    }
 
     this.#overlay = overlay(this.#content, {
       anchor: {
         ref: () => this.#trigger,
         options: { offset: 6, padding: 8, arrow: this.#arrow },
+        pair: "tooltip",
       },
+      events: this,
     });
   }
 
   disconnectedCallback() {
-    clearTimeout(this.#openTimer);
-    clearTimeout(this.#closeTimer);
+    this.#intent?.cancel();
     this.#close();
   }
-
-  #scheduleOpen = () => {
-    clearTimeout(this.#closeTimer);
-    if (this.#isOpen || !this.#armed) return;
-    const delay = isGroupWarm(this.#group) ? 0 : this.#delay;
-    this.#openTimer = window.setTimeout(() => this.#open(), delay);
-  };
-
-  #scheduleClose = () => {
-    this.#armed = true; // the pointer has left → future enters are intentional
-    clearTimeout(this.#openTimer);
-    if (!this.#isOpen) return;
-    this.#closeTimer = window.setTimeout(() => this.#close(), this.#closeDelay);
-  };
-
-  #openNow = () => {
-    clearTimeout(this.#closeTimer);
-    this.#open();
-  };
-
-  #closeNow = () => {
-    clearTimeout(this.#openTimer);
-    this.#close();
-  };
 
   #onKeydown = (e: KeyboardEvent) => {
     if (e.key === "Escape") this.#close();
   };
 
   #open() {
-    if (this.#isOpen || !this.#content || !this.#trigger) return;
-    this.#isOpen = true;
-    this.#overlay?.show();
+    if (!this.#overlay?.show()) return;
     openGroup(this.#group);
-    this.dispatchEvent(new CustomEvent("open", { bubbles: true }));
   }
 
   #close() {
-    if (!this.#isOpen || !this.#content) return;
-    this.#isOpen = false;
-    this.#overlay?.hide();
+    if (!this.#overlay?.hide()) return;
     closeGroup(this.#group, this.#skipDelay);
-    this.dispatchEvent(new CustomEvent("close", { bubbles: true }));
   }
 }
 
@@ -144,9 +110,8 @@ export class UITooltipContent extends HTMLElement {
   }
 }
 
-if (!customElements.get("ui-tooltip")) customElements.define("ui-tooltip", UITooltip);
-if (!customElements.get("ui-tooltip-content"))
-  customElements.define("ui-tooltip-content", UITooltipContent);
+define("ui-tooltip", UITooltip);
+define("ui-tooltip-content", UITooltipContent);
 
 declare global {
   interface HTMLElementTagNameMap {

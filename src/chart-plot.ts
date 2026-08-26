@@ -55,10 +55,7 @@ interface SeriesView {
   isAnnotation: boolean;
 }
 
-function svgElement<K extends keyof SVGElementTagNameMap>(
-  tag: K,
-  part: string,
-): SVGElementTagNameMap[K] {
+function svgElement<K extends keyof SVGElementTagNameMap>(tag: K, part: string) {
   const element = document.createElementNS(SVG_NS, tag);
   element.setAttribute("data-part", part);
   return element;
@@ -87,12 +84,12 @@ export class ChartPlot {
     this.svg.append(this.#grid, this.#bands, this.#seriesRoot);
   }
 
-  resize(width: number, height: number): void {
+  resize(width: number, height: number) {
     this.svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   }
 
   /** Replace the grid lines. Only dimensions with a `ui-chart-grid` and a continuous scale draw any — the rest of the group is emptied. */
-  renderGrid(lines: readonly GridSpec[], width: number, height: number): void {
+  renderGrid(lines: readonly GridSpec[], width: number, height: number) {
     this.#grid.replaceChildren();
     for (const { dim, scale, tickCount } of lines) {
       for (const value of scale.ticks(tickCount)) {
@@ -117,7 +114,7 @@ export class ChartPlot {
    * `chart-domain.ts`'s `categoryRows`): a band reports the row a highlight
    * should land on, never its own position in the domain.
    */
-  renderBands(scale: Scale | undefined, height: number, rows: readonly number[]): void {
+  renderBands(scale: Scale | undefined, height: number, rows: readonly number[]) {
     if (!scale || !isDiscreteScale(scale)) {
       this.#bands.replaceChildren();
       this.#bandRects.clear();
@@ -172,7 +169,7 @@ export class ChartPlot {
     context: SeriesRenderContext,
     marks: readonly MarkDescriptor[],
     paletteIndex: number,
-  ): void {
+  ) {
     let view = this.#views.get(registration);
     if (!view) {
       view = { group: svgElement("g", "series"), marks: new Map(), context, isAnnotation: false };
@@ -217,7 +214,7 @@ export class ChartPlot {
   }
 
   /** Remove the rendered DOM of every series not in `keep` — hidden ones, and those that have unregistered. */
-  retainSeries(keep: readonly SeriesRegistration[]): void {
+  retainSeries(keep: readonly SeriesRegistration[]) {
     for (const [registration, view] of this.#views) {
       if (!keep.includes(registration)) {
         view.group.remove();
@@ -227,7 +224,7 @@ export class ChartPlot {
   }
 
   /** Drop one series' rendered DOM (it unregistered). */
-  removeSeries(registration: SeriesRegistration): void {
+  removeSeries(registration: SeriesRegistration) {
     this.#views.get(registration)?.group.remove();
     this.#views.delete(registration);
   }
@@ -247,7 +244,7 @@ export class ChartPlot {
    * that element rather than to an ancestor. Nothing here ever sets either
    * attribute on the series' own group — see this module's top doc for why.
    */
-  applyHighlight(highlight: HighlightState): void {
+  applyHighlight(highlight: HighlightState) {
     for (const [registration, view] of this.#views) {
       if (view.isAnnotation) continue;
       const scope = registration.highlightScope;
@@ -283,7 +280,7 @@ export class ChartPlot {
   }
 
   /** The series whose rendered group contains `node`, if any. */
-  seriesAt(node: Element): SeriesRegistration | undefined {
+  seriesAt(node: Element) {
     const group = node.closest<SVGGElement>('[data-part="series"]');
     if (!group) return undefined;
     for (const [registration, view] of this.#views) {

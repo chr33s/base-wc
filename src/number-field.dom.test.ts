@@ -79,6 +79,36 @@ describe("ui-number-field", () => {
     expect(inc.hasAttribute("disabled")).toBe(true); // at max
     expect(dec.hasAttribute("disabled")).toBe(false);
   });
+
+  it("formResetCallback restores the value attribute's value", async () => {
+    const { field } = await mount('value="3" min="0" max="10" step="1"');
+    field.value = 8;
+    expect(field.value).toBe(8);
+    field.formResetCallback();
+    expect(field.value).toBe(3);
+  });
+
+  it("reports valueMissing while required and empty", async () => {
+    const { field, input } = await mount('min="0" max="10" required');
+    expect(field.validity.valueMissing).toBe(true);
+    expect(field.checkValidity()).toBe(false);
+    input.value = "5";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(field.validity.valid).toBe(true);
+  });
+
+  it("does not adopt a nested component's input (late or otherwise)", async () => {
+    document.body.innerHTML = `<ui-number-field id="outer"></ui-number-field>`;
+    await Promise.resolve();
+    const outer = document.querySelector<HTMLElement & { value: number | null }>("#outer")!;
+    // The inner field (and its input) arrive after the outer's first wiring
+    // attempt; the retry must still refuse to adopt across the nested boundary.
+    outer.innerHTML = `<ui-number-field id="inner"><input type="number" value="3" /></ui-number-field>`;
+    await new Promise((r) => setTimeout(r, 0));
+    const inner = document.querySelector<HTMLElement & { value: number | null }>("#inner")!;
+    expect(inner.value).toBe(3); // the inner field owns its input
+    expect(outer.value).toBe(null); // the outer stays unwired
+  });
 });
 
 describe("ui-number-field — adopts a native type=number input (no-JS fallback)", () => {
@@ -134,6 +164,31 @@ describe("ui-number-field — adopts a native type=number input (no-JS fallback)
     expect(inc.hasAttribute("disabled")).toBe(true);
     expect(dec.hasAttribute("disabled")).toBe(true);
   });
+
+  it("removing the host's disabled never re-enables an author-disabled input", async () => {
+    const { field, input } = await mount('value="3" min="0" max="10" disabled');
+    field.setAttribute("disabled", "");
+    field.removeAttribute("disabled");
+    expect(input.disabled).toBe(true); // the author disabled it — it stays disabled
+  });
+
+  it("the host disabled attribute is managed one-way onto the input", async () => {
+    const { field, input } = await mount('value="3" min="0" max="10"');
+    field.setAttribute("disabled", "");
+    expect(input.disabled).toBe(true);
+    field.removeAttribute("disabled");
+    expect(input.disabled).toBe(false); // we disabled it, so we re-enable it
+  });
+
+  it("the programmatic value setter dispatches no events", async () => {
+    const { field, input } = await mount();
+    let events = 0;
+    input.addEventListener("input", () => events++);
+    input.addEventListener("change", () => events++);
+    field.value = 7;
+    expect(input.value).toBe("7");
+    expect(events).toBe(0);
+  });
 });
 
 describe("ui-number-field — scrub area", () => {
@@ -183,6 +238,16 @@ describe("ui-number-field — scrub area", () => {
     scrub.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true }));
     window.dispatchEvent(new Event("pointerup"));
     move(80); // ignored — no longer scrubbing
+    expect(field.value).toBe(10);
+  });
+
+  it("pointercancel ends the scrub like pointerup (interrupted touch)", async () => {
+    const { field, scrub } = await mount();
+    scrub.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true }));
+    expect(scrub.hasAttribute("data-scrubbing")).toBe(true);
+    window.dispatchEvent(new Event("pointercancel"));
+    expect(scrub.hasAttribute("data-scrubbing")).toBe(false);
+    move(80); // ignored — the drag was cancelled
     expect(field.value).toBe(10);
   });
 });

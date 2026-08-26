@@ -11,7 +11,7 @@ import { isDiscreteScale } from "./chart-scale.ts";
 registerSeriesType({
   type: "fake-domain-series",
   stacks: true,
-  getExtremum: (data, key, dim) => (dim === "x" ? null : numericExtent(data, key)),
+  getExtremum: (data, series, dim) => (dim === "x" ? null : numericExtent(data, series.key)),
   computeMarks: () => [],
 });
 

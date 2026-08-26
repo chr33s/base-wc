@@ -11,12 +11,28 @@
  * viewport. It reads {@link window.visualViewport} so it stays correct on iOS
  * Safari, where the URL bar and pinch-zoom shift the layout viewport.
  */
+import { nextId } from "./id.ts";
 
 /** True where CSS Anchor Positioning is natively supported. */
 export const SUPPORTS_ANCHOR =
   typeof CSS !== "undefined" &&
   typeof CSS.supports === "function" &&
   CSS.supports("anchor-name: --a");
+
+/**
+ * Pair a trigger and popup for **CSS** anchor positioning — the declarative half
+ * of the positioning story ({@link anchor} is the JS-fallback half). Where the
+ * browser supports it, the pair gets a unique `anchor-name`/`position-anchor`
+ * so the consumer's `@supports (anchor-name: --a)` CSS places the popup; where
+ * it doesn't, this is a no-op and the caller's JS fallback runs instead.
+ * `prefix` only names the generated custom property for debuggability.
+ */
+export function pairAnchor(reference: HTMLElement, popup: HTMLElement, prefix = "ui") {
+  if (!SUPPORTS_ANCHOR) return;
+  const name = `--${prefix}-${nextId("anchor")}`;
+  reference.style.setProperty("anchor-name", name);
+  popup.style.setProperty("position-anchor", name);
+}
 
 /**
  * The minimal shape {@link anchor} needs from a reference — just its rect. A DOM
@@ -50,7 +66,7 @@ export interface AnchorOptions {
 }
 
 /** A DOMRect-like zero-size rect at a viewport point, for virtual anchoring. */
-export function rectAt(x: number, y: number): DOMRect {
+export function rectAt(x: number, y: number) {
   return { x, y, top: y, left: x, right: x, bottom: y, width: 0, height: 0 } as DOMRect;
 }
 
@@ -66,7 +82,7 @@ export function arrowOffset(
   floatSize: number,
   arrowSize: number,
   padding: number,
-): number {
+) {
   const ideal = refCenter - floatStart - arrowSize / 2;
   const max = Math.max(padding, floatSize - arrowSize - padding);
   return Math.max(padding, Math.min(ideal, max));
@@ -87,7 +103,7 @@ export function anchor(
     placement = "bottom",
     arrow,
   }: AnchorOptions = {},
-): () => void {
+) {
   const vv = window.visualViewport;
 
   // Center a caret on the reference along the floating element's edge, marking

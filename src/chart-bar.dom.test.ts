@@ -3,21 +3,24 @@ import { afterEach, describe, expect, it } from "vite-plus/test";
 import "./chart-bar.ts";
 import "./chart-line.ts";
 import "./chart.ts";
-import type { UIChart } from "./chart.ts";
 import type { UIChartBar } from "./chart-bar.ts";
 
 afterEach(() => {
   document.body.innerHTML = "";
 });
 
-// `ui-chart` wires via `connectLightDom`, which defers to a microtask so a
-// component can wait for late-authored light-DOM parts. Awaiting one
-// microtask flushes it (and every child element's own `connectLightDom`
-// microtask, queued in the same tick) — every registration/render after that
-// is synchronous, so no further waiting is needed.
-async function mountChart(inner: string, size = true): Promise<UIChart> {
+// `ui-chart` wires via `connectLightDom` (a microtask) and batches its full
+// renders onto a microtask of their own — mounting K children paints once,
+// and any later mutation defers its re-render the same way. A zero-delay
+// macrotask drains all of it (wiring, registrations, observer deliveries and
+// the coalesced render), so tests assert on settled DOM.
+function flush() {
+  return new Promise((resolve) => setTimeout(resolve));
+}
+
+async function mountChart(inner: string, size = true) {
   document.body.innerHTML = `<ui-chart${size ? ' width="400" height="200"' : ""}>${inner}</ui-chart>`;
-  await Promise.resolve();
+  await flush();
   return document.querySelector("ui-chart")!;
 }
 
@@ -261,12 +264,14 @@ describe("ui-chart-bar: grouping", () => {
     expect(firstMark("A").width).toBe("31.111");
 
     chart.setSeriesHidden(chart.querySelector<HTMLElement>('ui-chart-bar[key="B"]')!, true);
+    await flush();
 
     // bandwidth 93.333 / 2, and C moves up into the freed column.
     expect(firstMark("A")).toMatchObject({ x: "20", width: "46.667" });
     expect(firstMark("C")).toMatchObject({ x: "66.667", width: "46.667" });
 
     chart.setSeriesHidden(chart.querySelector<HTMLElement>('ui-chart-bar[key="B"]')!, false);
+    await flush();
     expect(firstMark("A").width).toBe("31.111");
     expect(firstMark("C").x).toBe("82.222");
   });
@@ -340,7 +345,7 @@ describe("ui-chart-bar: stack-offset", () => {
 
   it('splits above/below the baseline with stack-offset="diverging"', async () => {
     document.body.innerHTML = `<ui-chart width="400" height="200" stack-offset="diverging">${MIXED}</ui-chart>`;
-    await Promise.resolve();
+    await flush();
     const chart = document.querySelector("ui-chart")!;
     expect(chart.stackOffset).toBe("diverging");
     // B is negative, so it starts at the zero baseline and goes down:
@@ -363,16 +368,43 @@ describe("ui-chart-bar: identity", () => {
       <ui-chart-axis position="left" min="0" max="150"></ui-chart-axis>
       <ui-chart-bar key="Revenue"></ui-chart-bar>`;
     document.querySelector("#from")!.append(chart);
-    await Promise.resolve();
+    await flush();
 
     const bar = chart.querySelector<HTMLElement>("ui-chart-bar")!;
     chart.setSeriesHidden(bar, true);
     expect(chart.isSeriesHidden(bar)).toBe(true);
 
     // Moving unregisters and re-registers every child series; a series hidden
-    // through the legend must not come back visible because of it.
+    // through the legend must not come back visible because of it. The flag
+    // is the element's own native `hidden`, so it travels with the element.
     document.querySelector("#to")!.append(chart);
-    await Promise.resolve();
+    await flush();
+    expect(chart.isSeriesHidden(bar)).toBe(true);
+    expect(chart.querySelectorAll('[data-part="mark"]').length).toBe(0);
+  });
+
+  it("a series authored with the native hidden attribute starts hidden, and toggles through it", async () => {
+    // The registration's `hidden` *is* the element's own native `hidden`, so
+    // the attribute is a declarative way in and `setSeriesHidden` writes the
+    // same flag back out.
+    const chart = await mountChart(
+      `${SINGLE_TABLE}
+       <ui-chart-axis position="bottom" key="Month" scale="band"></ui-chart-axis>
+       <ui-chart-axis position="left" min="0" max="150"></ui-chart-axis>
+       <ui-chart-bar key="Revenue" hidden></ui-chart-bar>`,
+    );
+    const bar = chart.querySelector<HTMLElement>("ui-chart-bar")!;
+    expect(chart.isSeriesHidden(bar)).toBe(true);
+    expect(chart.querySelectorAll('[data-part="mark"]').length).toBe(0);
+
+    chart.setSeriesHidden(bar, false);
+    expect(bar.hasAttribute("hidden")).toBe(false);
+    await flush();
+    expect(chart.querySelectorAll('[data-part="mark"]').length).toBe(3);
+
+    // The attribute route works after mount too — it is an observed attribute.
+    bar.setAttribute("hidden", "");
+    await flush();
     expect(chart.isSeriesHidden(bar)).toBe(true);
     expect(chart.querySelectorAll('[data-part="mark"]').length).toBe(0);
   });

@@ -4,31 +4,50 @@
  * you type and back on Backspace, supports Arrow navigation, distributes a
  * pasted (or autofilled) code across the cells, and normalizes input to the
  * allowed character set (`numeric` by default, or `alphanumeric`). The
- * concatenated value is **form-associated** under `name`; `mask` renders the
- * cells as password fields.
+ * concatenated value is **form-associated** under `name` (via the shared
+ * {@link formControl} layer: `required` reports `valueMissing` while empty, and
+ * `form.reset()` clears the cells); `mask` renders the cells as password
+ * fields. `length`, `mode`, `mask` and `disabled` are live — changing the
+ * attributes re-syncs the cells.
  *
  * Markup: an empty `<ui-otp-field length="6">` (cells are generated), or a
  * `[data-otp-cells]` container to generate them into.
  */
+import { define } from "./define.ts";
+import { type FormControl, formControl } from "./form-control.ts";
 import { connectLightDom } from "./lifecycle.ts";
 
 export class UIOtpField extends HTMLElement {
   static formAssociated = true;
+  static observedAttributes = ["disabled", "length", "mode", "mask"];
 
-  #internals: ElementInternals | null = this.attachInternals?.() ?? null;
+  #formControl: FormControl = formControl(this, {
+    value: () => this.value, // "" counts as empty for `required`
+    onReset: () => this.#onFormReset(),
+    onFormDisabled: (disabled) => {
+      this.#formDisabled = disabled;
+      if (this.#wired) this.#syncCells();
+    },
+  });
   #cells: HTMLInputElement[] = [];
+  /** Cells whose listeners are already attached (cells persist across re-syncs). */
+  #cellWired = new WeakSet<HTMLInputElement>();
   #wired = false;
+  #formDisabled = false;
 
-  get name(): string | null {
+  get name() {
     return this.getAttribute("name");
   }
-  get form(): HTMLFormElement | null {
-    return this.#internals?.form ?? null;
+  get form() {
+    return this.#formControl.form;
   }
-  get length(): number {
+  get length() {
     return Math.max(1, Number(this.getAttribute("length") ?? 6));
   }
-  get value(): string {
+  get disabled() {
+    return this.hasAttribute("disabled") || this.#formDisabled;
+  }
+  get value() {
     return this.#cells.map((c) => c.value).join("");
   }
   set value(next: string) {
@@ -38,10 +57,29 @@ export class UIOtpField extends HTMLElement {
     });
     this.#syncFormValue();
   }
-  get #alphanumeric(): boolean {
+  get validity() {
+    return this.#formControl.validity;
+  }
+  get validationMessage() {
+    return this.#formControl.validationMessage;
+  }
+  checkValidity() {
+    return this.#formControl.checkValidity();
+  }
+  reportValidity() {
+    return this.#formControl.reportValidity();
+  }
+  formResetCallback() {
+    this.#formControl.handleReset();
+  }
+  formDisabledCallback(disabled: boolean) {
+    this.#formControl.handleDisabled(disabled);
+  }
+
+  get #alphanumeric() {
     return this.getAttribute("mode") === "alphanumeric";
   }
-  get #mask(): boolean {
+  get #mask() {
     return this.hasAttribute("mask");
   }
 
@@ -53,11 +91,26 @@ export class UIOtpField extends HTMLElement {
     );
   }
 
+  attributeChangedCallback() {
+    if (!this.#wired) return;
+    this.#syncCells();
+    this.#syncFormValue(); // a `length` change can change the concatenated value
+  }
+
   #wire() {
     this.#wired = true;
     this.setAttribute("role", "group");
-    const container = this.querySelector<HTMLElement>("[data-otp-cells]") ?? this;
+    this.#syncCells();
+    this.#syncFormValue();
+  }
 
+  /**
+   * (Re)generate and configure the cells for the current `length`/`mode`/
+   * `mask`/`disabled`. Cells beyond a shrunken `length` are left in the DOM
+   * (as at wire time) but drop out of the value and their listeners no-op.
+   */
+  #syncCells() {
+    const container = this.querySelector<HTMLElement>("[data-otp-cells]") ?? this;
     const existing = [...this.querySelectorAll<HTMLInputElement>("input")];
     for (let i = existing.length; i < this.length; i++) {
       container.appendChild(document.createElement("input"));
@@ -69,19 +122,33 @@ export class UIOtpField extends HTMLElement {
       cell.setAttribute("inputmode", this.#alphanumeric ? "text" : "numeric");
       cell.setAttribute("autocomplete", i === 0 ? "one-time-code" : "off");
       cell.setAttribute("aria-label", `Character ${i + 1} of ${this.length}`);
-      if (this.#mask) cell.type = "password";
-      cell.addEventListener("input", () => this.#onInput(i));
-      cell.addEventListener("keydown", (e) => this.#onKeydown(i, e));
-      cell.addEventListener("paste", (e) => this.#onPaste(i, e));
+      cell.type = this.#mask ? "password" : "text";
+      cell.disabled = this.disabled;
+      if (this.#cellWired.has(cell)) return;
+      this.#cellWired.add(cell);
+      // Listeners resolve the cell's index at event time: a `length` change can
+      // re-rank cells, and a cell past the current length must be inert.
+      cell.addEventListener("input", () => this.#withIndex(cell, (n) => this.#onInput(n)));
+      cell.addEventListener("keydown", (e) => this.#withIndex(cell, (n) => this.#onKeydown(n, e)));
+      cell.addEventListener("paste", (e) => this.#withIndex(cell, (n) => this.#onPaste(n, e)));
       cell.addEventListener("focus", () => cell.select?.());
     });
+  }
+
+  #withIndex(cell: HTMLInputElement, fn: (index: number) => void) {
+    const index = this.#cells.indexOf(cell);
+    if (index >= 0) fn(index);
+  }
+
+  #onFormReset() {
+    for (const cell of this.#cells) cell.value = "";
     this.#syncFormValue();
   }
 
-  #allowed(char: string): boolean {
+  #allowed(char: string) {
     return this.#alphanumeric ? /[a-z0-9]/i.test(char) : /[0-9]/.test(char);
   }
-  #normalize(text: string): string {
+  #normalize(text: string) {
     return Array.from(text)
       .filter((c) => this.#allowed(c))
       .join("");
@@ -148,11 +215,11 @@ export class UIOtpField extends HTMLElement {
   }
 
   #syncFormValue() {
-    this.#internals?.setFormValue(this.value);
+    this.#formControl.setValue(this.value);
   }
 }
 
-if (!customElements.get("ui-otp-field")) customElements.define("ui-otp-field", UIOtpField);
+define("ui-otp-field", UIOtpField);
 
 declare global {
   interface HTMLElementTagNameMap {

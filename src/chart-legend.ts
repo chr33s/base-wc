@@ -34,18 +34,20 @@
  * highlights its whole series, matching the built-in mark-hover interaction.
  * No button holds a listener or a reference of its own.
  *
- * Re-rendering is driven by the chart's store: whenever the series registry
- * changes — one added, removed, hidden, or edited — the items are reconciled
- * *in place*, so the button a user just clicked (or tabbed to) survives its own
- * toggle instead of being replaced under them. Nothing here observes the
- * chart's DOM either, so the chart's own painting — which mutates its `<svg>`
- * on every highlight — never disturbs these buttons.
+ * Re-rendering is driven by the chart's `"registry"` invalidation kind
+ * (`chart.subscribe`): whenever the series registry changes — one added,
+ * removed, hidden, or edited — the items are reconciled *in place*, so the
+ * button a user just clicked (or tabbed to) survives its own toggle instead
+ * of being replaced under them. Nothing here observes the chart's DOM either,
+ * so the chart's own painting — which mutates its `<svg>` on every highlight
+ * — never disturbs these buttons.
  *
  * Events: `toggle` (`UIChartToggleDetail`) fires on every click, after the
  * series' hidden state has flipped.
  */
 import type { SeriesRegistration } from "./chart-core.ts";
 import type { UIChart } from "./chart.ts";
+import { define } from "./define.ts";
 import { connectLightDom } from "./lifecycle.ts";
 
 export interface UIChartToggleDetail {
@@ -112,8 +114,8 @@ export class UIChartLegend extends HTMLElement {
     this.addEventListener("click", this.#onClick);
     this.addEventListener("pointerover", this.#onPointerOver);
     this.addEventListener("pointerleave", this.#onPointerLeave);
-    this.#unsubscribe = chart.getStore().subscribe((_state, patch) => {
-      if ("series" in patch) this.#render(chart);
+    this.#unsubscribe = chart.subscribe((kind) => {
+      if (kind === "registry") this.#render(chart);
     });
     this.#render(chart);
   }
@@ -138,7 +140,7 @@ export class UIChartLegend extends HTMLElement {
     for (let i = series.length; i < existing.length; i++) existing[i]?.remove();
   }
 
-  #createItem(): HTMLElement {
+  #createItem() {
     const item = document.createElement("span");
     item.setAttribute("role", "listitem");
     const button = document.createElement("button");
@@ -165,7 +167,7 @@ export class UIChartLegend extends HTMLElement {
   }
 
   /** The series an event landed on, resolved through the item's index — the same lookup the click handler uses, so no button holds a reference of its own and every one of them stays reusable. */
-  #seriesFor(target: EventTarget | null): SeriesRegistration | undefined {
+  #seriesFor(target: EventTarget | null) {
     if (!(target instanceof Element) || !this.#chart) return undefined;
     const button = target.closest<HTMLButtonElement>("button[data-legend-index]");
     if (!button) return undefined;
@@ -173,7 +175,7 @@ export class UIChartLegend extends HTMLElement {
   }
 }
 
-if (!customElements.get("ui-chart-legend")) customElements.define("ui-chart-legend", UIChartLegend);
+define("ui-chart-legend", UIChartLegend);
 
 declare global {
   interface HTMLElementTagNameMap {

@@ -12,10 +12,13 @@
  *
  * **Fallback (JS-only).** With no native radios authored, the group is a
  * self-rendered control: `role="radiogroup"` + form-associated (the chosen
- * radio's `value` submits under `name`), `role="radio"` items, one roving tab
- * stop via {@link roving} with selection-follows-focus. Use only where JS is
- * guaranteed — it submits nothing with scripting off.
+ * radio's `value` submits under `name`; `required` reports `valueMissing` while
+ * nothing is selected, and `form.reset()` restores the preset), `role="radio"`
+ * items, one roving tab stop via {@link roving} with selection-follows-focus.
+ * Use only where JS is guaranteed — it submits nothing with scripting off.
  */
+import { define } from "./define.ts";
+import { type FormControl, formControl } from "./form-control.ts";
 import { connectLightDom } from "./lifecycle.ts";
 import { nextId } from "./id.ts";
 import { adoptedControl } from "./native.ts";
@@ -24,19 +27,31 @@ import { roving, type Roving } from "./roving.ts";
 export class UIRadioGroup extends HTMLElement {
   static formAssociated = true;
 
-  #internals: ElementInternals | null = this.attachInternals?.() ?? null;
+  #formControl: FormControl = formControl(this, {
+    adopted: () => this.#native,
+    value: () => this.value,
+    onReset: () => this.#onFormReset(),
+    onFormDisabled: (disabled) => {
+      this.#formDisabled = disabled;
+      this.toggleAttribute("data-disabled", disabled);
+    },
+  });
   #roving: Roving | null = null;
   /** True when the radios wrap authored native `<input type="radio">`s. */
   #native = false;
   #wired = false;
+  #formDisabled = false;
 
-  get form(): HTMLFormElement | null {
-    return this.#internals?.form ?? null;
+  get form() {
+    return this.#formControl.form;
   }
-  get name(): string | null {
+  get name() {
     return this.getAttribute("name");
   }
-  get value(): string | null {
+  get disabled() {
+    return this.hasAttribute("disabled") || this.#formDisabled;
+  }
+  get value() {
     return this.#selected()?.value ?? null;
   }
   set value(next: string | null) {
@@ -52,6 +67,24 @@ export class UIRadioGroup extends HTMLElement {
     } else {
       this.#select(match, false);
     }
+  }
+  get validity() {
+    return this.#formControl.validity;
+  }
+  get validationMessage() {
+    return this.#formControl.validationMessage;
+  }
+  checkValidity() {
+    return this.#formControl.checkValidity();
+  }
+  reportValidity() {
+    return this.#formControl.reportValidity();
+  }
+  formResetCallback() {
+    this.#formControl.handleReset();
+  }
+  formDisabledCallback(disabled: boolean) {
+    this.#formControl.handleDisabled(disabled);
   }
 
   connectedCallback() {
@@ -74,18 +107,11 @@ export class UIRadioGroup extends HTMLElement {
       items: () => this.#radios(),
       orientation: "both",
       loop: true,
-      onMove: (item) => this.#select(item as UIRadio, true),
-      onActivate: (item) => this.#select(item as UIRadio, true),
+      onMove: (item) => this.#selectByUser(item as UIRadio),
+      onActivate: (item) => this.#selectByUser(item as UIRadio),
     });
     this.addEventListener("click", this.#onClick);
-
-    // Reflect a pre-checked radio (or the `value` attribute) without emitting.
-    const preset = this.getAttribute("value");
-    if (preset != null)
-      this.#applyChecked(this.#allRadios().find((r) => r.value === preset) ?? null);
-    const selectedIndex = this.#radios().findIndex((r) => r.checked);
-    this.#internals?.setFormValue(this.value);
-    this.#roving.refresh(selectedIndex >= 0 ? selectedIndex : 0);
+    this.#applyPreset();
   }
 
   /**
@@ -97,15 +123,37 @@ export class UIRadioGroup extends HTMLElement {
    */
   #wireNative() {
     this.setAttribute("role", "radiogroup");
-    // A radio may have applied standalone attrs synchronously before its native
-    // input parsed (streaming); the native input is the control, so clear them.
-    for (const radio of this.#allRadios()) {
-      radio.removeAttribute("role");
-      radio.removeAttribute("aria-checked");
-      radio.removeAttribute("tabindex");
-    }
     this.addEventListener("change", this.#syncRadios);
     this.#syncRadios();
+  }
+
+  /**
+   * Standalone: reflect the preset selection — the `value` attribute, or a
+   * radio's own `checked` attribute — without emitting. Runs at wire and again
+   * on `form.reset()`.
+   */
+  #applyPreset() {
+    const preset = this.getAttribute("value");
+    const radios = this.#allRadios();
+    const match =
+      preset != null
+        ? (radios.find((r) => r.value === preset) ?? null)
+        : (radios.find((r) => r.hasAttribute("checked")) ?? null);
+    this.#applyChecked(match);
+    this.#formControl.setValue(match?.value ?? null);
+    const idx = match ? this.#radios().indexOf(match) : -1;
+    this.#roving?.refresh(idx >= 0 ? idx : 0);
+  }
+
+  #onFormReset() {
+    if (!this.#wired) return;
+    if (this.#native) {
+      // The browser restores each native radio's own default checkedness during
+      // the same reset pass; refresh the `data-state` hooks once it has.
+      queueMicrotask(this.#syncRadios);
+    } else {
+      this.#applyPreset();
+    }
   }
 
   #syncRadios = () => {
@@ -114,13 +162,13 @@ export class UIRadioGroup extends HTMLElement {
     }
   };
 
-  #allRadios(): UIRadio[] {
+  #allRadios() {
     return [...this.querySelectorAll<UIRadio>("ui-radio")];
   }
-  #radios(): UIRadio[] {
+  #radios() {
     return this.#allRadios().filter((r) => !r.hasAttribute("disabled"));
   }
-  #selected(): UIRadio | null {
+  #selected() {
     return this.#allRadios().find((r) => r.checked) ?? null;
   }
 
@@ -128,10 +176,16 @@ export class UIRadioGroup extends HTMLElement {
     this.#allRadios().forEach((r) => r.setAttribute("aria-checked", String(r === radio)));
   }
 
+  /** User-driven selection: blocked while the group is (form-)disabled. */
+  #selectByUser(radio: UIRadio) {
+    if (this.disabled) return;
+    this.#select(radio, true);
+  }
+
   #select(radio: UIRadio, emit: boolean) {
     if (radio.hasAttribute("disabled")) return;
     this.#applyChecked(radio);
-    this.#internals?.setFormValue(radio.value);
+    this.#formControl.setValue(radio.value);
     const idx = this.#radios().indexOf(radio);
     if (idx >= 0) this.#roving?.refresh(idx);
     if (emit) {
@@ -142,10 +196,11 @@ export class UIRadioGroup extends HTMLElement {
   }
 
   #onClick = (e: MouseEvent) => {
+    if (this.disabled) return;
     const radio = (e.target as Element).closest("ui-radio") as UIRadio | null;
     if (radio && !radio.hasAttribute("disabled")) {
       radio.focus();
-      this.#select(radio, true);
+      this.#selectByUser(radio);
     }
   };
 }
@@ -155,29 +210,40 @@ export class UIRadio extends HTMLElement {
 
   /** The adopted native radio (native-first mode), or `null` (standalone). */
   #native: HTMLInputElement | null = null;
-  nativeInput(): HTMLInputElement | null {
+  #wired = false;
+
+  nativeInput() {
     // Memoize the found input (the group re-reads `checked` across all radios on
     // every change). Only a positive result is cached — before the child parses
     // (streaming) the scan returns null and is retried on the next read.
     return (this.#native ??= adoptedControl<HTMLInputElement>(this, 'input[type="radio"]'));
   }
 
-  get value(): string {
+  get value() {
     return this.nativeInput()?.value ?? this.getAttribute("value") ?? "";
   }
-  get checked(): boolean {
+  get checked() {
     const native = this.nativeInput();
-    if (native) return native.checked;
-    const aria = this.getAttribute("aria-checked");
-    // Before the group wires `aria-checked`, fall back to the `checked` attribute
-    // so the group's preset detection works regardless of wiring order.
-    return aria === "true" || (aria == null && this.hasAttribute("checked"));
+    // Standalone state lives in `aria-checked` (the group presets it from the
+    // `value`/`checked` attributes before any radio wires).
+    return native ? native.checked : this.getAttribute("aria-checked") === "true";
   }
-  get disabled(): boolean {
+  get disabled() {
     return this.nativeInput()?.disabled ?? this.hasAttribute("disabled");
   }
 
   connectedCallback() {
+    // Deferred like its siblings, so an authored native radio has parsed before
+    // the standalone-vs-native decision is made.
+    connectLightDom(
+      this,
+      () => this.#wired,
+      () => this.#wire(),
+    );
+  }
+
+  #wire() {
+    this.#wired = true;
     const native = this.nativeInput();
     if (native) {
       // Native-first: the input is the radio; only mirror its state for the pip.
@@ -199,8 +265,8 @@ export class UIRadio extends HTMLElement {
   }
 }
 
-if (!customElements.get("ui-radio-group")) customElements.define("ui-radio-group", UIRadioGroup);
-if (!customElements.get("ui-radio")) customElements.define("ui-radio", UIRadio);
+define("ui-radio-group", UIRadioGroup);
+define("ui-radio", UIRadio);
 
 declare global {
   interface HTMLElementTagNameMap {

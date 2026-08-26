@@ -5,20 +5,23 @@
  * indeterminate bar. A `--progress` custom property (0–1) and a `data-state`
  * hook (`loading` / `complete` / `indeterminate`) drive the consumer's fill.
  */
+import { define } from "./define.ts";
+import { rangeNumber, syncRangeState } from "./range.ts";
+
 export class UIProgress extends HTMLElement {
   static observedAttributes = ["value", "min", "max", "indeterminate"];
 
-  get min(): number {
-    return Number(this.getAttribute("min") ?? 0);
+  get min() {
+    return rangeNumber(this, "min", 0);
   }
-  get max(): number {
-    return Number(this.getAttribute("max") ?? 100);
+  get max() {
+    return rangeNumber(this, "max", 100);
   }
-  get value(): number | null {
+  get value() {
     const raw = this.getAttribute("value");
     return raw == null || raw === "" ? null : Number(raw);
   }
-  get indeterminate(): boolean {
+  get indeterminate() {
     return this.hasAttribute("indeterminate") || this.value == null;
   }
 
@@ -32,23 +35,28 @@ export class UIProgress extends HTMLElement {
   }
 
   #sync() {
-    this.setAttribute("aria-valuemin", String(this.min));
-    this.setAttribute("aria-valuemax", String(this.max));
     if (this.indeterminate) {
+      this.setAttribute("aria-valuemin", String(this.min));
+      this.setAttribute("aria-valuemax", String(this.max));
+      // No `aria-valuenow` at all — that absence is what marks the bar
+      // indeterminate to assistive tech, so the shared helper (which always
+      // reports a value) stays out of this branch.
       this.removeAttribute("aria-valuenow");
       this.setAttribute("data-state", "indeterminate");
       this.style.setProperty("--progress", "0");
       return;
     }
-    const value = Math.max(this.min, Math.min(this.value ?? this.min, this.max));
-    const fraction = this.max > this.min ? (value - this.min) / (this.max - this.min) : 0;
-    this.setAttribute("aria-valuenow", String(value));
-    this.style.setProperty("--progress", String(fraction));
+    const { fraction } = syncRangeState(this, {
+      min: this.min,
+      max: this.max,
+      value: this.value ?? this.min,
+      property: "--progress",
+    });
     this.setAttribute("data-state", fraction >= 1 ? "complete" : "loading");
   }
 }
 
-if (!customElements.get("ui-progress")) customElements.define("ui-progress", UIProgress);
+define("ui-progress", UIProgress);
 
 declare global {
   interface HTMLElementTagNameMap {

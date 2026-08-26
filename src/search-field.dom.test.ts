@@ -56,6 +56,20 @@ describe("ui-search-field", () => {
     expect(input.value).toBe("");
   });
 
+  it("does not adopt a nested component's input", async () => {
+    document.body.innerHTML = `
+      <ui-search-field id="outer" debounce="0">
+        <ui-search-field id="inner" debounce="0"><input type="search" /></ui-search-field>
+      </ui-search-field>`;
+    await flush();
+    const outer = document.querySelector<HTMLElement>("#outer")!;
+    const inner = document.querySelector<HTMLElement>("#inner")!;
+    // Only the inner field wires its own input (one clear button, owned by it).
+    expect(document.querySelectorAll("[data-search-clear]").length).toBe(1);
+    expect(inner.querySelector("[data-search-clear]")).toBeTruthy();
+    expect(outer.hasAttribute("data-empty")).toBe(false); // outer never wired
+  });
+
   it("debounces the search event when debounce > 0", async () => {
     document.body.innerHTML = `<ui-search-field debounce="30"><input type="search" /></ui-search-field>`;
     await flush();

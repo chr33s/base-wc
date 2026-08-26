@@ -83,4 +83,21 @@ describe("ui-toolbar", () => {
     key(toolbar, "ArrowRight"); // RTL: ArrowRight goes back
     expect(document.activeElement).toBe(b);
   });
+
+  it("wires items that arrive after the connect microtask", async () => {
+    document.body.innerHTML = '<ui-toolbar aria-label="Late"></ui-toolbar>';
+    const toolbar = document.querySelector("ui-toolbar")!;
+    await Promise.resolve(); // wiring attempt runs against the empty host
+    toolbar.innerHTML = '<button id="one">One</button><button id="two">Two</button>';
+    await new Promise((r) => setTimeout(r, 0)); // MutationObserver retry
+
+    const one = document.querySelector<HTMLButtonElement>("#one")!;
+    const two = document.querySelector<HTMLButtonElement>("#two")!;
+    expect(toolbar.getAttribute("role")).toBe("toolbar");
+    expect(one.tabIndex).toBe(0);
+    expect(two.tabIndex).toBe(-1);
+    one.focus();
+    key(toolbar, "ArrowRight");
+    expect(document.activeElement).toBe(two);
+  });
 });

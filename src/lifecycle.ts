@@ -15,7 +15,7 @@ interface PendingConnection {
 
 const pending = new WeakMap<HTMLElement, PendingConnection>();
 
-export function connectLightDom(host: HTMLElement, isWired: () => boolean, wire: () => void): void {
+export function connectLightDom(host: HTMLElement, isWired: () => boolean, wire: () => void) {
   if (isWired()) {
     stopWaiting(host);
     return;
@@ -42,7 +42,7 @@ export function connectLightDom(host: HTMLElement, isWired: () => boolean, wire:
   });
 }
 
-function stopWaiting(host: HTMLElement): void {
+function stopWaiting(host: HTMLElement) {
   const state = pending.get(host);
   state?.observer?.disconnect();
   pending.delete(host);

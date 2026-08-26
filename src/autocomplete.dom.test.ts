@@ -95,3 +95,38 @@ describe("ui-autocomplete", () => {
     expect(list.querySelectorAll("[data-index]").length).toBe(0);
   });
 });
+
+describe("ui-autocomplete — form integration (reset / disabled / required)", () => {
+  it("formResetCallback re-syncs after the browser restores the input", async () => {
+    const { ac, input } = await mount();
+    type(input, "lis"); // suggestions open
+    expect(input.getAttribute("aria-expanded")).toBe("true");
+    // Emulate `form.reset()`: the browser restores the inner input's default
+    // value, then invokes the host's formResetCallback.
+    input.value = "";
+    ac.formResetCallback();
+    await Promise.resolve(); // the re-sync waits for the reset pass to finish
+    expect(ac.value).toBe("");
+    expect(input.getAttribute("aria-expanded")).toBe("false"); // suggestions dropped
+  });
+
+  it("reports valueMissing while required and empty", async () => {
+    const { ac, input } = await mount();
+    ac.setAttribute("required", "");
+    expect(ac.validity.valueMissing).toBe(true);
+    expect(ac.checkValidity()).toBe(false);
+    type(input, "Lisbon");
+    expect(ac.validity.valid).toBe(true);
+    expect(ac.checkValidity()).toBe(true);
+  });
+
+  it("formDisabledCallback manages the inner input one-way", async () => {
+    const { ac, input } = await mount();
+    ac.formDisabledCallback(true);
+    expect(input.disabled).toBe(true);
+    expect(ac.hasAttribute("data-disabled")).toBe(true);
+    ac.formDisabledCallback(false);
+    expect(input.disabled).toBe(false);
+    expect(ac.hasAttribute("data-disabled")).toBe(false);
+  });
+});

@@ -1,7 +1,8 @@
 /**
  * `ui-drawer` — an edge-anchored modal panel with swipe-to-dismiss (Base UI's
- * Drawer). Composes the same overlay infrastructure as `ui-dialog` (Popover top
- * layer, {@link trapFocus}, {@link lockScroll}) and adds a drag gesture: pulling
+ * Drawer). Composes the same {@link overlay} `modal` mode as `ui-dialog`
+ * (Popover top layer, {@link trapFocus}, {@link lockScroll}, outside-press
+ * dismissal) and adds only its drag gesture and keyboard-inset logic: pulling
  * the drawer toward its edge past a threshold closes it, otherwise it snaps
  * back. `role="dialog"` + `aria-modal="true"`; the `side` attribute
  * (`left`/`right`/`top`/`bottom`, default `right`) is reflected as `data-side`
@@ -11,40 +12,38 @@
  * `<ui-drawer-popup>` and — to enable swipe — a `[data-drawer-handle]` inside
  * it (drag toward the edge to dismiss). A `[data-drawer-swipe]` edge zone
  * (present while closed) is the inverse: dragging inward from it reveals and
- * opens the drawer. `[data-drawer-close]` elements close on click.
+ * opens the drawer. `[data-drawer-close]` elements close on click. Like
+ * `ui-dialog`, a `static` drawer suppresses Escape + outside-press dismissal
+ * and closes only through an explicit in-drawer action.
  *
  * While open the drawer tracks the visual viewport and publishes
  * `--drawer-keyboard-inset` (the px an on-screen keyboard overlaps the layout
  * viewport) so a `bottom` drawer can lift its content above the keyboard.
  */
+import { define } from "./define.ts";
 import { connectLightDom } from "./lifecycle.ts";
-import { onOutsidePress } from "./dismiss.ts";
-import { trapFocus } from "./focus-trap.ts";
-import { nextId } from "./id.ts";
-import { lockScroll } from "./scroll-lock.ts";
-import { runExit, setOpenState } from "./transitions.ts";
-
-type Side = "left" | "right" | "top" | "bottom";
+import { type Overlay, overlay } from "./overlay.ts";
 
 export class UIDrawer extends HTMLElement {
   #trigger: HTMLElement | null = null;
   #popup: HTMLElement | null = null;
   #wired = false;
-  #isOpen = false;
-  #releaseFocus: ((restoreFocus?: boolean) => void) | null = null;
-  #unlockScroll: (() => void) | null = null;
-  #stopDismiss: (() => void) | null = null;
+  #overlay: Overlay | null = null;
   #dragMode: "open" | "close" | null = null;
   #dragOrigin = 0;
 
-  get open(): boolean {
-    return this.#isOpen;
+  get open() {
+    return this.#overlay?.open ?? false;
   }
-  get side(): Side {
+  /** When set, suppress Escape + outside-press dismissal (same as `ui-dialog`). */
+  get static() {
+    return this.hasAttribute("static");
+  }
+  get side() {
     const s = this.getAttribute("side");
     return s === "left" || s === "top" || s === "bottom" ? s : "right";
   }
-  get #horizontal(): boolean {
+  get #horizontal() {
     return this.side === "left" || this.side === "right";
   }
 
@@ -62,7 +61,6 @@ export class UIDrawer extends HTMLElement {
     if (!this.#popup) return;
     this.#wired = true;
 
-    if (!this.#popup.id) this.#popup.id = nextId("ui-drawer-popup");
     this.#popup.setAttribute("role", "dialog");
     this.#popup.setAttribute("aria-modal", "true");
     this.#popup.setAttribute("popover", "manual");
@@ -70,15 +68,7 @@ export class UIDrawer extends HTMLElement {
     this.#popup.setAttribute("data-side", this.side);
     this.#applyOffset(0);
 
-    if (this.#trigger) {
-      if (this.#trigger instanceof HTMLButtonElement && !this.#trigger.hasAttribute("type")) {
-        this.#trigger.type = "button"; // never submit an enclosing form
-      }
-      this.#trigger.setAttribute("aria-haspopup", "dialog");
-      this.#trigger.setAttribute("aria-expanded", "false");
-      this.#trigger.setAttribute("aria-controls", this.#popup.id);
-      this.#trigger.addEventListener("click", () => this.#toggle());
-    }
+    this.#trigger?.addEventListener("click", () => this.#toggle());
     this.#popup.addEventListener("keydown", this.#onKeydown);
     this.#popup.addEventListener("click", (e) => {
       if ((e.target as Element).closest("[data-drawer-close]")) this.hide();
@@ -91,6 +81,19 @@ export class UIDrawer extends HTMLElement {
       "pointerdown",
       this.#onSwipeDown,
     );
+
+    this.#overlay = overlay(this.#popup, {
+      trigger: { element: this.#trigger, haspopup: "dialog", controls: "ui-drawer-popup" },
+      modal: true,
+      // The trigger is treated as inside so its own click handler owns toggling
+      // instead of double-firing with dismissal.
+      dismiss: {
+        within: () => [this.#popup, this.#trigger],
+        onDismiss: () => this.#close(),
+        enabled: () => !this.static,
+      },
+      events: this,
+    });
   }
 
   disconnectedCallback() {
@@ -102,22 +105,9 @@ export class UIDrawer extends HTMLElement {
     // before the deferred wiring microtask has run — otherwise #popup is still
     // null and the open would silently no-op.
     if (!this.#wired) this.#wire();
-    if (this.#isOpen || !this.#popup) return;
-    this.#isOpen = true;
-    this.#trigger?.setAttribute("aria-expanded", "true");
-    this.#popup.setAttribute("data-open", "");
-    setOpenState(this.#popup, true);
+    if (!this.#overlay?.show()) return;
     this.#applyOffset(0);
-    try {
-      this.#popup.showPopover?.();
-    } catch {
-      /* not supported / already shown */
-    }
-    this.#unlockScroll = lockScroll();
-    this.#releaseFocus = trapFocus(this.#popup);
-    this.#stopDismiss = onOutsidePress([this.#popup, this.#trigger], () => this.#close());
     this.#trackKeyboard();
-    this.dispatchEvent(new CustomEvent("open", { bubbles: true }));
   }
 
   hide() {
@@ -125,7 +115,7 @@ export class UIDrawer extends HTMLElement {
   }
 
   #toggle() {
-    if (this.#isOpen) this.#close();
+    if (this.open) this.#close();
     else this.show();
   }
 
@@ -134,43 +124,22 @@ export class UIDrawer extends HTMLElement {
   }
 
   #teardown({ restoreFocus }: { restoreFocus: boolean }) {
-    if (!this.#isOpen || !this.#popup) return;
-    this.#isOpen = false;
+    if (!this.#overlay?.open) return;
     this.#endDrag();
     this.#untrackKeyboard();
-    this.#trigger?.setAttribute("aria-expanded", "false");
-    this.#popup.removeAttribute("data-open");
     this.#applyOffset(0);
-    const popup = this.#popup;
-    runExit(popup, () => {
-      if (!this.#isOpen) {
-        try {
-          popup.hidePopover?.();
-        } catch {
-          /* not supported / already hidden */
-        }
-      }
-    });
-    this.#stopDismiss?.();
-    this.#stopDismiss = null;
-    this.#unlockScroll?.();
-    this.#unlockScroll = null;
-    // Always release the trap (detaches its document keydown listener); restore
-    // focus only when closing normally, not on disconnect.
-    this.#releaseFocus?.(restoreFocus);
-    this.#releaseFocus = null;
-    this.dispatchEvent(new CustomEvent("close", { bubbles: true }));
+    this.#overlay.hide({ restoreFocus });
   }
 
   #onKeydown = (e: KeyboardEvent) => {
-    if (e.key === "Escape") {
+    if (e.key === "Escape" && !this.static) {
       e.preventDefault();
       this.#close();
     }
   };
 
   // ---- swipe gestures --------------------------------------------------
-  #size(): number {
+  #size() {
     if (!this.#popup) return 0;
     return this.#horizontal ? this.#popup.offsetWidth : this.#popup.offsetHeight;
   }
@@ -178,19 +147,19 @@ export class UIDrawer extends HTMLElement {
   // Signed drag distance along the drawer's axis: positive toward the edge
   // (closing), negative inward (opening). right/bottom close on positive
   // movement; left/top on negative.
-  #closingDistanceRaw(x: number, y: number): number {
+  #closingDistanceRaw(x: number, y: number) {
     const pos = this.#horizontal ? x : y;
     const raw = pos - this.#dragOrigin;
     return this.side === "right" || this.side === "bottom" ? raw : -raw;
   }
 
   /** Distance (px) dragged toward the edge — closes the drawer. Clamped ≥ 0. */
-  #closingDistance(x: number, y: number): number {
+  #closingDistance(x: number, y: number) {
     return Math.max(0, this.#closingDistanceRaw(x, y));
   }
 
   /** Distance (px) dragged inward from the edge — reveals the drawer. */
-  #openingDistance(x: number, y: number): number {
+  #openingDistance(x: number, y: number) {
     return Math.max(0, -this.#closingDistanceRaw(x, y));
   }
 
@@ -226,13 +195,13 @@ export class UIDrawer extends HTMLElement {
 
   // Drag the in-panel handle toward the edge to dismiss.
   #onHandleDown = (e: PointerEvent) => {
-    if (!this.#isOpen) return;
+    if (!this.open) return;
     this.#beginDrag("close", e);
   };
 
   // Drag inward from the edge swipe zone to reveal + open.
   #onSwipeDown = (e: PointerEvent) => {
-    if (this.#isOpen) return;
+    if (this.open) return;
     this.show(); // present in the top layer…
     this.#applyOffset(this.#size()); // …starting fully off-screen, then reveal on drag
     this.#beginDrag("open", e);
@@ -300,10 +269,9 @@ export class UIDrawer extends HTMLElement {
 export class UIDrawerPopup extends HTMLElement {}
 export class UIDrawerBackdrop extends HTMLElement {}
 
-if (!customElements.get("ui-drawer")) customElements.define("ui-drawer", UIDrawer);
-if (!customElements.get("ui-drawer-popup")) customElements.define("ui-drawer-popup", UIDrawerPopup);
-if (!customElements.get("ui-drawer-backdrop"))
-  customElements.define("ui-drawer-backdrop", UIDrawerBackdrop);
+define("ui-drawer", UIDrawer);
+define("ui-drawer-popup", UIDrawerPopup);
+define("ui-drawer-backdrop", UIDrawerBackdrop);
 
 declare global {
   interface HTMLElementTagNameMap {

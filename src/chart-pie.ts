@@ -44,13 +44,14 @@
  * `chart-shape.ts`'s `arcPath` has no support for it (see its own module doc).
  */
 import {
-  type MarkDescriptor,
   type SeriesTypeDefinition,
+  numberAttribute,
   registerSeriesType,
   toNumeric,
 } from "./chart-core.ts";
 import { SERIES_ATTRIBUTES, UIChartSeries } from "./chart-series.ts";
 import { arcPath, pieAngles } from "./chart-shape.ts";
+import { define } from "./define.ts";
 
 const DEGREES_TO_RADIANS = Math.PI / 180;
 
@@ -65,39 +66,37 @@ export class UIChartPie extends UIChartSeries {
     "sort",
   ];
 
-  protected readonly seriesType = "pie";
+  readonly type = "pie";
 
-  get innerRadius(): number {
-    return Number(this.getAttribute("inner-radius") ?? 0);
+  get innerRadius() {
+    return numberAttribute(this, "inner-radius") ?? 0;
   }
 
   /** `undefined` when unauthored — `computeMarks` then fits the outer radius to the plot (see class doc). */
-  get outerRadius(): number | undefined {
-    return this.hasAttribute("outer-radius")
-      ? Number(this.getAttribute("outer-radius"))
-      : undefined;
+  get outerRadius() {
+    return numberAttribute(this, "outer-radius");
   }
 
-  get padAngle(): number {
-    return Number(this.getAttribute("pad-angle") ?? 0);
+  get padAngle() {
+    return numberAttribute(this, "pad-angle") ?? 0;
   }
 
   /** Radians, converted from the authored (degrees) `start-angle` attribute. */
-  get startAngle(): number {
-    return Number(this.getAttribute("start-angle") ?? 0) * DEGREES_TO_RADIANS;
+  get startAngle() {
+    return (numberAttribute(this, "start-angle") ?? 0) * DEGREES_TO_RADIANS;
   }
 
   /** Radians, converted from the authored (degrees) `end-angle` attribute. */
-  get endAngle(): number {
-    return Number(this.getAttribute("end-angle") ?? 360) * DEGREES_TO_RADIANS;
+  get endAngle() {
+    return (numberAttribute(this, "end-angle") ?? 360) * DEGREES_TO_RADIANS;
   }
 
-  get sort(): boolean {
+  get sort() {
     return this.hasAttribute("sort");
   }
 }
 
-function pieOuterRadius(element: UIChartPie, plot: { width: number; height: number }): number {
+function pieOuterRadius(element: UIChartPie, plot: { width: number; height: number }) {
   return element.outerRadius ?? Math.max(0, Math.min(plot.width, plot.height) / 2 - 4);
 }
 
@@ -108,8 +107,8 @@ const pieSeriesType: SeriesTypeDefinition = {
   // yScale entirely and lays out directly within context.plot, so it never
   // contributes to either axis' domain.
   getExtremum: () => null,
-  computeMarks(context): MarkDescriptor[] {
-    const element = context.element;
+  computeMarks(context) {
+    const element = context.config.element;
     if (!(element instanceof UIChartPie)) return [];
     const cx = context.plot.x + context.plot.width / 2;
     const cy = context.plot.y + context.plot.height / 2;
@@ -148,7 +147,7 @@ const pieSeriesType: SeriesTypeDefinition = {
 };
 registerSeriesType(pieSeriesType);
 
-if (!customElements.get("ui-chart-pie")) customElements.define("ui-chart-pie", UIChartPie);
+define("ui-chart-pie", UIChartPie);
 
 declare global {
   interface HTMLElementTagNameMap {

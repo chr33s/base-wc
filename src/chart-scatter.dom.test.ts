@@ -1,24 +1,27 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vite-plus/test";
-import type { ChartRow, SeriesRegistration, SeriesRenderContext } from "./chart-core.ts";
+import type { ChartRow, SeriesRegistration } from "./chart-core.ts";
 import { getSeriesType } from "./chart-core.ts";
 import { linearScale } from "./chart-scale.ts";
 import "./chart.ts";
-import type { UIChart } from "./chart.ts";
 import "./chart-scatter.ts";
 
 afterEach(() => {
   document.body.innerHTML = "";
 });
 
-// `ui-chart` wires via `connectLightDom`, which defers to a microtask so a
-// component can wait for late-authored light-DOM parts. Awaiting one
-// microtask flushes it (and every child element's own `connectLightDom`
-// microtask, queued in the same tick) — every registration/render after that
-// is synchronous, so no further waiting is needed.
-async function mountChart(inner: string, size = true): Promise<UIChart> {
+// `ui-chart` wires via `connectLightDom` (a microtask) and batches its full
+// renders onto a microtask of their own — mounting K children paints once,
+// and any later mutation defers its re-render the same way. A zero-delay
+// macrotask drains all of it (wiring, registrations, observer deliveries and
+// the coalesced render), so tests assert on settled DOM.
+function flush() {
+  return new Promise((resolve) => setTimeout(resolve));
+}
+
+async function mountChart(inner: string, size = true) {
   document.body.innerHTML = `<ui-chart${size ? ' width="400" height="200"' : ""}>${inner}</ui-chart>`;
-  await Promise.resolve();
+  await flush();
   return document.querySelector("ui-chart")!;
 }
 
@@ -111,6 +114,7 @@ describe("ui-chart-scatter inside ui-chart", () => {
 
     const scatter = chart.querySelector("ui-chart-scatter")!;
     scatter.setAttribute("r", "9");
+    await flush();
     const marksUpdated = [...chart.querySelectorAll('[data-part="mark"]')];
     for (const mark of marksUpdated) expect(mark.getAttribute("r")).toBe("9");
   });
@@ -206,7 +210,7 @@ describe("ui-chart-scatter: axis-trigger hover", () => {
 });
 
 describe("scatter series type hitTest", () => {
-  function makeContext(data: ChartRow[]): SeriesRenderContext {
+  function makeContext(data: ChartRow[]) {
     const xScale = linearScale([0, 20], [0, 400]);
     const yScale = linearScale([0, 20], [200, 0]);
     const config: SeriesRegistration = {
@@ -218,7 +222,6 @@ describe("scatter series type hitTest", () => {
       hidden: false,
     };
     return {
-      element: config.element,
       config,
       data,
       xScale,

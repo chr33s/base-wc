@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import "./elements.ts";
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -233,6 +233,42 @@ describe("ui-table", () => {
       </ui-table>`);
     const cell = el.querySelector<HTMLTableCellElement>("[data-table-pagination-cell]")!;
     expect(cell.colSpan).toBe(3);
+  });
+
+  it("does not re-trigger refresh from its own sort and pagination mutations", async () => {
+    const el = await mount(`
+      <ui-table>
+        <table>
+          <thead><tr><th data-sort-key="name">Name</th></tr></thead>
+          <tbody>
+            <tr><td>Beta</td></tr>
+            <tr><td>Alpha</td></tr>
+          </tbody>
+        </table>
+      </ui-table>`);
+    const refresh = vi.spyOn(el, "refresh");
+
+    // Sorting reorders rows inside the observed subtree — with the observer
+    // paused, so no refresh loop follows.
+    el.querySelector<HTMLButtonElement>("th[data-sort-key] button")!.click();
+    await flush();
+    expect(refresh).not.toHaveBeenCalled();
+
+    // Generating (and tearing down) pagination mutates tfoot — also paused.
+    el.setAttribute("paginate", "");
+    el.setAttribute("has-next-page", "");
+    await flush();
+    expect(el.querySelector("[data-table-pagination]")).toBeTruthy();
+    el.removeAttribute("paginate");
+    await flush();
+    expect(refresh).not.toHaveBeenCalled();
+
+    // Consumer mutations still re-annotate: the observer stays armed.
+    const row = document.createElement("tr");
+    row.innerHTML = "<td>Gamma</td>";
+    el.querySelector("tbody")!.append(row);
+    await flush();
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it("re-annotates rows appended after mount via the mutation observer", async () => {

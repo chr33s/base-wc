@@ -8,13 +8,17 @@
  * `role="grid"` month view (weekday column headers + day cells) and manages 2D
  * roving focus: Arrow keys move a day/week, Home/End jump to the week's edges,
  * PageUp/PageDown change month (Shift → year), and Enter/Space select. Days
- * outside `[min, max]` are disabled. It is form-associated — used standalone with
- * a `name` it submits the ISO value — and fires `change` with `{ value }` (ISO
- * `yyyy-mm-dd`, or `null` when cleared).
+ * outside `[min, max]` are disabled. It is form-associated (via the shared
+ * {@link formControl} layer) — used standalone with a `name` it submits the ISO
+ * value, `required` reports `valueMissing` while nothing is selected, and
+ * `form.reset()` restores the initial value — and fires `change` with
+ * `{ value }` (ISO `yyyy-mm-dd`, or `null` when cleared).
  *
  * `ui-calendar-popup` is the top-layer popover shell that `ui-date-field` floats
  * a calendar in (see `date-field.ts`).
  */
+import { define } from "./define.ts";
+import { type FormControl, formControl } from "./form-control.ts";
 import { connectLightDom } from "./lifecycle.ts";
 import { nextId } from "./id.ts";
 
@@ -27,7 +31,7 @@ interface YMD {
 const pad = (n: number) => String(n).padStart(2, "0");
 const toISO = ({ y, m, d }: YMD) => `${y}-${pad(m + 1)}-${pad(d)}`;
 
-function parseISO(s: string | null | undefined): YMD | null {
+function parseISO(s: string | null | undefined) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s ?? "");
   if (!match) return null;
   const y = Number(match[1]);
@@ -43,17 +47,17 @@ function parseISO(s: string | null | undefined): YMD | null {
 const weekday = ({ y, m, d }: YMD) => new Date(Date.UTC(y, m, d)).getUTCDay();
 const daysInMonth = (y: number, m: number) => new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
 /** Shift a date by `days`, normalising month/year overflow. */
-const addDays = ({ y, m, d }: YMD, days: number): YMD => {
+const addDays = ({ y, m, d }: YMD, days: number) => {
   const dt = new Date(Date.UTC(y, m, d + days));
   return { y: dt.getUTCFullYear(), m: dt.getUTCMonth(), d: dt.getUTCDate() };
 };
-const addMonths = ({ y, m, d }: YMD, months: number): YMD => {
+const addMonths = ({ y, m, d }: YMD, months: number) => {
   const dt = new Date(Date.UTC(y, m + months, 1));
   const ny = dt.getUTCFullYear();
   const nm = dt.getUTCMonth();
   return { y: ny, m: nm, d: Math.min(d, daysInMonth(ny, nm)) };
 };
-const today = (): YMD => {
+const today = () => {
   const now = new Date();
   return { y: now.getFullYear(), m: now.getMonth(), d: now.getDate() };
 };
@@ -67,8 +71,20 @@ export class UICalendar extends HTMLElement {
   static formAssociated = true;
   static observedAttributes = ["value", "min", "max", "disabled"];
 
-  #internals: ElementInternals | null = this.attachInternals?.() ?? null;
+  #formControl: FormControl = formControl(this, {
+    value: () => this.value,
+    onReset: () => {
+      if (this.#wired) this.#select(parseISO(this.#default), false);
+    },
+    onFormDisabled: (disabled) => {
+      this.#formDisabled = disabled;
+      this.#render();
+    },
+  });
   #wired = false;
+  #formDisabled = false;
+  /** The wire-time `value` attribute — what `form.reset()` restores. */
+  #default: string | null = null;
   #uid = nextId("calendar");
   #selected: YMD | null = null;
   /** The day that owns the single tab stop (roving); drives the visible month. */
@@ -78,32 +94,50 @@ export class UICalendar extends HTMLElement {
   #wantFocus = false;
   #reflectingValue = false;
 
-  get form(): HTMLFormElement | null {
-    return this.#internals?.form ?? null;
+  get form() {
+    return this.#formControl.form;
   }
-  get name(): string | null {
+  get name() {
     return this.getAttribute("name");
   }
-  get disabled(): boolean {
-    return this.hasAttribute("disabled");
+  get disabled() {
+    return this.hasAttribute("disabled") || this.#formDisabled;
   }
-  get value(): string | null {
+  get validity() {
+    return this.#formControl.validity;
+  }
+  get validationMessage() {
+    return this.#formControl.validationMessage;
+  }
+  checkValidity() {
+    return this.#formControl.checkValidity();
+  }
+  reportValidity() {
+    return this.#formControl.reportValidity();
+  }
+  formResetCallback() {
+    this.#formControl.handleReset();
+  }
+  formDisabledCallback(disabled: boolean) {
+    this.#formControl.handleDisabled(disabled);
+  }
+  get value() {
     return this.#selected ? toISO(this.#selected) : null;
   }
   set value(next: string | null) {
     this.#select(parseISO(next), false);
   }
 
-  #min(): YMD | null {
+  #min() {
     return parseISO(this.getAttribute("min"));
   }
-  #max(): YMD | null {
+  #max() {
     return parseISO(this.getAttribute("max"));
   }
-  #locale(): string | undefined {
+  #locale() {
     return this.getAttribute("locale") ?? undefined;
   }
-  #firstDayOfWeek(): number {
+  #firstDayOfWeek() {
     return (Number(this.getAttribute("first-day-of-week")) || 0) % 7;
   }
 
@@ -126,9 +160,10 @@ export class UICalendar extends HTMLElement {
 
   #wire() {
     this.#wired = true;
-    this.#selected = parseISO(this.getAttribute("value"));
+    this.#default = this.getAttribute("value");
+    this.#selected = parseISO(this.#default);
     this.#focus = this.#selected ?? this.#clampToRange(today());
-    if (this.#selected) this.#internals?.setFormValue(toISO(this.#selected));
+    this.#formControl.setValue(this.value);
 
     const header = document.createElement("div");
     header.setAttribute("data-calendar-header", "");
@@ -161,7 +196,7 @@ export class UICalendar extends HTMLElement {
     return btn;
   }
 
-  #clampToRange(date: YMD): YMD {
+  #clampToRange(date: YMD) {
     const min = this.#min();
     const max = this.#max();
     if (min && toISO(date) < toISO(min)) return min;
@@ -169,7 +204,7 @@ export class UICalendar extends HTMLElement {
     return date;
   }
 
-  #isDisabled(date: YMD): boolean {
+  #isDisabled(date: YMD) {
     const min = this.#min();
     const max = this.#max();
     const iso = toISO(date);
@@ -274,7 +309,7 @@ export class UICalendar extends HTMLElement {
     this.#selected = date;
     if (date) {
       this.#focus = date;
-      this.#internals?.setFormValue(toISO(date));
+      this.#formControl.setValue(toISO(date));
       if (reflectValue && this.getAttribute("value") !== toISO(date)) {
         this.#reflectingValue = true;
         try {
@@ -284,7 +319,7 @@ export class UICalendar extends HTMLElement {
         }
       }
     } else {
-      this.#internals?.setFormValue(null);
+      this.#formControl.setValue(null);
       if (reflectValue && this.hasAttribute("value")) {
         this.#reflectingValue = true;
         try {
@@ -362,9 +397,8 @@ export class UICalendarPopup extends HTMLElement {
   }
 }
 
-if (!customElements.get("ui-calendar")) customElements.define("ui-calendar", UICalendar);
-if (!customElements.get("ui-calendar-popup"))
-  customElements.define("ui-calendar-popup", UICalendarPopup);
+define("ui-calendar", UICalendar);
+define("ui-calendar-popup", UICalendarPopup);
 
 declare global {
   interface HTMLElementTagNameMap {

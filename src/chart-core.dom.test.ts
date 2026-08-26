@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vite-plus/test";
-import type { ChartState } from "./chart-core.ts";
+import type { ChartInvalidation } from "./chart-core.ts";
 import {
   ChartStore,
   getSeriesType,
@@ -18,7 +18,7 @@ import {
 
 const ITEM_GLOBAL = { highlight: "item", fade: "global" } as const;
 
-function tableFrom(html: string): HTMLTableElement {
+function tableFrom(html: string) {
   document.body.innerHTML = html;
   return document.querySelector("table")!;
 }
@@ -218,37 +218,36 @@ describe("stackSeries", () => {
 });
 
 describe("ChartStore", () => {
-  it("notifies subscribers with the merged state on setState", () => {
-    const store = new ChartStore({ width: 10 });
+  it("notifies subscribers synchronously with the invalidation kind, until unsubscribed", () => {
+    const store = new ChartStore();
     const listener = vi.fn();
     const unsubscribe = store.subscribe(listener);
-    store.setState({ height: 20 });
+    store.state.width = 10;
+    store.notify("size");
     expect(listener).toHaveBeenCalledTimes(1);
-    expect(store.getState()).toMatchObject({ width: 10, height: 20 });
+    expect(listener).toHaveBeenCalledWith("size");
+    expect(store.state.width).toBe(10);
     unsubscribe();
-    store.setState({ height: 30 });
+    store.notify("size");
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
-  it("hands each listener the patch alongside the merged state", () => {
-    // `ui-chart` and `ui-chart-legend` both key off the patch: a highlight-only
-    // change re-applies state attributes instead of re-rendering, and a
-    // `series` patch is what tells the legend its list moved on.
+  it("hands each listener the kind of change — `ui-chart` handles highlight synchronously and batches the rest; `ui-chart-legend` rebuilds on registry", () => {
     const store = new ChartStore();
-    const patches: Array<Partial<ChartState>> = [];
-    store.subscribe((_state, patch) => patches.push(patch));
+    const kinds: ChartInvalidation[] = [];
+    store.subscribe((kind) => kinds.push(kind));
 
-    store.setState({ width: 10, height: 20 });
-    store.setState({ highlight: { index: 2, series: null } });
+    store.state.highlight = { index: 2, series: null };
+    store.notify("highlight");
+    store.notify("registry");
 
-    expect(patches[0]).toEqual({ width: 10, height: 20 });
-    expect(Object.keys(patches[1]!)).toEqual(["highlight"]);
-    expect(store.getState().width).toBe(10);
+    expect(kinds).toEqual(["highlight", "registry"]);
+    expect(store.state.highlight.index).toBe(2);
   });
 
   it("starts with sane empty defaults", () => {
     const store = new ChartStore();
-    expect(store.getState()).toEqual({
+    expect(store.state).toEqual({
       data: [],
       width: 0,
       height: 0,

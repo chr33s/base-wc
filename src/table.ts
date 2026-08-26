@@ -8,6 +8,7 @@
  * a row to an existing in-row primary action.
  */
 import { connectLightDom } from "./lifecycle.ts";
+import { define } from "./define.ts";
 
 export type UITableVariant = "auto" | "list" | "table";
 export type UITableSortDirection = "ascending" | "descending";
@@ -60,13 +61,13 @@ const NEXT = "[data-table-next]";
 const isCheckbox = (value: Element | null): value is HTMLInputElement =>
   value instanceof HTMLInputElement && value.type === "checkbox";
 
-const normalizeVariant = (value: string | null): UITableVariant =>
+const normalizeVariant = (value: string | null) =>
   value === "list" || value === "table" ? value : "auto";
 
-const normalizeFormat = (value: string | null): UITableHeaderFormat =>
+const normalizeFormat = (value: string | null) =>
   value === "numeric" || value === "currency" ? value : "base";
 
-const normalizeListSlot = (value: string | null): UITableListSlot => {
+const normalizeListSlot = (value: string | null) => {
   if (
     value === "primary" ||
     value === "secondary" ||
@@ -79,7 +80,7 @@ const normalizeListSlot = (value: string | null): UITableListSlot => {
   return "labeled";
 };
 
-const numberValue = (text: string): number => {
+const numberValue = (text: string) => {
   const parsed = Number(text.replace(/[^0-9.-]+/g, ""));
   return Number.isFinite(parsed) ? parsed : 0;
 };
@@ -98,42 +99,42 @@ export class UITable extends HTMLElement {
   #generatedPagination: HTMLElement | null = null;
   #mutation: MutationObserver | null = null;
 
-  get variant(): UITableVariant {
+  get variant() {
     return normalizeVariant(this.getAttribute("variant"));
   }
   set variant(next: UITableVariant) {
     this.setAttribute("variant", next);
   }
 
-  get loading(): boolean {
+  get loading() {
     return this.hasAttribute("loading");
   }
   set loading(next: boolean) {
     this.toggleAttribute("loading", next);
   }
 
-  get paginate(): boolean {
+  get paginate() {
     return this.hasAttribute("paginate");
   }
   set paginate(next: boolean) {
     this.toggleAttribute("paginate", next);
   }
 
-  get hasPreviousPage(): boolean {
+  get hasPreviousPage() {
     return this.hasAttribute("has-previous-page");
   }
   set hasPreviousPage(next: boolean) {
     this.toggleAttribute("has-previous-page", next);
   }
 
-  get hasNextPage(): boolean {
+  get hasNextPage() {
     return this.hasAttribute("has-next-page");
   }
   set hasNextPage(next: boolean) {
     this.toggleAttribute("has-next-page", next);
   }
 
-  get selectedValues(): ReadonlyArray<string> {
+  get selectedValues() {
     return this.#rowBoxes()
       .filter((box) => box.checked)
       .map((box) => box.value);
@@ -163,13 +164,13 @@ export class UITable extends HTMLElement {
 
   /** Re-read table headers/rows after the consumer changes table structure. */
   refresh() {
-    this.#mutation?.disconnect();
-    this.#table = this.querySelector("table");
-    this.#ensureControls();
-    this.#annotateCells();
-    this.#syncSelection(false);
-    this.#sync();
-    this.#observe();
+    this.#withObserverPaused(() => {
+      this.#table = this.querySelector("table");
+      this.#ensureControls();
+      this.#annotateCells();
+      this.#syncSelection(false);
+      this.#sync();
+    });
   }
 
   #wire() {
@@ -185,6 +186,20 @@ export class UITable extends HTMLElement {
     }
   }
 
+  /**
+   * Run `fn` with the structural MutationObserver paused, so our own DOM edits
+   * (sorting rows, generating controls/pagination) do not self-trigger a
+   * redundant `refresh()`.
+   */
+  #withObserverPaused(fn: () => void) {
+    this.#mutation?.disconnect();
+    try {
+      fn();
+    } finally {
+      this.#observe();
+    }
+  }
+
   #sync() {
     this.dataset.variant = this.variant;
     this.toggleAttribute("data-loading", this.loading);
@@ -192,12 +207,12 @@ export class UITable extends HTMLElement {
     if (this.#wired) this.#syncPagination();
   }
 
-  #headers(): HTMLTableCellElement[] {
+  #headers() {
     const row = this.#headerRow();
     return row ? this.#cells(row) : [];
   }
 
-  #headerRow(): HTMLTableRowElement | null {
+  #headerRow() {
     const thead = this.#table?.tHead;
     if (!thead) return null;
     return (
@@ -207,29 +222,34 @@ export class UITable extends HTMLElement {
     );
   }
 
-  #bodyRows(): HTMLTableRowElement[] {
+  #bodyRows() {
     return this.#table?.tBodies[0]
       ? Array.from(this.#table.tBodies[0].querySelectorAll<HTMLTableRowElement>("tr"))
       : [];
   }
 
-  #cells(row: Element): HTMLTableCellElement[] {
+  #cells(row: Element) {
     return Array.from(row.children).filter(
       (child): child is HTMLTableCellElement => child instanceof HTMLTableCellElement,
     );
   }
 
-  #columnCount(): number {
+  #columnCount() {
     const headerCount = this.#headers().length;
     if (headerCount > 0) return headerCount;
     return Math.max(1, ...this.#bodyRows().map((row) => this.#cells(row).length));
   }
 
-  #rowBoxes(): HTMLInputElement[] {
+  /** Stretch a generated controls/pagination cell across every data column. */
+  #spanAllColumns(cell: HTMLTableCellElement | null | undefined) {
+    if (cell) cell.colSpan = this.#columnCount();
+  }
+
+  #rowBoxes() {
     return [...this.querySelectorAll<HTMLInputElement>(SELECT_ROW)];
   }
 
-  #selectAll(): HTMLInputElement | null {
+  #selectAll() {
     return this.querySelector<HTMLInputElement>(SELECT_ALL);
   }
 
@@ -255,13 +275,13 @@ export class UITable extends HTMLElement {
     }
   }
 
-  #movableControls(selector: string): HTMLElement[] {
+  #movableControls(selector: string) {
     return Array.from(this.querySelectorAll<HTMLElement>(selector)).filter(
       (item) => !item.closest(CONTROLS),
     );
   }
 
-  #controlsContainer(): HTMLElement {
+  #controlsContainer() {
     const table = this.#table!;
     const thead = table.tHead ?? table.createTHead();
     let row = thead.querySelector<HTMLTableRowElement>(CONTROLS_ROW);
@@ -277,7 +297,7 @@ export class UITable extends HTMLElement {
       cell.setAttribute("data-table-controls-cell", "");
       row.append(cell);
     }
-    cell.colSpan = this.#columnCount();
+    this.#spanAllColumns(cell);
 
     let controls = cell.querySelector<HTMLElement>(CONTROLS);
     if (!controls) {
@@ -291,9 +311,7 @@ export class UITable extends HTMLElement {
   #annotateCells() {
     const headers = this.#headers();
     this.#headerRow()?.setAttribute("data-table-header-row", "");
-    this.#table
-      ?.querySelector<HTMLTableCellElement>(CONTROLS_CELL)
-      ?.setAttribute("colspan", String(this.#columnCount()));
+    this.#spanAllColumns(this.#table?.querySelector<HTMLTableCellElement>(CONTROLS_CELL));
     headers.forEach((header) => {
       const sortable = header.hasAttribute("data-sort-key");
       header.toggleAttribute("data-sortable", sortable);
@@ -328,11 +346,11 @@ export class UITable extends HTMLElement {
     header.append(button);
   }
 
-  #headerFormat(header: Element): UITableHeaderFormat {
+  #headerFormat(header: Element) {
     return normalizeFormat(header.getAttribute("data-format") ?? header.getAttribute("format"));
   }
 
-  #headerListSlot(header: Element): UITableListSlot {
+  #headerListSlot(header: Element) {
     return normalizeListSlot(header.getAttribute("data-list-slot"));
   }
 
@@ -358,14 +376,14 @@ export class UITable extends HTMLElement {
       return direction === "ascending" ? compared : -compared;
     });
 
-    this.#mutation?.disconnect();
-    for (const item of headers) {
-      if (item.hasAttribute("data-sort-key")) item.setAttribute("aria-sort", "none");
-      else item.removeAttribute("aria-sort");
-    }
-    header.setAttribute("aria-sort", direction);
-    for (const row of rows) tbody.appendChild(row);
-    this.#observe();
+    this.#withObserverPaused(() => {
+      for (const item of headers) {
+        if (item.hasAttribute("data-sort-key")) item.setAttribute("aria-sort", "none");
+        else item.removeAttribute("aria-sort");
+      }
+      header.setAttribute("aria-sort", direction);
+      for (const row of rows) tbody.appendChild(row);
+    });
 
     this.dispatchEvent(
       new CustomEvent<UITableSortDetail>("sort", {
@@ -423,10 +441,7 @@ export class UITable extends HTMLElement {
 
   #syncPagination() {
     if (!this.#table) return;
-    // Bracket the structural mutations so building/removing pagination in the
-    // observed subtree does not self-trigger a redundant refresh() (as #sort does).
-    this.#mutation?.disconnect();
-    try {
+    this.#withObserverPaused(() => {
       let pagination = this.querySelector<HTMLElement>(PAGINATION);
       if (!this.paginate) {
         const row = this.#generatedPagination?.closest(PAGINATION_ROW);
@@ -444,14 +459,9 @@ export class UITable extends HTMLElement {
       const cell = this.#paginationCell(pagination);
       if (cell && pagination.parentElement !== cell) cell.append(pagination);
       pagination.removeAttribute("hidden");
-      this.#setControlDisabled(
-        pagination.querySelector(PREVIOUS),
-        !this.hasPreviousPage || this.loading,
-      );
-      this.#setControlDisabled(pagination.querySelector(NEXT), !this.hasNextPage || this.loading);
-    } finally {
-      this.#observe();
-    }
+      this.#setControlDisabled(pagination.querySelector(PREVIOUS), this.#pageDisabled("previous"));
+      this.#setControlDisabled(pagination.querySelector(NEXT), this.#pageDisabled("next"));
+    });
   }
 
   #buildPagination() {
@@ -473,10 +483,10 @@ export class UITable extends HTMLElement {
     return pagination;
   }
 
-  #paginationCell(pagination: HTMLElement): HTMLTableCellElement | null {
+  #paginationCell(pagination: HTMLElement) {
     const existing = pagination.closest("tfoot th, tfoot td");
     if (existing instanceof HTMLTableCellElement && this.#table?.contains(existing)) {
-      existing.colSpan = this.#columnCount();
+      this.#spanAllColumns(existing);
       return existing;
     }
 
@@ -494,7 +504,7 @@ export class UITable extends HTMLElement {
       cell.setAttribute("data-table-pagination-cell", "");
       row.append(cell);
     }
-    cell.colSpan = this.#columnCount();
+    this.#spanAllColumns(cell);
     return cell;
   }
 
@@ -506,12 +516,14 @@ export class UITable extends HTMLElement {
     }
   }
 
+  /** Whether paging in `direction` is currently unavailable — the one predicate
+   * behind both the rendered button state and the `#page` event guard. */
+  #pageDisabled(direction: "previous" | "next") {
+    return (direction === "previous" ? !this.hasPreviousPage : !this.hasNextPage) || this.loading;
+  }
+
   #page(direction: "previous" | "next") {
-    const disabled =
-      direction === "previous"
-        ? !this.hasPreviousPage || this.loading
-        : !this.hasNextPage || this.loading;
-    if (disabled) return;
+    if (this.#pageDisabled(direction)) return;
     this.dispatchEvent(
       new CustomEvent<UITablePageDetail>(direction === "previous" ? "previouspage" : "nextpage", {
         bubbles: true,
@@ -554,7 +566,7 @@ export class UITable extends HTMLElement {
   };
 }
 
-if (!customElements.get("ui-table")) customElements.define("ui-table", UITable);
+define("ui-table", UITable);
 
 declare global {
   interface HTMLElementTagNameMap {

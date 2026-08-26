@@ -37,7 +37,6 @@
  */
 import {
   type MarkDescriptor,
-  type SeriesRegistration,
   type SeriesRenderContext,
   type SeriesTypeDefinition,
   mergeExtent,
@@ -48,19 +47,16 @@ import {
 import { isDiscreteScale } from "./chart-scale.ts";
 import { SERIES_ATTRIBUTES, UIChartSeries } from "./chart-series.ts";
 import { round } from "./chart-shape.ts";
+import { define } from "./define.ts";
 
 export class UIChartBar extends UIChartSeries {
   static observedAttributes = [...SERIES_ATTRIBUTES, "stack"];
 
-  protected readonly seriesType = "bar";
+  readonly type = "bar";
 
-  /** The stack group this bar belongs to. An empty attribute is not an id — `stack=""` means unstacked, not "stack with every other series that left it empty". */
-  get stack(): string | undefined {
+  /** The stack group this bar belongs to — a registration field like the shared ones. An empty attribute is not an id — `stack=""` means unstacked, not "stack with every other series that left it empty". */
+  get stack() {
     return this.getAttribute("stack") || undefined;
-  }
-
-  protected override seriesFields(): Partial<SeriesRegistration> {
-    return { stack: this.stack };
   }
 }
 
@@ -68,7 +64,7 @@ export class UIChartBar extends UIChartSeries {
 // "bar" series-type renderer
 // ---------------------------------------------------------------------------
 
-function computeBarMarks(context: SeriesRenderContext): MarkDescriptor[] {
+function computeBarMarks(context: SeriesRenderContext) {
   const { xScale, yScale, data, categoryKey, config, stacked, groupIndex, groupCount } = context;
   if (!xScale || !yScale) return [];
   if (!isDiscreteScale(xScale) || isDiscreteScale(yScale)) return [];
@@ -105,22 +101,23 @@ function computeBarMarks(context: SeriesRenderContext): MarkDescriptor[] {
 const barSeriesType: SeriesTypeDefinition = {
   type: "bar",
   stacks: true,
-  getExtremum(data, key, dim) {
+  getExtremum(data, series, dim) {
     if (dim === "x") return null;
     // A bar's baseline is always 0 (see computeBarMarks), regardless of the
     // data's own range — so 0 must always be inside the value-axis domain,
     // or a bar from y=0 up to its value extrapolates far outside the plot on
     // an axis whose aggregated domain excludes 0 (e.g. data spanning
     // [101, 134] with no explicit axis min/max). Unconditional: every bar
-    // needs this, unlike a plain line, which should not be forced to zero.
-    return mergeExtent([0, 0], numericExtent(data, key));
+    // needs this, unlike a plain line, which only shares this rule once its
+    // `area` fills to the same baseline (see chart-line.ts).
+    return mergeExtent([0, 0], numericExtent(data, series.key));
   },
   computeMarks: computeBarMarks,
 };
 
 registerSeriesType(barSeriesType);
 
-if (!customElements.get("ui-chart-bar")) customElements.define("ui-chart-bar", UIChartBar);
+define("ui-chart-bar", UIChartBar);
 
 declare global {
   interface HTMLElementTagNameMap {

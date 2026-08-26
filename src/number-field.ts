@@ -3,8 +3,10 @@
  * The inner input is a `role="spinbutton"` carrying `aria-valuenow/min/max`;
  * increment/decrement buttons and the Arrow/Page/Home/End keys step the value,
  * which is clamped to `[min, max]` and snapped to `step`. It is
- * **form-associated** — the committed value submits under `name`. Typing is left
- * free-form and only clamped/snapped on commit (blur, Enter, or a step).
+ * **form-associated** — the committed value submits under `name`, `required`
+ * reports `valueMissing` while empty, and `form.reset()` restores the initial
+ * value. Typing is left free-form and only clamped/snapped on commit (blur,
+ * Enter, or a step).
  *
  * Markup: `[data-number-input]` plus optional `[data-number-increment]` /
  * `[data-number-decrement]` buttons and a `[data-number-scrub]` area — dragging
@@ -19,71 +21,140 @@
  * increment/decrement buttons (via `stepUp()`/`stepDown()`) and the scrub area,
  * and reflects the buttons' disabled state at the bounds; `ElementInternals`,
  * the `role`/keyboard override, and clamp/snap-on-blur are **not** used (they are
- * the standalone control's behaviour). With a non-`number` input it is the
- * standalone spinbutton described above.
+ * the standalone control's behaviour). The mode is decided once at wire time and
+ * captured in a small strategy object (`#mode`); with a non-`number` input it is
+ * the standalone spinbutton described above.
  */
+import { define } from "./define.ts";
+import { type FormControl, formControl } from "./form-control.ts";
 import { connectLightDom } from "./lifecycle.ts";
-import { fireNativeChange } from "./native.ts";
+import { clampSnap } from "./math.ts";
+import { adoptedControl, fireNativeChange } from "./native.ts";
+import { trackPointerDrag } from "./pointer-drag.ts";
+import { scopedQuery } from "./query.ts";
+
+/** The mode-dependent surface, bound once at wire time. */
+interface NumberMode {
+  form(): HTMLFormElement | null;
+  name(): string | null;
+  get(): number | null;
+  /** Programmatic set — never dispatches events (native value-setter contract). */
+  set(n: number | null): void;
+  disabled(): boolean;
+  /** Raw `min`/`max` source (host attributes vs the adopted input). */
+  bound(attr: "min" | "max"): string | null;
+  /** Apply a signed number of steps (stepper buttons / scrub area). */
+  step(steps: number): void;
+}
 
 export class UINumberField extends HTMLElement {
   static formAssociated = true;
   static observedAttributes = ["disabled"];
 
-  #internals: ElementInternals | null = this.attachInternals?.() ?? null;
+  #formControl: FormControl = formControl(this, {
+    adopted: () => this.#nativeMode,
+    value: () => (this.#wired ? this.#input.value : null),
+    onReset: () => this.#onFormReset(),
+    onFormDisabled: (disabled) => {
+      this.#formDisabled = disabled;
+      if (this.#wired) this.#applyDisabled();
+    },
+  });
   #input!: HTMLInputElement;
   #inc: HTMLElement | null = null;
   #dec: HTMLElement | null = null;
   #scrub: HTMLElement | null = null;
   /** True when the inner input is a native `type="number"` (native-first mode). */
-  #native = false;
+  #nativeMode = false;
   #wired = false;
   #value: number | null = null;
-  #scrubbing = false;
+  #formDisabled = false;
+  /** Whether *we* disabled the inner input (so we may re-enable it later). */
+  #managedDisabled = false;
   #scrubAccum = 0;
+  #disposeScrub: (() => void) | null = null;
 
-  get form(): HTMLFormElement | null {
-    return this.#native ? this.#input.form : (this.#internals?.form ?? null);
+  /**
+   * Standalone (`ElementInternals`) strategy — also the pre-wire default, since
+   * every branch degrades safely before the parts exist. `#wire` swaps in the
+   * native strategy when it adopts a `type="number"` input.
+   */
+  #mode: NumberMode = {
+    form: () => this.#formControl.form,
+    name: () => this.getAttribute("name"),
+    get: () => this.#value,
+    set: (n) => this.#commit(n, false),
+    disabled: () => this.hasAttribute("disabled") || this.#formDisabled,
+    bound: (attr) => this.getAttribute(attr),
+    step: (steps) => this.#stepBy(steps, false),
+  };
+
+  /** Native-first strategy: the adopted input is the source of truth. */
+  #nativeStrategy(input: HTMLInputElement): NumberMode {
+    return {
+      form: () => input.form,
+      name: () => input.name,
+      get: () => (input.value === "" ? null : Number(input.value)),
+      set: (n) => {
+        input.value = n == null ? "" : String(n);
+        this.#reflectButtons();
+      },
+      disabled: () => input.disabled || this.#formDisabled,
+      bound: (attr) => input[attr],
+      step: (steps) => this.#nativeStep(steps),
+    };
   }
-  get name(): string | null {
-    return this.#native ? this.#input.name : this.getAttribute("name");
+
+  get form() {
+    return this.#mode.form();
   }
-  get value(): number | null {
-    if (!this.#native) return this.#value;
-    return this.#input.value === "" ? null : Number(this.#input.value);
+  get name() {
+    return this.#mode.name();
+  }
+  get value() {
+    return this.#mode.get();
   }
   set value(next: number | null) {
-    if (!this.#native) {
-      this.#commit(next, false);
-      return;
-    }
-    this.#input.value = next == null ? "" : String(next);
-    // `#emitNative`'s `input` dispatch already re-runs `#reflectButtons` via the
-    // listener wired in `#wireNative`, so don't call it a second time here.
-    this.#emitNative();
+    this.#mode.set(next);
   }
-  get disabled(): boolean {
-    // Native-first: `disabled` naturally lives on the adopted input, so read it
-    // there; standalone reflects the host attribute.
-    return this.#native ? this.#input.disabled : this.hasAttribute("disabled");
+  get disabled() {
+    return this.#mode.disabled();
+  }
+  get validity() {
+    return this.#formControl.validity;
+  }
+  get validationMessage() {
+    return this.#formControl.validationMessage;
+  }
+  checkValidity() {
+    return this.#formControl.checkValidity();
+  }
+  reportValidity() {
+    return this.#formControl.reportValidity();
+  }
+  formResetCallback() {
+    this.#formControl.handleReset();
+  }
+  formDisabledCallback(disabled: boolean) {
+    this.#formControl.handleDisabled(disabled);
   }
 
-  #min(): number | null {
-    // Native-first: min/max live on the adopted input; standalone: on the host.
-    const raw = this.#native ? this.#input.min : this.getAttribute("min");
+  #min() {
+    const raw = this.#mode.bound("min");
     return raw == null || raw === "" ? null : Number(raw);
   }
-  #max(): number | null {
-    const raw = this.#native ? this.#input.max : this.getAttribute("max");
+  #max() {
+    const raw = this.#mode.bound("max");
     return raw == null || raw === "" ? null : Number(raw);
   }
-  #step(): number {
+  #step() {
     return Number(this.getAttribute("step") ?? 1) || 1;
   }
-  #largeStep(): number {
+  #largeStep() {
     const raw = this.getAttribute("large-step");
     return raw == null || raw === "" ? this.#step() * 10 : Number(raw);
   }
-  #pixelsPerStep(): number {
+  #pixelsPerStep() {
     return Number(this.getAttribute("scrub-sensitivity") ?? 8) || 8;
   }
 
@@ -96,27 +167,33 @@ export class UINumberField extends HTMLElement {
   }
 
   #wire() {
+    // Adoption-scoped queries: an input (or part) belonging to a *nested*
+    // component inside our light DOM must never be wired as ours.
     const input =
-      this.querySelector<HTMLInputElement>("[data-number-input]") ??
-      this.querySelector<HTMLInputElement>("input");
+      adoptedControl<HTMLInputElement>(this, "[data-number-input]") ??
+      adoptedControl<HTMLInputElement>(this, "input");
     if (!input) return;
     this.#input = input;
-    this.#inc = this.querySelector<HTMLElement>("[data-number-increment]");
-    this.#dec = this.querySelector<HTMLElement>("[data-number-decrement]");
-    this.#scrub = this.querySelector<HTMLElement>("[data-number-scrub]");
+    this.#inc = scopedQuery(this, "[data-number-increment]")[0] ?? null;
+    this.#dec = scopedQuery(this, "[data-number-decrement]")[0] ?? null;
+    this.#scrub = scopedQuery(this, "[data-number-scrub]")[0] ?? null;
     this.#wired = true;
+    this.#wireScrub();
 
     // Native-first: a `type="number"` input is the control (typing/arrows/spinner
     // /min/max/step/submission are native); we only add the custom steppers + scrub.
-    this.#native = input.type === "number";
-    if (this.#native) return this.#wireNative();
+    this.#nativeMode = input.type === "number";
+    if (this.#nativeMode) {
+      this.#mode = this.#nativeStrategy(input);
+      return this.#wireNative();
+    }
 
     input.setAttribute("role", "spinbutton");
     if (!input.hasAttribute("inputmode")) input.setAttribute("inputmode", "decimal");
     input.setAttribute("autocomplete", "off");
     // A disabled field must not be editable from the keyboard either — a
     // disabled input can't be focused, so it fires no input/keydown/blur.
-    input.disabled = this.disabled;
+    this.#applyDisabled();
     const min = this.#min();
     const max = this.#max();
     if (min != null) input.setAttribute("aria-valuemin", String(min));
@@ -126,7 +203,6 @@ export class UINumberField extends HTMLElement {
     input.addEventListener("blur", this.#onBlur);
     this.#inc?.addEventListener("click", () => this.#stepBy(1, false));
     this.#dec?.addEventListener("click", () => this.#stepBy(-1, false));
-    this.#scrub?.addEventListener("pointerdown", this.#onScrubDown);
 
     this.#commit(this.#parse(this.getAttribute("value") ?? input.value), false);
   }
@@ -138,14 +214,12 @@ export class UINumberField extends HTMLElement {
    * buttons' disabled state at the bounds.
    */
   #wireNative() {
-    const input = this.#input;
     // Honor a `disabled` authored on either the host or the native input itself;
-    // don't clobber an input the author disabled directly.
-    if (this.hasAttribute("disabled")) input.disabled = true;
+    // never clobber an input the author disabled directly.
+    this.#applyDisabled();
     this.#inc?.addEventListener("click", () => this.#nativeStep(1));
     this.#dec?.addEventListener("click", () => this.#nativeStep(-1));
-    this.#scrub?.addEventListener("pointerdown", this.#onScrubDown);
-    input.addEventListener("input", this.#reflectButtons);
+    this.#input.addEventListener("input", this.#reflectButtons);
     this.#reflectButtons();
   }
 
@@ -153,80 +227,84 @@ export class UINumberField extends HTMLElement {
     if (this.disabled || steps === 0) return;
     const method = steps > 0 ? "stepUp" : "stepDown";
     for (let i = 0; i < Math.abs(steps); i++) this.#input[method]();
-    this.#emitNative();
-  }
-
-  #emitNative() {
-    if (!this.#native) return;
+    // Stepping emulates user input, so fire the events a form expects from it
+    // (unlike the programmatic value setter, which stays silent).
     fireNativeChange(this.#input);
   }
 
-  /** Apply a signed number of steps in the current mode (used by the scrub area). */
-  #applySteps(steps: number) {
-    if (this.#native) this.#nativeStep(steps);
-    else this.#stepBy(steps, false);
-  }
-
   disconnectedCallback() {
-    if (this.#scrubbing) this.#onScrubUp();
+    this.#disposeScrub?.();
   }
 
   attributeChangedCallback() {
     if (!this.#wired) return;
-    // The host `disabled` attribute now drives the input (in both modes).
-    this.#input.disabled = this.hasAttribute("disabled");
+    this.#applyDisabled();
+  }
+
+  /**
+   * One-way managed `disabled`: the host attribute (or a form-driven disable)
+   * can disable the inner input, but removing it only re-enables an input *we*
+   * disabled — an input the author disabled directly is left alone (same
+   * ownership rule as `ui-fieldset`'s propagation).
+   */
+  #applyDisabled() {
+    if (this.hasAttribute("disabled") || this.#formDisabled) {
+      if (!this.#input.disabled) {
+        this.#input.disabled = true;
+        this.#managedDisabled = true;
+      }
+    } else if (this.#managedDisabled) {
+      this.#input.disabled = false;
+      this.#managedDisabled = false;
+    }
     this.#reflectButtons();
   }
 
-  // ---- scrub-area (drag to change) --------------------------------------
-  #onScrubDown = (e: PointerEvent) => {
-    if (this.disabled) return;
-    e.preventDefault();
-    this.#scrubbing = true;
-    this.#scrubAccum = 0;
-    this.#scrub?.setAttribute("data-scrubbing", "");
-    // Pointer Lock is best-effort: it needs a user gesture and can reject in
-    // headless/embedded contexts; the `movementX` fallback works regardless.
-    Promise.resolve(this.#scrub?.requestPointerLock?.()).catch(() => {});
-    window.addEventListener("pointermove", this.#onScrubMove);
-    window.addEventListener("pointerup", this.#onScrubUp);
-  };
-
-  #onScrubMove = (e: PointerEvent) => {
-    if (!this.#scrubbing) return;
-    this.#scrubAccum += e.movementX;
-    const per = this.#pixelsPerStep();
-    const steps = Math.trunc(this.#scrubAccum / per);
-    if (steps !== 0) {
-      this.#scrubAccum -= steps * per; // keep the sub-step remainder
-      this.#applySteps(steps); // right (positive movementX) increments
+  #onFormReset() {
+    if (!this.#wired) return;
+    if (this.#nativeMode) {
+      // The browser restores the native input's own default value during the
+      // same reset pass; re-reflect the stepper bounds once it has.
+      queueMicrotask(() => this.#reflectButtons());
+    } else {
+      this.#commit(this.#parse(this.getAttribute("value")), false);
     }
-  };
+  }
 
-  #onScrubUp = () => {
-    if (!this.#scrubbing) return;
-    this.#scrubbing = false;
-    this.#scrub?.removeAttribute("data-scrubbing");
-    document.exitPointerLock?.();
-    window.removeEventListener("pointermove", this.#onScrubMove);
-    window.removeEventListener("pointerup", this.#onScrubUp);
-  };
+  // ---- scrub-area (drag to change) --------------------------------------
+  #wireScrub() {
+    const scrub = this.#scrub;
+    if (!scrub) return;
+    this.#disposeScrub = trackPointerDrag(scrub, {
+      onStart: (e) => {
+        if (this.disabled) return false;
+        e.preventDefault();
+        this.#scrubAccum = 0;
+        scrub.setAttribute("data-scrubbing", "");
+        // Pointer Lock is best-effort: it needs a user gesture and can reject in
+        // headless/embedded contexts; the `movementX` fallback works regardless.
+        Promise.resolve(scrub.requestPointerLock?.()).catch(() => {});
+      },
+      onMove: (e) => {
+        this.#scrubAccum += e.movementX;
+        const per = this.#pixelsPerStep();
+        const steps = Math.trunc(this.#scrubAccum / per);
+        if (steps !== 0) {
+          this.#scrubAccum -= steps * per; // keep the sub-step remainder
+          this.#mode.step(steps); // right (positive movementX) increments
+        }
+      },
+      onEnd: () => {
+        scrub.removeAttribute("data-scrubbing");
+        document.exitPointerLock?.();
+      },
+    });
+  }
 
-  #parse(raw: string | null): number | null {
+  #parse(raw: string | null) {
     if (raw == null || raw.trim() === "") return null;
     const n = Number(raw);
     return Number.isFinite(n) ? n : null;
-  }
-
-  #clampSnap(n: number): number {
-    const step = this.#step();
-    const min = this.#min();
-    const max = this.#max();
-    const base = min ?? 0;
-    let v = base + Math.round((n - base) / step) * step;
-    if (min != null) v = Math.max(min, v);
-    if (max != null) v = Math.min(max, v);
-    return Number(v.toFixed(10));
   }
 
   #commit(n: number | null, emit: boolean) {
@@ -235,13 +313,13 @@ export class UINumberField extends HTMLElement {
       this.#value = null;
       this.#input.value = "";
       this.#input.removeAttribute("aria-valuenow");
-      this.#internals?.setFormValue(null);
+      this.#formControl.setValue(null);
     } else {
-      const v = this.#clampSnap(n);
+      const v = clampSnap(n, { min: this.#min(), max: this.#max(), step: this.#step() });
       this.#value = v;
       this.#input.value = String(v);
       this.#input.setAttribute("aria-valuenow", String(v));
-      this.#internals?.setFormValue(String(v));
+      this.#formControl.setValue(String(v));
     }
     this.#reflectButtons();
     if (emit) {
@@ -271,7 +349,7 @@ export class UINumberField extends HTMLElement {
   #onInput = () => {
     // Free-form while typing; reflect the raw text as the form value and update
     // aria-valuenow when it parses, but defer clamping/snapping to commit.
-    this.#internals?.setFormValue(this.#input.value);
+    this.#formControl.setValue(this.#input.value);
     const n = this.#parse(this.#input.value);
     if (n != null) this.#input.setAttribute("aria-valuenow", String(n));
   };
@@ -319,7 +397,7 @@ export class UINumberField extends HTMLElement {
   };
 }
 
-if (!customElements.get("ui-number-field")) customElements.define("ui-number-field", UINumberField);
+define("ui-number-field", UINumberField);
 
 declare global {
   interface HTMLElementTagNameMap {

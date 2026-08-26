@@ -33,14 +33,13 @@
 
 /**
  * The authored native control this element should adopt as its value source, or
- * `null` when none was authored (standalone / `ElementInternals` mode). Only a
- * *direct* descendant matching `selector` counts, so a component nested inside
+ * `null` when none was authored (standalone / `ElementInternals` mode). A match
+ * counts at **any depth** (so the control can sit inside wrapper markup) as
+ * long as it is not owned by a nested same-tag instance — i.e. its nearest
+ * `host.localName` ancestor is `host` itself — so a component nested inside
  * another's markup never adopts the wrong control.
  */
-export function adoptedControl<T extends Element = HTMLElement>(
-  host: Element,
-  selector: string,
-): T | null {
+export function adoptedControl<T extends Element = HTMLElement>(host: Element, selector: string) {
   for (const el of host.querySelectorAll<T>(selector)) {
     // Ignore controls that belong to a nested custom element rather than `host`.
     if (el.closest(host.localName) === host) return el;
@@ -55,7 +54,7 @@ export function adoptedControl<T extends Element = HTMLElement>(
  * of layout and the a11y tree while still submitting — unlike `disabled`, which
  * would drop it from submission entirely.
  */
-export function retireNative(el: HTMLElement): void {
+export function retireNative(el: HTMLElement) {
   el.hidden = true;
   el.tabIndex = -1;
   el.setAttribute("aria-hidden", "true");
@@ -67,7 +66,7 @@ export function retireNative(el: HTMLElement): void {
  * form (and any listeners / constraint validation) expect from user input, so
  * the enhanced widget and the native control stay indistinguishable to hosts.
  */
-export function fireNativeChange(el: HTMLElement): void {
+export function fireNativeChange(el: HTMLElement) {
   el.dispatchEvent(new Event("input", { bubbles: true }));
   el.dispatchEvent(new Event("change", { bubbles: true }));
 }

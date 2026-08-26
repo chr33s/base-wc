@@ -19,5 +19,11 @@
     "skipLibCheck": true,
     "types": ["vite-plus/client"]
   },
-  "include": ["src/**/*", ".storybook/**/*", "vite.config.ts", "playwright.config.ts"]
+  "include": [
+    "src/**/*",
+    ".storybook/**/*",
+    "scripts/**/*",
+    "vite.config.ts",
+    "playwright.config.ts"
+  ]
 }

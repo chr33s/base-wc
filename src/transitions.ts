@@ -11,7 +11,7 @@
  * synchronously — so behaviour is unchanged unless the consumer opts into
  * animation via `[data-state]` styles.
  */
-function durationMs(value: string, delay: string): number {
+function durationMs(value: string, delay: string) {
   const toMs = (list: string) =>
     Math.max(
       0,
@@ -24,7 +24,7 @@ function durationMs(value: string, delay: string): number {
 }
 
 /** Longest transition or animation on `el`, in ms (0 when none / unsupported). */
-function maxDurationMs(el: Element): number {
+function maxDurationMs(el: Element) {
   if (typeof getComputedStyle !== "function") return 0;
   const s = getComputedStyle(el);
   return Math.max(
@@ -34,12 +34,12 @@ function maxDurationMs(el: Element): number {
 }
 
 /** Mark an element's open state for `@starting-style` / `[data-state]` styles. */
-export function setOpenState(el: HTMLElement, open: boolean): void {
+export function setOpenState(el: HTMLElement, open: boolean) {
   el.setAttribute("data-state", open ? "open" : "closed");
 }
 
 /** Flip to the closed state and run `done` once the exit animation finishes. */
-export function runExit(el: HTMLElement, done: () => void): void {
+export function runExit(el: HTMLElement, done: () => void) {
   el.setAttribute("data-state", "closed");
   const duration = maxDurationMs(el);
   if (duration <= 0) {

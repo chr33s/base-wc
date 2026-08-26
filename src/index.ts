@@ -18,6 +18,7 @@ export {
   anchor,
   type AnchorOptions,
   arrowOffset,
+  pairAnchor,
   rectAt,
   SUPPORTS_ANCHOR,
   type VirtualElement,
@@ -53,6 +54,7 @@ export { UIChartBar } from "./chart-bar.ts";
 export {
   type AxisPosition,
   type AxisRegistration,
+  type ChartInvalidation,
   type ChartListener,
   type ChartRow,
   type ChartState,
@@ -102,6 +104,8 @@ export {
   type Scale,
   type ScaleType,
   bandScale,
+  continuousScale,
+  type ContinuousScaleType,
   createScale,
   isDiscreteScale,
   linearScale,
@@ -131,7 +135,7 @@ export { UIChartTooltip } from "./chart-tooltip.ts";
 export { UIChart, type UIChartHighlightDetail, type UIChartSelectDetail } from "./chart.ts";
 export { UICheckbox, UICheckboxGroup } from "./checkbox.ts";
 export { type ChipRemoveDetail, UIChip } from "./chip.ts";
-export { UICollapsible } from "./collapsible.ts";
+export { syncDisclosure, UICollapsible } from "./collapsible.ts";
 export {
   type ColorChangeDetail,
   UIColorField,
@@ -139,6 +143,7 @@ export {
   UIColorPickerPopup,
 } from "./color-picker.ts";
 export { UIContextMenu } from "./context-menu.ts";
+export { define } from "./define.ts";
 export { isRTL } from "./direction.ts";
 export { UIDialog, UIDialogBackdrop, UIDialogPopup } from "./dialog.ts";
 export { onOutsidePress } from "./dismiss.ts";
@@ -147,11 +152,27 @@ export { type DropZoneChangeDetail, UIDropZone } from "./drop-zone.ts";
 export { UIField } from "./field.ts";
 export { UIFieldset } from "./fieldset.ts";
 export { type FocusTrapOptions, getFocusable, trapFocus } from "./focus-trap.ts";
+export {
+  type FormControl,
+  formControl,
+  FORM_CONTROL_TAGS,
+  type FormControlOptions,
+  NativeCheckboxElement,
+} from "./form-control.ts";
 export { UIForm } from "./form.ts";
 export { UIGauge } from "./gauge.ts";
-export { nextId } from "./id.ts";
-export { closeGroup, isGroupWarm, openGroup } from "./intent.ts";
+export { labelFrom, nextId } from "./id.ts";
+export {
+  closeGroup,
+  type HoverIntent,
+  hoverIntent,
+  type HoverIntentOptions,
+  isGroupWarm,
+  openGroup,
+} from "./intent.ts";
 export { connectLightDom } from "./lifecycle.ts";
+export { type ListNav, listNav, type ListNavOptions } from "./list-nav.ts";
+export { clamp, type ClampSnapBounds, clampSnap } from "./math.ts";
 export { UIMeter } from "./meter.ts";
 export {
   type MenuSelectDetail,
@@ -170,11 +191,23 @@ export { adoptedControl, fireNativeChange, retireNative } from "./native.ts";
 export { UINumberField } from "./number-field.ts";
 export { UIOtpField } from "./otp-field.ts";
 export { type Overlay, overlay, type OverlayOptions } from "./overlay.ts";
+export { ensureButton, type EnsureButtonOptions } from "./parts.ts";
+export { type PointerDragHandlers, trackPointerDrag } from "./pointer-drag.ts";
+export { type PopoverField, popoverField, type PopoverFieldConfig } from "./popover-field.ts";
 export { UIPopover, UIPopoverPopup } from "./popover.ts";
 export { UIPreviewCard, UIPreviewCardContent } from "./preview-card.ts";
 export { UIProgress } from "./progress.ts";
+export { scopedQuery } from "./query.ts";
 export { UIRadio, UIRadioGroup } from "./radio.ts";
-export { type Orientation, roving, type Roving, type RovingOptions } from "./roving.ts";
+export { rangeNumber, syncRangeState } from "./range.ts";
+export {
+  type NavKeyOptions,
+  type Orientation,
+  resolveNavKey,
+  roving,
+  type Roving,
+  type RovingOptions,
+} from "./roving.ts";
 export { UIScrollArea, UIScrollScrollbar, UIScrollThumb, UIScrollViewport } from "./scroll-area.ts";
 export { lockScroll } from "./scroll-lock.ts";
 export { type SearchDetail, UISearchField } from "./search-field.ts";

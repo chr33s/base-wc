@@ -2,18 +2,23 @@
  * `ui-autocomplete` — an input with a suggestion listbox (Base UI's
  * Autocomplete). It shares the Combobox core but runs with `selectionMode:
  * none`: the **form value is the input text itself**, not a chosen item.
- * Committing a suggestion simply fills the input. Reuses {@link anchor}
- * positioning, the Popover-API top layer, {@link onOutsidePress} dismissal, and
- * {@link normalize} filtering, with `aria-activedescendant` navigation over the
- * matches.
+ * Committing a suggestion simply fills the input. The {@link AriaCombobox} core
+ * owns the popup lifecycle ({@link anchor} positioning, the Popover-API top
+ * layer, {@link onOutsidePress} dismissal) and the key/blur guards; navigation
+ * over the matches is the shared {@link listNav} engine (wrap policy, arrows
+ * only — `Home`/`End` stay with the input caret) via `aria-activedescendant`,
+ * with {@link normalize} filtering.
  *
  * Markup: a `[data-autocomplete-input]`, a `<ui-autocomplete-popup>` wrapping a
  * `<ui-autocomplete-list>` (rows are injected) and an optional
  * `<ui-autocomplete-empty>`. Suggestions are supplied via the `items` property.
  */
 import { AriaCombobox } from "./combobox-core.ts";
+import { define } from "./define.ts";
+import { type FormControl, formControl } from "./form-control.ts";
 import { nextId } from "./id.ts";
 import { connectLightDom } from "./lifecycle.ts";
+import { listNav, type ListNav } from "./list-nav.ts";
 import { normalize } from "./text.ts";
 
 /** Detail of the `change` event dispatched when the value is committed. */
@@ -24,25 +29,59 @@ export interface AutocompleteChangeDetail {
 export class UIAutocomplete extends HTMLElement {
   static formAssociated = true;
 
-  #internals: ElementInternals | null = this.attachInternals?.() ?? null;
+  #formControl: FormControl = formControl(this, {
+    value: () => this.value, // the input text is the form value ("" = empty)
+    onReset: () => this.#onFormReset(),
+    onFormDisabled: (disabled) => this.#applyFormDisabled(disabled),
+  });
   #uid = nextId("ac");
   #input!: HTMLInputElement;
   #list!: HTMLElement;
   #empty: HTMLElement | null = null;
   #wired = false;
+  /** Whether *we* disabled the inner input (so we may re-enable it later). */
+  #managedDisabled = false;
   #items: string[] = [];
   #normalizedItems: string[] = [];
   #matches: string[] = [];
   #controller: AriaCombobox | null = null;
+  // Shared listbox keyboard engine (wrap policy). Home/End stay with the input
+  // caret, so only the arrows navigate the matches.
+  #nav: ListNav = listNav({
+    count: () => this.#matches.length,
+    activeIndex: () => this.#controller?.activeIndex ?? -1,
+    onActive: (i) => this.#setActive(i),
+    loop: true,
+    onCommit: (i) => this.#commit(i),
+    homeEnd: false,
+  });
 
-  get form(): HTMLFormElement | null {
-    return this.#internals?.form ?? null;
+  get form() {
+    return this.#formControl.form;
   }
-  get name(): string | null {
+  get name() {
     return this.getAttribute("name");
   }
-  get value(): string {
+  get value() {
     return this.#input?.value ?? "";
+  }
+  get validity() {
+    return this.#formControl.validity;
+  }
+  get validationMessage() {
+    return this.#formControl.validationMessage;
+  }
+  checkValidity() {
+    return this.#formControl.checkValidity();
+  }
+  reportValidity() {
+    return this.#formControl.reportValidity();
+  }
+  formResetCallback() {
+    this.#formControl.handleReset();
+  }
+  formDisabledCallback(disabled: boolean) {
+    this.#formControl.handleDisabled(disabled);
   }
   set items(next: string[]) {
     this.#items = Array.isArray(next) ? next.slice() : [];
@@ -75,21 +114,52 @@ export class UIAutocomplete extends HTMLElement {
       popup,
       listbox: list,
       idPrefix: "ac",
+      host: this,
       anchorOptions: { offset: 6, padding: 8 },
-      dismissWithin: () => [popup, input],
-      onDismiss: () => this.#close(),
       onInput: this.#onInput,
-      onKeydown: this.#onKeydown,
-      onBlur: this.#onBlur,
+      onClose: () => this.#close(),
+      onNavigate: (e) => this.#nav.handle(e),
       onOptionCommit: (index) => this.#commit(index),
     });
 
     this.#wired = true;
-    this.#internals?.setFormValue(input.value);
+    this.#formControl.setValue(input.value);
   }
 
   disconnectedCallback() {
     this.#close();
+  }
+
+  /** `form.reset()`: the browser restores the inner input's own default value
+   * during the same reset pass; re-sync the submitted text and drop any open
+   * suggestion state once it has. */
+  #onFormReset() {
+    if (!this.#wired) return;
+    queueMicrotask(() => {
+      this.#matches = [];
+      this.#renderMatches();
+      this.#close();
+      this.#formControl.setValue(this.#input.value);
+    });
+  }
+
+  /**
+   * One-way managed disable of the inner input on form-driven disabled (host
+   * `disabled` attribute / disabled `<fieldset>` ancestor): re-enabling only
+   * touches an input *we* disabled, never one the author disabled directly.
+   */
+  #applyFormDisabled(disabled: boolean) {
+    this.toggleAttribute("data-disabled", disabled);
+    if (!this.#wired) return;
+    if (disabled) {
+      if (!this.#input.disabled) {
+        this.#input.disabled = true;
+        this.#managedDisabled = true;
+      }
+    } else if (this.#managedDisabled) {
+      this.#input.disabled = false;
+      this.#managedDisabled = false;
+    }
   }
 
   #filter(query: string) {
@@ -127,7 +197,7 @@ export class UIAutocomplete extends HTMLElement {
   }
 
   #onInput = () => {
-    this.#internals?.setFormValue(this.#input.value);
+    this.#formControl.setValue(this.#input.value);
     const q = this.#input.value;
     if (q === "") {
       this.#matches = [];
@@ -138,41 +208,6 @@ export class UIAutocomplete extends HTMLElement {
     this.#filter(q);
     this.#open();
     this.#setActive(this.#matches.length ? 0 : -1);
-  };
-
-  #onKeydown = (e: KeyboardEvent) => {
-    switch (e.key) {
-      case "ArrowDown":
-        if (this.#controller?.open && this.#matches.length) {
-          e.preventDefault();
-          this.#setActive((this.#controller.activeIndex + 1) % this.#matches.length);
-        }
-        break;
-      case "ArrowUp":
-        if (this.#controller?.open && this.#matches.length) {
-          e.preventDefault();
-          this.#setActive(
-            (this.#controller.activeIndex - 1 + this.#matches.length) % this.#matches.length,
-          );
-        }
-        break;
-      case "Enter":
-        if (this.#controller?.open && this.#controller.activeIndex >= 0) {
-          e.preventDefault();
-          this.#commit(this.#controller.activeIndex);
-        }
-        break;
-      case "Escape":
-        if (this.#controller?.open) {
-          e.preventDefault();
-          this.#close();
-        }
-        break;
-    }
-  };
-
-  #onBlur = (e: FocusEvent) => {
-    if (!this.contains(e.relatedTarget as Node | null)) this.#close();
   };
 
   #open() {
@@ -187,7 +222,7 @@ export class UIAutocomplete extends HTMLElement {
     const label = this.#matches[index];
     if (label == null) return;
     this.#input.value = label;
-    this.#internals?.setFormValue(label);
+    this.#formControl.setValue(label);
     this.#close();
     this.dispatchEvent(
       new CustomEvent<AutocompleteChangeDetail>("change", {
@@ -206,14 +241,10 @@ export class UIAutocompletePopup extends HTMLElement {
 export class UIAutocompleteList extends HTMLElement {}
 export class UIAutocompleteEmpty extends HTMLElement {}
 
-if (!customElements.get("ui-autocomplete"))
-  customElements.define("ui-autocomplete", UIAutocomplete);
-if (!customElements.get("ui-autocomplete-popup"))
-  customElements.define("ui-autocomplete-popup", UIAutocompletePopup);
-if (!customElements.get("ui-autocomplete-list"))
-  customElements.define("ui-autocomplete-list", UIAutocompleteList);
-if (!customElements.get("ui-autocomplete-empty"))
-  customElements.define("ui-autocomplete-empty", UIAutocompleteEmpty);
+define("ui-autocomplete", UIAutocomplete);
+define("ui-autocomplete-popup", UIAutocompletePopup);
+define("ui-autocomplete-list", UIAutocompleteList);
+define("ui-autocomplete-empty", UIAutocompleteEmpty);
 
 declare global {
   interface HTMLElementTagNameMap {

@@ -6,17 +6,20 @@
  * (`optimal` / `suboptimal` / `poor`) alongside a `--meter` fraction (0–1) for
  * the fill.
  */
+import { define } from "./define.ts";
+import { rangeNumber, syncRangeState } from "./range.ts";
+
 export class UIMeter extends HTMLElement {
   static observedAttributes = ["value", "min", "max", "low", "high", "optimum"];
 
-  get min(): number {
-    return Number(this.getAttribute("min") ?? 0);
+  get min() {
+    return rangeNumber(this, "min", 0);
   }
-  get max(): number {
-    return Number(this.getAttribute("max") ?? 100);
+  get max() {
+    return rangeNumber(this, "max", 100);
   }
-  get value(): number {
-    return Number(this.getAttribute("value") ?? 0);
+  get value() {
+    return rangeNumber(this, "value", 0);
   }
 
   connectedCallback() {
@@ -28,33 +31,23 @@ export class UIMeter extends HTMLElement {
     this.#sync();
   }
 
-  #num(attr: string, fallback: number): number {
-    const raw = this.getAttribute(attr);
-    return raw == null || raw === "" ? fallback : Number(raw);
-  }
-
   #sync() {
     const { min, max } = this;
-    const value = Math.max(min, Math.min(this.value, max));
-    const fraction = max > min ? (value - min) / (max - min) : 0;
-    this.setAttribute("aria-valuemin", String(min));
-    this.setAttribute("aria-valuemax", String(max));
-    this.setAttribute("aria-valuenow", String(value));
-    this.style.setProperty("--meter", String(fraction));
+    const { value } = syncRangeState(this, { min, max, value: this.value, property: "--meter" });
     this.setAttribute("data-state", this.#level(value, min, max));
   }
 
-  #level(value: number, min: number, max: number): "optimal" | "suboptimal" | "poor" {
-    const low = Math.max(min, Math.min(this.#num("low", min), max));
-    const high = Math.max(low, Math.min(this.#num("high", max), max));
-    const optimum = Math.max(min, Math.min(this.#num("optimum", (min + max) / 2), max));
+  #level(value: number, min: number, max: number) {
+    const low = Math.max(min, Math.min(rangeNumber(this, "low", min), max));
+    const high = Math.max(low, Math.min(rangeNumber(this, "high", max), max));
+    const optimum = Math.max(min, Math.min(rangeNumber(this, "optimum", (min + max) / 2), max));
     const region = (x: number) => (x < low ? 0 : x > high ? 2 : 1);
     const distance = Math.abs(region(value) - region(optimum));
     return distance === 0 ? "optimal" : distance === 1 ? "suboptimal" : "poor";
   }
 }
 
-if (!customElements.get("ui-meter")) customElements.define("ui-meter", UIMeter);
+define("ui-meter", UIMeter);
 
 declare global {
   interface HTMLElementTagNameMap {

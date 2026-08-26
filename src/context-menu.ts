@@ -8,6 +8,7 @@
  * Markup: `<ui-context-menu>` wrapping a `[data-context-target]` region and a
  * triggerless `<ui-menu>` (just its `<ui-menu-popup>` of items).
  */
+import { define } from "./define.ts";
 import { connectLightDom } from "./lifecycle.ts";
 import type { UIMenu } from "./menu.ts";
 
@@ -51,7 +52,7 @@ export class UIContextMenu extends HTMLElement {
   #cancelPress = () => clearTimeout(this.#pressTimer);
 }
 
-if (!customElements.get("ui-context-menu")) customElements.define("ui-context-menu", UIContextMenu);
+define("ui-context-menu", UIContextMenu);
 
 declare global {
   interface HTMLElementTagNameMap {

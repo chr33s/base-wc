@@ -20,7 +20,7 @@ const FOCUSABLE = [
 ].join(",");
 
 /** Tabbable descendants of `root`, in DOM order, skipping hidden/inert ones. */
-export function getFocusable(root: Element): HTMLElement[] {
+export function getFocusable(root: Element) {
   return [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
     (el) =>
       !el.hasAttribute("hidden") &&
@@ -46,10 +46,7 @@ const trapStack: symbol[] = [];
  * surface torn down while open (disconnect) must still call release to avoid
  * leaking the document-level capture handler.
  */
-export function trapFocus(
-  container: HTMLElement,
-  options: FocusTrapOptions = {},
-): (restoreFocus?: boolean) => void {
+export function trapFocus(container: HTMLElement, options: FocusTrapOptions = {}) {
   const previouslyFocused = document.activeElement as HTMLElement | null;
   const token = Symbol("focus-trap");
   trapStack.push(token);

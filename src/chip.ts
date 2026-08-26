@@ -8,7 +8,9 @@
  * `[data-state]` exit animation (via {@link runExit}) and removes the host.
  * `disabled` suppresses removal. Purely presentational otherwise.
  */
+import { define } from "./define.ts";
 import { connectLightDom } from "./lifecycle.ts";
+import { ensureButton } from "./parts.ts";
 import { runExit, setOpenState } from "./transitions.ts";
 
 export interface ChipRemoveDetail {
@@ -20,10 +22,10 @@ export class UIChip extends HTMLElement {
   #wired = false;
   #closing = false;
 
-  get disabled(): boolean {
+  get disabled() {
     return this.hasAttribute("disabled");
   }
-  get removable(): boolean {
+  get removable() {
     return this.hasAttribute("removable");
   }
 
@@ -47,28 +49,21 @@ export class UIChip extends HTMLElement {
   }
 
   #syncRemove() {
-    let btn = this.querySelector<HTMLElement>("[data-chip-remove]");
-    if (this.removable && !btn) {
-      btn = document.createElement("button");
-      (btn as HTMLButtonElement).type = "button";
-      btn.setAttribute("data-chip-remove", "");
-      btn.setAttribute("data-chip-generated", "");
-      btn.setAttribute("aria-label", "Remove");
-      btn.textContent = "✕";
-      this.append(btn);
-    } else if (!this.removable && btn?.hasAttribute("data-chip-generated")) {
-      btn.remove();
-      btn = null;
-    }
-    if (btn && this.removable && !btn.dataset.chipWired) {
-      btn.dataset.chipWired = "true";
-      btn.addEventListener("click", this.#onRemoveClick);
-    }
-    // A removable chip is a keyboard target so Delete/Backspace can reach it.
     if (this.removable) {
+      const btn = ensureButton(this, {
+        marker: "data-chip-remove",
+        generatedMarker: "data-chip-generated",
+        label: "Remove",
+        text: "✕",
+      });
+      // Re-adding the same listener is a no-op, so re-syncs need no wired flag.
+      btn.addEventListener("click", this.#onRemoveClick);
+      // A removable chip is a keyboard target so Delete/Backspace can reach it.
       if (!this.hasAttribute("tabindex")) this.tabIndex = 0;
-    } else if (this.getAttribute("tabindex") === "0") {
-      this.removeAttribute("tabindex");
+    } else {
+      const btn = this.querySelector<HTMLElement>("[data-chip-remove]");
+      if (btn?.hasAttribute("data-chip-generated")) btn.remove();
+      if (this.getAttribute("tabindex") === "0") this.removeAttribute("tabindex");
     }
   }
 
@@ -99,7 +94,7 @@ export class UIChip extends HTMLElement {
   }
 }
 
-if (!customElements.get("ui-chip")) customElements.define("ui-chip", UIChip);
+define("ui-chip", UIChip);
 
 declare global {
   interface HTMLElementTagNameMap {

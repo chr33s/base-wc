@@ -6,6 +6,7 @@
  * submit dispatches `form-valid` and proceeds. Wraps a native `<form>` when
  * present so real submission and `FormData` keep working.
  */
+import { define } from "./define.ts";
 import { connectLightDom } from "./lifecycle.ts";
 import type { UIField } from "./field.ts";
 
@@ -21,12 +22,15 @@ export class UIForm extends HTMLElement {
   }
 
   #wire() {
-    this.#wired = true;
     const form = this.querySelector("form");
     (form ?? this).addEventListener("submit", this.#onSubmit as EventListener);
+    // Marked wired only once the listener is attached. The native <form> is a
+    // genuinely optional part — `submit` bubbles, so the host-level fallback
+    // listener covers a form even if one parses in later — hence no retry.
+    this.#wired = true;
   }
 
-  #fields(): UIField[] {
+  #fields() {
     return [...this.querySelectorAll<UIField>("ui-field")];
   }
 
@@ -54,7 +58,7 @@ export class UIForm extends HTMLElement {
   };
 }
 
-if (!customElements.get("ui-form")) customElements.define("ui-form", UIForm);
+define("ui-form", UIForm);
 
 declare global {
   interface HTMLElementTagNameMap {

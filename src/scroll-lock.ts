@@ -11,7 +11,7 @@ let count = 0;
 let restore: () => void = () => {};
 
 /** Lock document scrolling; returns an idempotent unlock function. */
-export function lockScroll(): () => void {
+export function lockScroll() {
   count += 1;
   if (count === 1) {
     const root = document.documentElement;

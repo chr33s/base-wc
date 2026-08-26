@@ -115,6 +115,16 @@ describe("ui-combobox (virtualized)", () => {
     expect(input.value).toBe("Ava Kim");
   });
 
+  it("wraps arrow navigation past the ends (matches autocomplete / Base UI)", async () => {
+    const { input } = await mount(PEOPLE);
+    input.click(); // open for browsing, first row active
+    expect(input.getAttribute("aria-activedescendant")).toMatch(/-opt-0$/);
+    key(input, "ArrowUp"); // wraps to the last row
+    expect(input.getAttribute("aria-activedescendant")).toMatch(/-opt-4$/);
+    key(input, "ArrowDown"); // wraps back to the first
+    expect(input.getAttribute("aria-activedescendant")).toMatch(/-opt-0$/);
+  });
+
   it("preserves the typed query when the input is clicked (no filter reset)", async () => {
     const { cb, input } = await mount(PEOPLE);
     type(input, "ava"); // filters to Ava Kim + Ava Nguyen
@@ -223,5 +233,47 @@ describe("ui-combobox — multiple (chips)", () => {
     cb.value = ["u3", "u5"];
     expect(cb.value).toEqual(["u3", "u5"]);
     expect(chipValues(chips)).toEqual(["u3", "u5"]);
+  });
+});
+
+describe("ui-combobox — form integration (reset / disabled / required)", () => {
+  it("formResetCallback clears the selection and input", async () => {
+    const { cb, input } = await mount(PEOPLE);
+    type(input, "liam");
+    key(input, "Enter"); // commit "Liam Patel"
+    expect(cb.value).toBe("u2");
+    expect(input.value).toBe("Liam Patel");
+    cb.formResetCallback();
+    expect(cb.value).toBe(null);
+    expect(input.value).toBe("");
+  });
+
+  it("reports valueMissing while required with no selection", async () => {
+    const { cb, input } = await mount(PEOPLE);
+    cb.setAttribute("required", "");
+    expect(cb.validity.valueMissing).toBe(true);
+    expect(cb.checkValidity()).toBe(false);
+    type(input, "liam");
+    key(input, "Enter");
+    expect(cb.validity.valid).toBe(true);
+    expect(cb.checkValidity()).toBe(true);
+  });
+
+  it("formDisabledCallback manages the inner input one-way", async () => {
+    const { cb, input } = await mount(PEOPLE);
+    cb.formDisabledCallback(true);
+    expect(input.disabled).toBe(true);
+    expect(cb.hasAttribute("data-disabled")).toBe(true);
+    cb.formDisabledCallback(false);
+    expect(input.disabled).toBe(false); // we disabled it, so we re-enable it
+    expect(cb.hasAttribute("data-disabled")).toBe(false);
+  });
+
+  it("formDisabledCallback never re-enables an author-disabled input", async () => {
+    const { cb, input } = await mount(PEOPLE);
+    input.disabled = true; // the author disabled it directly
+    cb.formDisabledCallback(true);
+    cb.formDisabledCallback(false);
+    expect(input.disabled).toBe(true); // left alone
   });
 });

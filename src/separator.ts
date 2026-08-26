@@ -6,6 +6,8 @@
  * decorative rule can set the `decorative` attribute to drop itself from the
  * accessibility tree (`role=none`).
  */
+import { define } from "./define.ts";
+
 export class UISeparator extends HTMLElement {
   static observedAttributes = ["orientation", "decorative"];
 
@@ -31,7 +33,7 @@ export class UISeparator extends HTMLElement {
   }
 }
 
-if (!customElements.get("ui-separator")) customElements.define("ui-separator", UISeparator);
+define("ui-separator", UISeparator);
 
 declare global {
   interface HTMLElementTagNameMap {

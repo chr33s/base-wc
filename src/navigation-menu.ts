@@ -1,9 +1,9 @@
 /**
  * `ui-navigation-menu` — a site-navigation bar whose triggers reveal large
  * content panels (Base UI's Navigation Menu). One panel is open at a time;
- * hovering or focusing a trigger opens its panel after an intent delay (or
- * instantly when switching from an already-open one), and leaving the menu
- * closes it. Triggers roam with the arrow keys (RTL-aware via {@link roving}),
+ * hovering or focusing a trigger opens its panel after an intent delay — the
+ * shared {@link hoverIntent} timer pair — (or instantly when switching from an
+ * already-open one), and leaving the menu closes it. Triggers roam with the arrow keys (RTL-aware via {@link roving}),
  * `ArrowDown` moves into the open panel, and `Escape` closes. Panels animate
  * out via {@link runExit}; the active panel's size is published as
  * `--nav-content-width` / `--nav-content-height` on the root so a shared
@@ -12,9 +12,11 @@
  * Markup: `<ui-navigation-menu>` › `<ui-nav-list>` › `<ui-nav-item>`s, each with
  * a `[data-nav-trigger]` and a `<ui-nav-content>`.
  */
+import { define } from "./define.ts";
 import { connectLightDom } from "./lifecycle.ts";
 import { getFocusable } from "./focus-trap.ts";
 import { nextId } from "./id.ts";
+import { hoverIntent, type HoverIntent } from "./intent.ts";
 import { roving, type Roving } from "./roving.ts";
 import { runExit, setOpenState } from "./transitions.ts";
 
@@ -28,10 +30,17 @@ export class UINavigationMenu extends HTMLElement {
   #activeIndex = -1;
   #roving: Roving | null = null;
   #wired = false;
-  #openTimer = 0;
-  #closeTimer = 0;
+  /** Index whose panel a pending hover-intent open will reveal. */
+  #pendingIndex = -1;
+  #intent: HoverIntent = hoverIntent({
+    isOpen: () => this.#activeIndex >= 0,
+    open: () => this.#open(this.#pendingIndex),
+    close: () => this.#close(),
+    openDelay: () => this.#delay,
+    closeDelay: () => this.#delay,
+  });
 
-  get #delay(): number {
+  get #delay() {
     return Number(this.getAttribute("delay") ?? 200);
   }
 
@@ -44,21 +53,21 @@ export class UINavigationMenu extends HTMLElement {
   }
 
   disconnectedCallback() {
-    clearTimeout(this.#openTimer);
-    clearTimeout(this.#closeTimer);
+    this.#intent.cancel();
   }
 
   #wire() {
     this.#wired = true;
     const list = this.querySelector<HTMLElement>("ui-nav-list") ?? this;
-    this.#items = [...this.querySelectorAll<HTMLElement>("ui-nav-item")].map((item) => {
+    // Items without a trigger cannot participate at all — dropping them here
+    // keeps `NavItem.trigger` honestly non-null for everything downstream.
+    this.#items = [...this.querySelectorAll<HTMLElement>("ui-nav-item")].flatMap((item) => {
       const trigger = item.querySelector<HTMLElement>("[data-nav-trigger]");
       const content = item.querySelector<HTMLElement>("ui-nav-content");
-      return { trigger: trigger as HTMLElement, content };
+      return trigger ? [{ trigger, content }] : [];
     });
 
     this.#items.forEach(({ trigger, content }, i) => {
-      if (!trigger) return;
       if (!trigger.id) trigger.id = nextId("ui-nav-trigger");
       trigger.setAttribute("aria-expanded", "false");
       if (content) {
@@ -87,10 +96,8 @@ export class UINavigationMenu extends HTMLElement {
     this.addEventListener("pointerleave", this.#scheduleClose);
   }
 
-  #triggers(): HTMLElement[] {
-    return this.#items
-      .map((it) => it.trigger)
-      .filter((t): t is HTMLElement => t != null && !t.hasAttribute("disabled"));
+  #triggers() {
+    return this.#items.map((it) => it.trigger).filter((t) => !t.hasAttribute("disabled"));
   }
 
   // ---- open / close ----------------------------------------------------
@@ -140,22 +147,20 @@ export class UINavigationMenu extends HTMLElement {
 
   // ---- intent ----------------------------------------------------------
   #onTriggerEnter(index: number) {
-    clearTimeout(this.#closeTimer);
+    this.#intent.cancelClose();
     // Cancel any pending open from an earlier trigger so a fast hover sweep
     // doesn't queue several opens (which would flash panels or open one after
     // the pointer has already left).
-    clearTimeout(this.#openTimer);
+    this.#intent.cancelOpen();
     if (this.#activeIndex >= 0) {
       this.#open(index); // already browsing — switch instantly
     } else {
-      this.#openTimer = window.setTimeout(() => this.#open(index), this.#delay);
+      this.#pendingIndex = index;
+      this.#intent.scheduleOpen();
     }
   }
-  #cancelClose = () => clearTimeout(this.#closeTimer);
-  #scheduleClose = () => {
-    clearTimeout(this.#openTimer);
-    this.#closeTimer = window.setTimeout(() => this.#close(), this.#delay);
-  };
+  #cancelClose = () => this.#intent.cancelClose();
+  #scheduleClose = () => this.#intent.scheduleClose();
 
   // ---- keyboard --------------------------------------------------------
   #onTriggerKeydown = (e: KeyboardEvent, index: number) => {
@@ -181,11 +186,10 @@ export class UINavList extends HTMLElement {}
 export class UINavItem extends HTMLElement {}
 export class UINavContent extends HTMLElement {}
 
-if (!customElements.get("ui-navigation-menu"))
-  customElements.define("ui-navigation-menu", UINavigationMenu);
-if (!customElements.get("ui-nav-list")) customElements.define("ui-nav-list", UINavList);
-if (!customElements.get("ui-nav-item")) customElements.define("ui-nav-item", UINavItem);
-if (!customElements.get("ui-nav-content")) customElements.define("ui-nav-content", UINavContent);
+define("ui-navigation-menu", UINavigationMenu);
+define("ui-nav-list", UINavList);
+define("ui-nav-item", UINavItem);
+define("ui-nav-content", UINavContent);
 
 declare global {
   interface HTMLElementTagNameMap {

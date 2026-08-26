@@ -10,7 +10,9 @@
  * `[data-tab-panel value]` elements.
  */
 import { connectLightDom } from "./lifecycle.ts";
+import { define } from "./define.ts";
 import { nextId } from "./id.ts";
+import { scopedQuery } from "./query.ts";
 import { roving, type Roving } from "./roving.ts";
 
 export class UITabs extends HTMLElement {
@@ -18,17 +20,17 @@ export class UITabs extends HTMLElement {
   #roving: Roving | null = null;
   #wired = false;
 
-  get value(): string | null {
+  get value() {
     return this.#selectedTab()?.getAttribute("value") ?? null;
   }
   set value(next: string | null) {
     const tab = this.#tabs().find((t) => t.getAttribute("value") === next);
     if (tab) this.#select(tab, false);
   }
-  get orientation(): "horizontal" | "vertical" {
+  get orientation() {
     return this.getAttribute("orientation") === "vertical" ? "vertical" : "horizontal";
   }
-  get #automatic(): boolean {
+  get #automatic() {
     return this.getAttribute("activation") !== "manual";
   }
 
@@ -41,8 +43,12 @@ export class UITabs extends HTMLElement {
   }
 
   #wire() {
+    // Only wire once at least one tab exists, so a wiring pass that beats the
+    // parser sees connectLightDom retry on the next light-DOM mutation instead
+    // of silently claiming an empty host.
+    if (this.#tabs().length === 0) return;
     this.#wired = true;
-    this.#list = this.querySelector<HTMLElement>("ui-tab-list, [data-tab-list]");
+    this.#list = scopedQuery(this, "ui-tab-list, [data-tab-list]")[0] ?? null;
     this.#list?.setAttribute("role", "tablist");
     this.#list?.setAttribute("aria-orientation", this.orientation);
 
@@ -79,19 +85,21 @@ export class UITabs extends HTMLElement {
     if (initial) this.#select(initial, false);
   }
 
-  #tabs(): HTMLElement[] {
-    return [...this.querySelectorAll<HTMLElement>("[data-tab]")];
+  // Child queries are scoped so a `ui-tabs` nested inside a panel keeps
+  // ownership of its own tabs and panels.
+  #tabs() {
+    return scopedQuery(this, "[data-tab]");
   }
-  #navTabs(): HTMLElement[] {
+  #navTabs() {
     return this.#tabs().filter((t) => !t.hasAttribute("disabled"));
   }
-  #panels(): HTMLElement[] {
-    return [...this.querySelectorAll<HTMLElement>("[data-tab-panel]")];
+  #panels() {
+    return scopedQuery(this, "[data-tab-panel]");
   }
-  #panelFor(value: string | null): HTMLElement | undefined {
+  #panelFor(value: string | null) {
     return this.#panels().find((p) => p.getAttribute("value") === value);
   }
-  #selectedTab(): HTMLElement | null {
+  #selectedTab() {
     return this.#tabs().find((t) => t.getAttribute("aria-selected") === "true") ?? null;
   }
 
@@ -109,6 +117,7 @@ export class UITabs extends HTMLElement {
 
   #onClick = (e: MouseEvent) => {
     const tab = (e.target as Element).closest("[data-tab]") as HTMLElement | null;
+    if (tab?.closest("ui-tabs") !== this) return; // a nested ui-tabs owns this tab
     if (tab && !tab.hasAttribute("disabled")) {
       tab.focus();
       this.#select(tab, true);
@@ -118,8 +127,8 @@ export class UITabs extends HTMLElement {
 
 export class UITabList extends HTMLElement {}
 
-if (!customElements.get("ui-tabs")) customElements.define("ui-tabs", UITabs);
-if (!customElements.get("ui-tab-list")) customElements.define("ui-tab-list", UITabList);
+define("ui-tabs", UITabs);
+define("ui-tab-list", UITabList);
 
 declare global {
   interface HTMLElementTagNameMap {

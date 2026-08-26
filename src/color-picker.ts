@@ -3,26 +3,30 @@
  * `ui-color-field` — a native-first field that opens one in a popover.
  *
  * No Base UI counterpart; it follows the same headless conventions (light DOM,
- * {@link ElementInternals} form-association, the shared {@link overlay} stack).
+ * form association via the shared {@link formControl} layer, the shared
+ * {@link popoverField} popover dance).
  *
  * **`ui-color-picker`** builds a 2D `[data-color-area]` (x = saturation, y =
  * brightness, drag or arrow keys — `role="slider"`, `aria-valuetext` = hex), a
  * native `[data-color-hue]` range, and a `[data-color-hex]` text input. Any of
  * the three that the consumer authors is adopted; the rest are generated. It is
- * form-associated (submits the `#rrggbb` value under `name`) and fires `change`
- * with `{ value }`.
+ * form-associated (submits the `#rrggbb` value under `name`; `form.reset()`
+ * restores the initial value) and fires `change` with `{ value }`.
  *
  * **`ui-color-field`** is native-first: author `<input type="color" name="brand">`
  * and it works with no JavaScript (the browser's swatch + picker). On upgrade it
  * {@link retireNative | retires} the input to the hidden submitting value and
- * shows a swatch trigger that opens a `<ui-color-picker>`; picking writes the hex
+ * shows a swatch trigger — an authored `[data-color-trigger]` is adopted, else
+ * one is generated — that opens a `<ui-color-picker>`; picking writes the hex
  * back and fires the native change.
  */
+import { define } from "./define.ts";
+import { type FormControl, formControl } from "./form-control.ts";
 import { connectLightDom } from "./lifecycle.ts";
-import { SUPPORTS_ANCHOR } from "./anchor.ts";
-import { nextId } from "./id.ts";
-import { adoptedControl, fireNativeChange, retireNative } from "./native.ts";
-import { type Overlay, overlay } from "./overlay.ts";
+import { clamp } from "./math.ts";
+import { adoptedControl, fireNativeChange } from "./native.ts";
+import { trackPointerDrag } from "./pointer-drag.ts";
+import { type PopoverField, popoverField } from "./popover-field.ts";
 
 interface HSV {
   h: number; // 0..360
@@ -30,10 +34,9 @@ interface HSV {
   v: number; // 0..1
 }
 
-const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 const pad2 = (n: number) => n.toString(16).padStart(2, "0");
 
-function hsvToRgb({ h, s, v }: HSV): [number, number, number] {
+function hsvToRgb({ h, s, v }: HSV) {
   const c = v * s;
   const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
   const m = v - c;
@@ -53,7 +56,7 @@ function hsvToRgb({ h, s, v }: HSV): [number, number, number] {
   return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
 }
 
-function rgbToHsv(r: number, g: number, b: number): HSV {
+function rgbToHsv(r: number, g: number, b: number) {
   r /= 255;
   g /= 255;
   b /= 255;
@@ -89,29 +92,59 @@ export class UIColorPicker extends HTMLElement {
   static formAssociated = true;
   static observedAttributes = ["value", "disabled"];
 
-  #internals: ElementInternals | null = this.attachInternals?.() ?? null;
+  #formControl: FormControl = formControl(this, {
+    value: () => this.value, // always a full hex — never empty
+    onReset: () => {
+      if (!this.#wired) return;
+      this.#setHsv(rgbToHsv(...(parseHex(this.getAttribute("value")) ?? [0, 0, 0])), false);
+    },
+    onFormDisabled: (disabled) => {
+      this.#formDisabled = disabled;
+      if (this.#wired) this.#reflectDisabled();
+    },
+  });
   #wired = false;
+  #formDisabled = false;
   #hsv: HSV = { h: 0, s: 0, v: 0 };
   #area!: HTMLElement;
   #thumb!: HTMLElement;
   #hue!: HTMLInputElement;
   #hex!: HTMLInputElement;
+  #disposeDrag: (() => void) | null = null;
 
-  get form(): HTMLFormElement | null {
-    return this.#internals?.form ?? null;
+  get form() {
+    return this.#formControl.form;
   }
-  get name(): string | null {
+  get name() {
     return this.getAttribute("name");
   }
-  get disabled(): boolean {
-    return this.hasAttribute("disabled");
+  get disabled() {
+    return this.hasAttribute("disabled") || this.#formDisabled;
   }
-  get value(): string {
+  get value() {
     return hsvToHex(this.#hsv);
   }
   set value(next: string) {
     const rgb = parseHex(next);
     if (rgb) this.#setHsv(rgbToHsv(...rgb), false);
+  }
+  get validity() {
+    return this.#formControl.validity;
+  }
+  get validationMessage() {
+    return this.#formControl.validationMessage;
+  }
+  checkValidity() {
+    return this.#formControl.checkValidity();
+  }
+  reportValidity() {
+    return this.#formControl.reportValidity();
+  }
+  formResetCallback() {
+    this.#formControl.handleReset();
+  }
+  formDisabledCallback(disabled: boolean) {
+    this.#formControl.handleDisabled(disabled);
   }
 
   connectedCallback() {
@@ -120,6 +153,10 @@ export class UIColorPicker extends HTMLElement {
       () => this.#wired,
       () => this.#wire(),
     );
+  }
+
+  disconnectedCallback() {
+    this.#disposeDrag?.();
   }
 
   attributeChangedCallback(name: string) {
@@ -144,7 +181,15 @@ export class UIColorPicker extends HTMLElement {
       this.#area.getAttribute("aria-label") ?? "Saturation and brightness",
     );
     this.#area.tabIndex = this.disabled ? -1 : 0;
-    this.#area.addEventListener("pointerdown", this.#onAreaPointer);
+    this.#disposeDrag = trackPointerDrag(this.#area, {
+      onStart: (e) => {
+        if (this.disabled) return false;
+        e.preventDefault();
+        this.#area.focus();
+        this.#setFromArea(e.clientX, e.clientY);
+      },
+      onMove: (e) => this.#setFromArea(e.clientX, e.clientY),
+    });
     this.#area.addEventListener("keydown", this.#onAreaKeydown);
     this.#hue.addEventListener("input", this.#onHueInput);
     this.#hex.addEventListener("change", this.#onHexChange);
@@ -154,7 +199,7 @@ export class UIColorPicker extends HTMLElement {
     this.#hue.addEventListener("change", swallow);
     this.#hex.addEventListener("input", swallow);
 
-    this.#internals?.setFormValue(this.value);
+    this.#formControl.setValue(this.value);
     this.#render();
   }
 
@@ -201,7 +246,7 @@ export class UIColorPicker extends HTMLElement {
 
   #setHsv(next: HSV, emit: boolean) {
     this.#hsv = { h: clamp(next.h, 0, 360), s: clamp(next.s, 0, 1), v: clamp(next.v, 0, 1) };
-    this.#internals?.setFormValue(this.value);
+    this.#formControl.setValue(this.value);
     if (this.#wired) this.#render();
     if (emit) {
       this.dispatchEvent(
@@ -235,21 +280,6 @@ export class UIColorPicker extends HTMLElement {
     const v = 1 - clamp((clientY - rect.top) / rect.height, 0, 1);
     this.#setHsv({ ...this.#hsv, s, v }, true);
   }
-
-  #onAreaPointer = (e: PointerEvent) => {
-    if (this.disabled) return;
-    e.preventDefault();
-    this.#area.focus();
-    this.#area.setPointerCapture?.(e.pointerId);
-    this.#setFromArea(e.clientX, e.clientY);
-    const move = (ev: PointerEvent) => this.#setFromArea(ev.clientX, ev.clientY);
-    const up = () => {
-      this.#area.removeEventListener("pointermove", move);
-      this.#area.removeEventListener("pointerup", up);
-    };
-    this.#area.addEventListener("pointermove", move);
-    this.#area.addEventListener("pointerup", up);
-  };
 
   #onAreaKeydown = (e: KeyboardEvent) => {
     if (this.disabled) return;
@@ -298,11 +328,7 @@ export class UIColorPickerPopup extends HTMLElement {
 export class UIColorField extends HTMLElement {
   #wired = false;
   #input!: HTMLInputElement;
-  #trigger!: HTMLElement;
-  #popup!: UIColorPickerPopup;
-  #picker!: UIColorPicker;
-  #overlay: Overlay | null = null;
-  #isOpen = false;
+  #field: PopoverField | null = null;
 
   connectedCallback() {
     connectLightDom(
@@ -318,64 +344,31 @@ export class UIColorField extends HTMLElement {
     this.#wired = true;
     this.#input = input;
 
-    this.#trigger = document.createElement("button");
-    this.#trigger.setAttribute("data-color-trigger", "");
-    (this.#trigger as HTMLButtonElement).type = "button";
-    const label = input.getAttribute("aria-label");
-    this.#trigger.setAttribute("aria-label", label ?? "Choose color");
+    const picker = document.createElement("ui-color-picker") as UIColorPicker;
+    picker.value = input.value || "#000000";
+    const popup = document.createElement("ui-color-picker-popup") as UIColorPickerPopup;
+    popup.append(picker);
 
-    this.#picker = document.createElement("ui-color-picker") as UIColorPicker;
-    this.#picker.value = input.value || "#000000";
-    this.#popup = document.createElement("ui-color-picker-popup") as UIColorPickerPopup;
-    this.#popup.append(this.#picker);
-    if (!this.#popup.id) this.#popup.id = nextId("ui-color-popup");
-
-    this.#trigger.setAttribute("aria-haspopup", "dialog");
-    this.#trigger.setAttribute("aria-expanded", "false");
-    this.#trigger.setAttribute("aria-controls", this.#popup.id);
-    this.#trigger.addEventListener("click", this.#onTriggerClick);
-    this.#picker.addEventListener("change", this.#onPick as EventListener);
-
-    input.after(this.#trigger);
-    this.append(this.#popup);
-    retireNative(input);
-    this.#syncSwatch();
-
-    if (SUPPORTS_ANCHOR) {
-      const name = `--color-${nextId("anchor")}`;
-      this.#trigger.style.setProperty("anchor-name", name);
-      this.#popup.style.setProperty("position-anchor", name);
-    }
-    this.#overlay = overlay(this.#popup, {
-      anchor: { ref: () => this.#trigger, options: { offset: 6, padding: 8 } },
-      dismiss: {
-        within: () => [this.#popup, this.#trigger],
-        onDismiss: () => this.#close(false),
+    this.#field = popoverField(this, {
+      input,
+      prefix: "color",
+      trigger: {
+        marker: "data-color-trigger",
+        label: input.getAttribute("aria-label") ?? "Choose color",
       },
+      build: () => ({ popup, widget: picker }),
+      retireInput: true,
+      onOpen: () => {
+        picker.value = input.value || "#000000";
+      },
+      initialFocus: () => picker.querySelector<HTMLElement>("[data-color-area]"),
     });
+    picker.addEventListener("change", this.#onPick as EventListener);
+    this.#syncSwatch();
   }
 
   #syncSwatch() {
-    this.#trigger.style.setProperty("--color", this.#input.value || "#000000");
-  }
-
-  #onTriggerClick = () => (this.#isOpen ? this.#close(true) : this.#open());
-
-  #open() {
-    if (this.#isOpen) return;
-    this.#isOpen = true;
-    this.#picker.value = this.#input.value || "#000000";
-    this.#trigger.setAttribute("aria-expanded", "true");
-    this.#overlay?.show();
-    this.#picker.querySelector<HTMLElement>("[data-color-area]")?.focus();
-  }
-
-  #close(restoreFocus: boolean) {
-    if (!this.#isOpen) return;
-    this.#isOpen = false;
-    this.#trigger.setAttribute("aria-expanded", "false");
-    this.#overlay?.hide();
-    if (restoreFocus) this.#trigger.focus();
+    this.#field?.trigger.style.setProperty("--color", this.#input.value || "#000000");
   }
 
   #onPick = (e: CustomEvent<ColorChangeDetail>) => {
@@ -386,14 +379,13 @@ export class UIColorField extends HTMLElement {
   };
 
   disconnectedCallback() {
-    this.#close(false);
+    this.#field?.close(false);
   }
 }
 
-if (!customElements.get("ui-color-picker")) customElements.define("ui-color-picker", UIColorPicker);
-if (!customElements.get("ui-color-picker-popup"))
-  customElements.define("ui-color-picker-popup", UIColorPickerPopup);
-if (!customElements.get("ui-color-field")) customElements.define("ui-color-field", UIColorField);
+define("ui-color-picker", UIColorPicker);
+define("ui-color-picker-popup", UIColorPickerPopup);
+define("ui-color-field", UIColorField);
 
 declare global {
   interface HTMLElementTagNameMap {

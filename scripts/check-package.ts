@@ -3,7 +3,7 @@ import { readdir } from "node:fs/promises";
 import process from "node:process";
 import { build } from "vite";
 
-async function bundle(contents, sourcefile) {
+async function bundle(contents: string, sourcefile: string) {
   const virtualId = `virtual:${sourcefile}`;
   const resolvedId = `\0${virtualId}`;
   const result = await build({
@@ -33,31 +33,38 @@ async function bundle(contents, sourcefile) {
   });
   const builds = Array.isArray(result) ? result : [result];
   return builds
-    .flatMap((output) => output.output)
+    .flatMap((output) => ("output" in output ? output.output : []))
     .filter((output) => output.type === "chunk")
     .map((output) => output.code)
     .join("\n");
 }
 
-function definitions(output) {
-  return output.match(/customElements\.define\(/g)?.length ?? 0;
+// Registrations go through the shared `define()` helper, so the literal
+// `customElements.define(` appears once per bundle regardless of how many
+// elements register. Count call sites instead: a `("ui-…",` argument pair is
+// the helper's (minified) signature and unique to registration calls.
+function definitions(output: string) {
+  return output.match(/\(["'`]ui-[a-z-]+["'`],/g)?.length ?? 0;
 }
 
-const [rootSwitch, subpathSwitch, sourceSwitch, registerAll] = await Promise.all([
-  bundle(
-    'import { UISwitch } from "@chr33s/base-wc"; document.body.append(new UISwitch());',
-    "root-switch.js",
-  ),
-  bundle(
-    'import { UISwitch } from "@chr33s/base-wc/switch"; document.body.append(new UISwitch());',
-    "subpath-switch.js",
-  ),
-  bundle(
-    'import { UISwitch } from "@chr33s/base-wc/src"; document.body.append(new UISwitch());',
-    "source-switch.js",
-  ),
-  bundle('import "@chr33s/base-wc/elements";', "register-all.js"),
-]);
+const [rootSwitch, subpathSwitch, sourceSwitch, registerAll, sourceRegisterAll] = await Promise.all(
+  [
+    bundle(
+      'import { UISwitch } from "@chr33s/base-wc"; document.body.append(new UISwitch());',
+      "root-switch.js",
+    ),
+    bundle(
+      'import { UISwitch } from "@chr33s/base-wc/switch"; document.body.append(new UISwitch());',
+      "subpath-switch.js",
+    ),
+    bundle(
+      'import { UISwitch } from "@chr33s/base-wc/src"; document.body.append(new UISwitch());',
+      "source-switch.js",
+    ),
+    bundle('import "@chr33s/base-wc/elements";', "register-all.js"),
+    bundle('import "@chr33s/base-wc/src/elements";', "source-register-all.js"),
+  ],
+);
 
 assert.match(
   import.meta.resolve("@chr33s/base-wc/styles.css"),
@@ -74,7 +81,7 @@ for (const [entry, output] of [
   ["root barrel", rootSwitch],
   ["component subpath", subpathSwitch],
   ["source barrel", sourceSwitch],
-]) {
+] as const) {
   assert.ok(output.length < 5_000, `${entry} pulled ${output.length} bytes for UISwitch`);
   assert.equal(definitions(output), 1, `${entry} registered unrelated custom elements`);
   assert.match(output, /ui-switch/, `${entry} omitted the requested element registration`);
@@ -83,6 +90,17 @@ for (const [entry, output] of [
 assert.ok(definitions(registerAll) >= 80, "register-all import was incorrectly tree-shaken");
 assert.match(registerAll, /ui-combobox/, "register-all output omitted ui-combobox");
 assert.doesNotMatch(registerAll, /__perseusUI/, "register-all leaked a package global");
+// The source variant is a side-effect-only import too: it must be pinned by
+// package.json `sideEffects` ("./src/elements.ts") or bundlers drop it whole.
+assert.ok(
+  definitions(sourceRegisterAll) >= 80,
+  "source register-all import was incorrectly tree-shaken",
+);
+assert.match(
+  import.meta.resolve("@chr33s/base-wc/src/styles.css"),
+  /\/src\/styles\.css$/,
+  "source stylesheet export does not resolve",
+);
 
 const distFiles = new Set(await readdir("dist"));
 const missingTypes = [...distFiles]

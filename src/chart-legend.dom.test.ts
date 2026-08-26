@@ -4,20 +4,24 @@ import "./chart.ts";
 import "./chart-bar.ts";
 import "./chart-legend.ts";
 import "./chart-scatter.ts";
-import type { UIChart } from "./chart.ts";
 
 afterEach(() => {
   document.body.innerHTML = "";
 });
 
-// `ui-chart` (and `ui-chart-legend`) wire via `connectLightDom`, which defers
-// to a microtask so a component can wait for late-authored light-DOM parts.
-// Awaiting one microtask flushes it (and every child element's own
-// `connectLightDom` microtask, queued in the same tick) — everything after
-// that is synchronous.
-async function mountChart(inner: string): Promise<UIChart> {
+// `ui-chart` (and `ui-chart-legend`) wire via `connectLightDom` (a microtask)
+// and the chart batches its full renders onto a microtask of their own. A
+// zero-delay macrotask drains all of it — wiring, registrations, and the
+// coalesced render — so tests assert on settled DOM. The legend itself
+// re-renders synchronously on every registry notification, so only assertions
+// on the chart's *plot* need a flush after a mutation.
+function flush() {
+  return new Promise((resolve) => setTimeout(resolve));
+}
+
+async function mountChart(inner: string) {
   document.body.innerHTML = `<ui-chart width="400" height="200">${inner}</ui-chart>`;
-  await Promise.resolve();
+  await flush();
   return document.querySelector("ui-chart")!;
 }
 
@@ -144,15 +148,17 @@ describe("ui-chart-legend", () => {
   it("sets the chart's highlight to the hovered series, and clears it when the pointer leaves", async () => {
     const chart = await mountChart(TWO_SERIES);
     const legend = chart.querySelector("ui-chart-legend")!;
-    const costSeries = chart.querySelectorAll("ui-chart-bar")[1]!;
     const button = legend.querySelectorAll<HTMLButtonElement>("button")[1]!;
+
+    const events: unknown[] = [];
+    chart.addEventListener("highlight", (e) => events.push((e as CustomEvent).detail));
 
     // Delegated on the host, so the event has to bubble from the item.
     button.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
-    expect(chart.getStore().getState().highlight).toEqual({ index: null, series: costSeries });
+    expect(events.at(-1)).toEqual({ series: "Cost", seriesIndex: 1, index: null });
 
     legend.dispatchEvent(new PointerEvent("pointerleave"));
-    expect(chart.getStore().getState().highlight).toEqual({ index: null, series: null });
+    expect(events.at(-1)).toEqual({ series: null, seriesIndex: null, index: null });
   });
 
   it("keeps focus on the item that was just toggled", async () => {
@@ -180,7 +186,7 @@ describe("ui-chart-legend", () => {
     const scatter = document.createElement("ui-chart-scatter");
     scatter.setAttribute("key", "Extra");
     chart.insertBefore(scatter, legend);
-    await Promise.resolve();
+    await flush();
 
     expect(legend.querySelectorAll("button").length).toBe(3);
     const labels = [...legend.querySelectorAll<HTMLButtonElement>("button")].map(
@@ -193,7 +199,7 @@ describe("ui-chart-legend", () => {
     const chart = await mountChart(TWO_SERIES);
     const legend = chart.querySelector("ui-chart-legend")!;
     chart.querySelector('ui-chart-bar[key="Cost"]')!.remove();
-    await Promise.resolve();
+    await flush();
 
     const buttons = legend.querySelectorAll<HTMLButtonElement>("button");
     expect(buttons.length).toBe(1);
@@ -215,7 +221,7 @@ describe("ui-chart-legend", () => {
     const button = legend.querySelector<HTMLButtonElement>("button")!;
 
     chart.setHighlight({ index: 1, series: null });
-    await Promise.resolve();
+    await flush();
 
     expect(legend.querySelector("button")).toBe(button);
     expect(button.isConnected).toBe(true);
@@ -238,6 +244,7 @@ describe("ui-chart-legend", () => {
 
     // Hiding the first series must not renumber the second one anywhere.
     chart.setSeriesHidden(chart.querySelector<HTMLElement>("ui-chart-bar")!, true);
+    await flush();
     expect(swatchSlots()).toEqual(["0", "1"]);
     expect(groupSlots()).toEqual(["1"]);
   });

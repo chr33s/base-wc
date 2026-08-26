@@ -37,19 +37,19 @@ interface XY {
  * coordinates in each `chart-*.ts` series module — so no series has to keep its
  * own copy in step with this one.
  */
-export function round(n: number, digits = 3): number {
+export function round(n: number, digits = 3) {
   if (!Number.isFinite(n)) return 0;
   const factor = 10 ** digits;
   const r = Math.round(n * factor) / factor;
   return r === 0 ? 0 : r; // never emit "-0"
 }
 
-function fmt(n: number): string {
+function fmt(n: number) {
   return String(round(n));
 }
 
 /** Split `points` into contiguous runs of non-null values. With `connectNulls`, gaps are skipped instead of breaking the line into separate segments. */
-function segments(points: readonly Point[], connectNulls: boolean): XY[][] {
+function segments(points: readonly Point[], connectNulls: boolean) {
   if (connectNulls) {
     const run = points.filter((p): p is { x: number; y: number } => p.y !== null);
     return run.length > 0 ? [run] : [];
@@ -73,13 +73,13 @@ function segments(points: readonly Point[], connectNulls: boolean): XY[][] {
 // starting with "M"; `linePath`/`areaPath` handle the null-gap segmentation.
 // ---------------------------------------------------------------------------
 
-function curveLinear(points: readonly XY[]): string {
+function curveLinear(points: readonly XY[]) {
   let d = `M${fmt(points[0]!.x)},${fmt(points[0]!.y)}`;
   for (let i = 1; i < points.length; i++) d += `L${fmt(points[i]!.x)},${fmt(points[i]!.y)}`;
   return d;
 }
 
-function curveStep(points: readonly XY[]): string {
+function curveStep(points: readonly XY[]) {
   let d = `M${fmt(points[0]!.x)},${fmt(points[0]!.y)}`;
   for (let i = 1; i < points.length; i++) {
     const prev = points[i - 1]!;
@@ -91,7 +91,7 @@ function curveStep(points: readonly XY[]): string {
   return points.length > 1 ? `${d}L${fmt(last.x)},${fmt(last.y)}` : d;
 }
 
-function curveStepBefore(points: readonly XY[]): string {
+function curveStepBefore(points: readonly XY[]) {
   let d = `M${fmt(points[0]!.x)},${fmt(points[0]!.y)}`;
   for (let i = 1; i < points.length; i++) {
     const prev = points[i - 1]!;
@@ -101,7 +101,7 @@ function curveStepBefore(points: readonly XY[]): string {
   return d;
 }
 
-function curveStepAfter(points: readonly XY[]): string {
+function curveStepAfter(points: readonly XY[]) {
   let d = `M${fmt(points[0]!.x)},${fmt(points[0]!.y)}`;
   for (let i = 1; i < points.length; i++) {
     const prev = points[i - 1]!;
@@ -112,7 +112,7 @@ function curveStepAfter(points: readonly XY[]): string {
 }
 
 /** `sign(x)`, with `sign(0) === 0` (matches d3-shape's monotone helper). */
-function sign(x: number): number {
+function sign(x: number) {
   return x < 0 ? -1 : x > 0 ? 1 : 0;
 }
 
@@ -122,7 +122,7 @@ function sign(x: number): number {
  * never overshoot either secant — the property that makes `monotoneX` never
  * produce a curve that dips below/above its data points.
  */
-function slope3(x0: number, y0: number, x1: number, y1: number, x2: number, y2: number): number {
+function slope3(x0: number, y0: number, x1: number, y1: number, x2: number, y2: number) {
   const h0 = x1 - x0;
   const h1 = x2 - x1;
   const s0 = h0 !== 0 ? (y1 - y0) / h0 : 0;
@@ -132,19 +132,12 @@ function slope3(x0: number, y0: number, x1: number, y1: number, x2: number, y2: 
 }
 
 /** The one-sided tangent at an end point, given the already-fixed tangent `t` at its neighbor. */
-function slope2(x0: number, y0: number, x1: number, y1: number, t: number): number {
+function slope2(x0: number, y0: number, x1: number, y1: number, t: number) {
   const h = x1 - x0;
   return h !== 0 ? (3 * (y1 - y0)) / h / 2 - t / 2 : t;
 }
 
-function bezierSegment(
-  x0: number,
-  y0: number,
-  t0: number,
-  x1: number,
-  y1: number,
-  t1: number,
-): string {
+function bezierSegment(x0: number, y0: number, t0: number, x1: number, y1: number, t1: number) {
   const dx = (x1 - x0) / 3;
   const c1x = x0 + dx;
   const c1y = y0 + dx * t0;
@@ -154,7 +147,7 @@ function bezierSegment(
 }
 
 /** Monotone cubic interpolation (`curveMonotoneX`) — falls back to a straight line under 3 points, where no curvature is defined. */
-function curveMonotone(points: readonly XY[]): string {
+function curveMonotone(points: readonly XY[]) {
   if (points.length < 3) return curveLinear(points);
 
   const tangents: number[] = Array.from({ length: points.length }, () => 0);
@@ -183,7 +176,7 @@ function curveMonotone(points: readonly XY[]): string {
   return d;
 }
 
-function renderCurve(points: readonly XY[], curve: CurveType): string {
+function renderCurve(points: readonly XY[], curve: CurveType) {
   switch (curve) {
     case "step":
       return curveStep(points);
@@ -203,7 +196,7 @@ export function linePath(
   points: readonly Point[],
   curve: CurveType = "linear",
   connectNulls = false,
-): string {
+) {
   return segments(points, connectNulls)
     .filter((seg) => seg.length > 0)
     .map((seg) => renderCurve(seg, curve))
@@ -222,7 +215,7 @@ export function areaPath(
   y0: number | ReadonlyArray<number>,
   curve: CurveType = "linear",
   connectNulls = false,
-): string {
+) {
   const baseline = (i: number) => (Array.isArray(y0) ? (y0[i] ?? 0) : y0);
   return segments(points, connectNulls)
     .filter((seg) => seg.length > 0)
@@ -262,12 +255,12 @@ export interface ArcParams {
   cy?: number;
 }
 
-function arcPoint(angle: number, r: number, cx: number, cy: number): [number, number] {
+function arcPoint(angle: number, r: number, cx: number, cy: number) {
   return [cx + r * Math.sin(angle), cy - r * Math.cos(angle)];
 }
 
 /** An annular-sector path (a pie/donut slice, or a full ring for a 360° span). `cornerRadius` is not yet implemented. */
-export function arcPath(params: ArcParams): string {
+export function arcPath(params: ArcParams) {
   const cx = params.cx ?? 0;
   const cy = params.cy ?? 0;
   const r0 = Math.min(params.innerRadius, params.outerRadius);
@@ -348,7 +341,7 @@ export interface PieOptions {
  * here — matching d3-shape, it is only recorded per slice for {@link arcPath}
  * to apply as an inset when rendering.
  */
-export function pieAngles(values: readonly number[], options: PieOptions = {}): PieSlice[] {
+export function pieAngles(values: readonly number[], options: PieOptions = {}) {
   const start = options.startAngle ?? 0;
   const end = options.endAngle ?? start + TWO_PI;
   const padAngle = options.padAngle ?? 0;

@@ -92,4 +92,83 @@ describe("ui-accordion", () => {
     triggers[1].click();
     expect(onChange.mock.calls.at(-1)?.[0]).toEqual({ value: ["b"] });
   });
+
+  it("leaves a nested accordion's items to the nested instance", async () => {
+    document.body.innerHTML = `
+      <ui-accordion id="outer">
+        <ui-accordion-item value="out-a" open>
+          <button data-accordion-trigger id="out-a-trigger">Outer A</button>
+          <div data-accordion-content>
+            <ui-accordion id="inner">
+              <ui-accordion-item value="in-a">
+                <button data-accordion-trigger id="in-a-trigger">Inner A</button>
+                <div data-accordion-content id="in-a-content">Inner body</div>
+              </ui-accordion-item>
+            </ui-accordion>
+          </div>
+        </ui-accordion-item>
+        <ui-accordion-item value="out-b">
+          <button data-accordion-trigger>Outer B</button>
+          <div data-accordion-content>Outer body B</div>
+        </ui-accordion-item>
+      </ui-accordion>`;
+    await Promise.resolve();
+    const outer = document.querySelector<HTMLElement & { value: unknown }>("#outer")!;
+    const innerTrigger = document.querySelector<HTMLButtonElement>("#in-a-trigger")!;
+    const innerContent = document.querySelector<HTMLElement>("#in-a-content")!;
+    const changes: EventTarget[] = [];
+    outer.addEventListener("change", (e) => changes.push(e.target!));
+
+    // The outer accordion's value only reads its own items.
+    expect(outer.value).toBe("out-a");
+
+    // Toggling the nested item is handled once, by the nested accordion: it
+    // opens (single mode of the OUTER accordion must not close outer A), and
+    // the only change event is the inner one bubbling through.
+    innerTrigger.click();
+    expect(innerContent.hidden).toBe(false);
+    expect(document.querySelector("[value='out-a']")!.hasAttribute("open")).toBe(true);
+    expect(outer.value).toBe("out-a"); // inner open state is invisible to outer
+    expect(changes).toEqual([document.querySelector("#inner")]);
+  });
+
+  it("indexes an item's fallback value against the owning accordion, not its parent", async () => {
+    document.body.innerHTML = `
+      <ui-accordion>
+        <div class="wrapper">
+          <ui-accordion-item>
+            <button data-accordion-trigger>First</button>
+            <div data-accordion-content>One</div>
+          </ui-accordion-item>
+        </div>
+        <div class="wrapper">
+          <ui-accordion-item>
+            <button data-accordion-trigger>Second</button>
+            <div data-accordion-content>Two</div>
+          </ui-accordion-item>
+        </div>
+      </ui-accordion>`;
+    await Promise.resolve();
+    const items = [...document.querySelectorAll("ui-accordion-item")];
+    // Each item is alone inside its wrapper div; the index must still come
+    // from the accordion's full item list.
+    expect(items.map((item) => item.value)).toEqual(["0", "1"]);
+  });
+
+  it("wires children that arrive after the connect microtask", async () => {
+    document.body.innerHTML = "<ui-accordion></ui-accordion>";
+    const accordion = document.querySelector("ui-accordion")!;
+    await Promise.resolve(); // wiring attempt runs against the empty host
+    accordion.innerHTML = `
+      <ui-accordion-item value="late">
+        <button data-accordion-trigger>Late</button>
+        <div data-accordion-content>Late body</div>
+      </ui-accordion-item>`;
+    await new Promise((r) => setTimeout(r, 0)); // MutationObserver retry
+
+    const trigger = accordion.querySelector<HTMLButtonElement>("[data-accordion-trigger]")!;
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    trigger.click();
+    expect(accordion.value).toBe("late");
+  });
 });

@@ -11,6 +11,7 @@
  * `DataTransfer`, and the native change fires — so a later submit carries them.
  * A bubbling `change` event exposes the accepted `{ files }`.
  */
+import { define } from "./define.ts";
 import { connectLightDom } from "./lifecycle.ts";
 import { adoptedControl, fireNativeChange, retireNative } from "./native.ts";
 
@@ -26,7 +27,7 @@ export class UIDropZone extends HTMLElement {
   /** dragenter/dragleave fire per descendant; count to know when we truly left. */
   #dragDepth = 0;
 
-  get files(): File[] {
+  get files() {
     return this.#input?.files ? Array.from(this.#input.files) : [];
   }
 
@@ -73,7 +74,7 @@ export class UIDropZone extends HTMLElement {
     return el;
   }
 
-  get #disabled(): boolean {
+  get #disabled() {
     return this.#input.disabled;
   }
 
@@ -129,7 +130,7 @@ export class UIDropZone extends HTMLElement {
   };
 
   /** Match a file against the native input's `accept` list (extensions + MIME). */
-  #accepts(file: File): boolean {
+  #accepts(file: File) {
     const accept = this.#input.accept.trim();
     if (!accept) return true;
     const name = file.name.toLowerCase();
@@ -167,7 +168,7 @@ export class UIDropZone extends HTMLElement {
   }
 }
 
-if (!customElements.get("ui-drop-zone")) customElements.define("ui-drop-zone", UIDropZone);
+define("ui-drop-zone", UIDropZone);
 
 declare global {
   interface HTMLElementTagNameMap {

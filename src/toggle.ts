@@ -4,33 +4,35 @@
  * flips on click / Space / Enter and carries no form value. Inside a
  * `ui-toggle-group` the group takes over: it manages a single roving tab stop
  * (via {@link roving}), coordinates `single` vs `multiple` selection, and
- * exposes the pressed `value`(s). The toggles defer their own activation to the
- * group so a keypress is never handled twice.
+ * exposes the pressed `value`(s). A toggle detects its group live from DOM
+ * ancestry, so it defers activation to the group from the moment it is inserted
+ * — a keypress or click is never handled twice.
  */
 import { connectLightDom } from "./lifecycle.ts";
+import { define } from "./define.ts";
+import { scopedQuery } from "./query.ts";
 import { roving, type Roving } from "./roving.ts";
 
 export class UIToggle extends HTMLElement {
   static observedAttributes = ["pressed", "disabled"];
 
-  #grouped = false;
+  /** Whether a group owns activation + tab stop — read live from the DOM so a
+   * toggle inserted after the group wired is grouped from its first click. */
+  get #grouped() {
+    return this.closest("ui-toggle-group") !== null;
+  }
 
-  get pressed(): boolean {
+  get pressed() {
     return this.hasAttribute("pressed");
   }
   set pressed(next: boolean) {
     this.toggleAttribute("pressed", next);
   }
-  get value(): string {
+  get value() {
     return this.getAttribute("value") ?? "";
   }
-  get disabled(): boolean {
+  get disabled() {
     return this.hasAttribute("disabled");
-  }
-
-  /** Called by a `ui-toggle-group` to take ownership of activation + tab stop. */
-  setGrouped(grouped: boolean) {
-    this.#grouped = grouped;
   }
 
   connectedCallback() {
@@ -75,10 +77,10 @@ export class UIToggleGroup extends HTMLElement {
   #wired = false;
 
   /** `multiple` attribute → any number pressed; otherwise single-select. */
-  get multiple(): boolean {
+  get multiple() {
     return this.hasAttribute("multiple");
   }
-  get value(): string | string[] | null {
+  get value() {
     const pressed = this.#allToggles()
       .filter((t) => t.pressed)
       .map((t) => t.value);
@@ -94,9 +96,12 @@ export class UIToggleGroup extends HTMLElement {
   }
 
   #wire() {
+    // Only wire once at least one toggle exists, so a wiring pass that beats
+    // the parser sees connectLightDom retry on the next light-DOM mutation
+    // instead of silently claiming an empty host.
+    if (this.#allToggles().length === 0) return;
     this.#wired = true;
     this.setAttribute("role", "group");
-    this.#allToggles().forEach((t) => t.setGrouped(true));
 
     this.#roving = roving(this, {
       items: () => this.#toggles(),
@@ -108,10 +113,11 @@ export class UIToggleGroup extends HTMLElement {
     this.#roving.refresh(0);
   }
 
-  #allToggles(): UIToggle[] {
-    return [...this.querySelectorAll<UIToggle>("ui-toggle")];
+  // Scoped so a nested ui-toggle-group keeps ownership of its own toggles.
+  #allToggles() {
+    return scopedQuery<UIToggle>(this, "ui-toggle");
   }
-  #toggles(): UIToggle[] {
+  #toggles() {
     return this.#allToggles().filter((t) => !t.disabled);
   }
 
@@ -131,12 +137,12 @@ export class UIToggleGroup extends HTMLElement {
 
   #onClick = (e: MouseEvent) => {
     const toggle = (e.target as Element).closest("ui-toggle") as UIToggle | null;
-    if (toggle) this.#activate(toggle);
+    if (toggle?.closest("ui-toggle-group") === this) this.#activate(toggle);
   };
 }
 
-if (!customElements.get("ui-toggle")) customElements.define("ui-toggle", UIToggle);
-if (!customElements.get("ui-toggle-group")) customElements.define("ui-toggle-group", UIToggleGroup);
+define("ui-toggle", UIToggle);
+define("ui-toggle-group", UIToggleGroup);
 
 declare global {
   interface HTMLElementTagNameMap {

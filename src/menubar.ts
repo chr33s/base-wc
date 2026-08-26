@@ -9,6 +9,7 @@
  * Markup: `<ui-menubar>` wrapping sibling `<ui-menu>`s, each with its own
  * `[data-menu-trigger]` + `<ui-menu-popup>`.
  */
+import { define } from "./define.ts";
 import { connectLightDom } from "./lifecycle.ts";
 import { isRTL } from "./direction.ts";
 import type { UIMenu } from "./menu.ts";
@@ -52,10 +53,10 @@ export class UIMenubar extends HTMLElement {
     this.addEventListener("open", this.#onMenuOpen);
   }
 
-  #menus(): UIMenu[] {
+  #menus() {
     return [...this.querySelectorAll<UIMenu>(":scope > ui-menu")];
   }
-  #triggers(): HTMLElement[] {
+  #triggers() {
     return this.#menus()
       .map((m) => m.querySelector<HTMLElement>("[data-menu-trigger]"))
       .filter((el): el is HTMLElement => el != null);
@@ -96,7 +97,7 @@ export class UIMenubar extends HTMLElement {
   }
 }
 
-if (!customElements.get("ui-menubar")) customElements.define("ui-menubar", UIMenubar);
+define("ui-menubar", UIMenubar);
 
 declare global {
   interface HTMLElementTagNameMap {

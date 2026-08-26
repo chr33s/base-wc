@@ -1,33 +1,34 @@
 /**
  * `ui-popover` — an anchored, **non-modal** popup (Base UI's Popover). Reuses
- * the whole popup stack: {@link anchor} positioning, the Popover-API top layer,
- * and {@link onOutsidePress} light-dismiss. Non-modal means the page behind
- * stays interactive — no focus trap, no scroll lock (that is `ui-dialog`).
+ * the whole popup stack via {@link overlay}: {@link anchor} positioning (CSS
+ * pairing + JS fallback), the Popover-API top layer, trigger ARIA, and
+ * {@link onOutsidePress} light-dismiss. Non-modal means the page behind stays
+ * interactive — no focus trap, no scroll lock (that is `ui-dialog`).
  *
  * Markup: a `[data-popover-trigger]` and a `<ui-popover-popup>`. The trigger
  * gets `aria-haspopup="dialog"` / `aria-expanded` / `aria-controls`; the popup
  * is `role="dialog"`, labelled/described from `[data-popover-title]` /
  * `[data-popover-description]` (a light-DOM cross-reference), and any
  * `[data-popover-close]` inside it closes the popup on click. On open, focus
- * optionally moves to the popup's `[autofocus]`; on close it returns to the
- * trigger.
+ * moves to the popup's first focusable — or the popup itself when it has none,
+ * so `Escape` (listened on the host) always has a live path to dismissal. On
+ * close focus returns to the trigger.
  */
+import { define } from "./define.ts";
 import { connectLightDom } from "./lifecycle.ts";
-import { SUPPORTS_ANCHOR } from "./anchor.ts";
 import { getFocusable } from "./focus-trap.ts";
-import { nextId } from "./id.ts";
+import { labelFrom } from "./id.ts";
 import { type Overlay, overlay } from "./overlay.ts";
 
 export class UIPopover extends HTMLElement {
   #trigger: HTMLElement | null = null;
   #popup: HTMLElement | null = null;
   #arrow: HTMLElement | null = null;
-  #isOpen = false;
   #wired = false;
   #overlay: Overlay | null = null;
 
-  get open(): boolean {
-    return this.#isOpen;
+  get open() {
+    return this.#overlay?.open ?? false;
   }
 
   connectedCallback() {
@@ -45,43 +46,40 @@ export class UIPopover extends HTMLElement {
     this.#wired = true;
     this.#arrow = this.#popup.querySelector<HTMLElement>("ui-arrow");
 
-    if (this.#trigger instanceof HTMLButtonElement && !this.#trigger.hasAttribute("type")) {
-      this.#trigger.type = "button"; // never submit an enclosing form
-    }
-    if (!this.#popup.id) this.#popup.id = nextId("ui-popover-popup");
     // Label/describe the dialog from its title/description so assistive tech
     // announces it (light-DOM cross-reference — no shadow boundary to cross).
-    const title = this.querySelector("[data-popover-title]");
-    const description = this.querySelector("[data-popover-description]");
-    if (title) {
-      if (!title.id) title.id = nextId("ui-popover-title");
-      this.#popup.setAttribute("aria-labelledby", title.id);
-    }
-    if (description) {
-      if (!description.id) description.id = nextId("ui-popover-description");
-      this.#popup.setAttribute("aria-describedby", description.id);
-    }
-    this.#trigger.setAttribute("aria-haspopup", "dialog");
-    this.#trigger.setAttribute("aria-expanded", "false");
-    this.#trigger.setAttribute("aria-controls", this.#popup.id);
+    labelFrom(
+      this.#popup,
+      "aria-labelledby",
+      this.querySelector("[data-popover-title]"),
+      "ui-popover-title",
+    );
+    labelFrom(
+      this.#popup,
+      "aria-describedby",
+      this.querySelector("[data-popover-description]"),
+      "ui-popover-description",
+    );
     this.#trigger.addEventListener("click", this.#onTriggerClick);
-    this.#popup.addEventListener("keydown", this.#onPopupKeydown);
+    // Escape is listened on the host, not the popup: with no focusable content
+    // focus stays on the trigger, and a popup-only listener would never hear it.
+    this.addEventListener("keydown", this.#onKeydown);
     this.#popup.addEventListener("click", (e) => {
       if ((e.target as Element).closest("[data-popover-close]")) this.hide();
     });
 
-    if (SUPPORTS_ANCHOR) {
-      const name = `--popover-${nextId("anchor")}`;
-      this.#trigger.style.setProperty("anchor-name", name);
-      this.#popup.style.setProperty("position-anchor", name);
-    }
-
     this.#overlay = overlay(this.#popup, {
-      anchor: { ref: () => this.#trigger, options: { offset: 6, padding: 8, arrow: this.#arrow } },
+      anchor: {
+        ref: () => this.#trigger,
+        options: { offset: 6, padding: 8, arrow: this.#arrow },
+        pair: "popover",
+      },
       dismiss: {
         within: () => [this.#popup, this.#trigger],
         onDismiss: () => this.#close({ restoreFocus: false }),
       },
+      trigger: { element: this.#trigger, haspopup: "dialog", controls: "ui-popover-popup" },
+      events: this,
     });
   }
 
@@ -90,12 +88,14 @@ export class UIPopover extends HTMLElement {
   }
 
   show() {
-    if (this.#isOpen || !this.#popup || !this.#trigger) return;
-    this.#isOpen = true;
-    this.#trigger.setAttribute("aria-expanded", "true");
-    this.#overlay?.show();
-    getFocusable(this.#popup)[0]?.focus();
-    this.dispatchEvent(new CustomEvent("open", { bubbles: true }));
+    // Wire synchronously if `show()` is called in the same task as connection,
+    // before the deferred wiring microtask has run — otherwise the overlay is
+    // still missing and the open would silently no-op.
+    if (!this.#wired) this.#wire();
+    if (!this.#overlay?.show()) return;
+    // Focus the popup itself when it holds no focusable content, so Escape
+    // still reaches the host instead of dying on the (blurred) page.
+    (getFocusable(this.#popup!)[0] ?? this.#popup!).focus();
   }
 
   hide() {
@@ -103,25 +103,22 @@ export class UIPopover extends HTMLElement {
   }
 
   toggle() {
-    if (this.#isOpen) this.#close();
+    if (this.open) this.#close();
     else this.show();
   }
 
   #close({ restoreFocus = true }: { restoreFocus?: boolean } = {}) {
-    if (!this.#isOpen || !this.#popup) return;
-    this.#isOpen = false;
-    this.#trigger?.setAttribute("aria-expanded", "false");
+    if (!this.#overlay?.open) return;
     const restore =
-      restoreFocus && this.#trigger != null && this.#popup.contains(document.activeElement);
-    this.#overlay?.hide();
+      restoreFocus && this.#trigger != null && this.#popup!.contains(document.activeElement);
+    this.#overlay.hide();
     if (restore) this.#trigger?.focus();
-    this.dispatchEvent(new CustomEvent("close", { bubbles: true }));
   }
 
   #onTriggerClick = () => this.toggle();
 
-  #onPopupKeydown = (e: KeyboardEvent) => {
-    if (e.key === "Escape") {
+  #onKeydown = (e: KeyboardEvent) => {
+    if (e.key === "Escape" && this.open) {
       e.preventDefault();
       this.#close();
     }
@@ -136,9 +133,8 @@ export class UIPopoverPopup extends HTMLElement {
   }
 }
 
-if (!customElements.get("ui-popover")) customElements.define("ui-popover", UIPopover);
-if (!customElements.get("ui-popover-popup"))
-  customElements.define("ui-popover-popup", UIPopoverPopup);
+define("ui-popover", UIPopover);
+define("ui-popover-popup", UIPopoverPopup);
 
 declare global {
   interface HTMLElementTagNameMap {

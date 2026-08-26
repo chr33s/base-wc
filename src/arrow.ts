@@ -9,6 +9,8 @@
  * Markup: place `<ui-arrow>` inside any anchored popup (`ui-popover-popup`,
  * `ui-tooltip-content`, …).
  */
+import { define } from "./define.ts";
+
 export class UIArrow extends HTMLElement {
   connectedCallback() {
     this.setAttribute("aria-hidden", "true");
@@ -16,7 +18,7 @@ export class UIArrow extends HTMLElement {
   }
 }
 
-if (!customElements.get("ui-arrow")) customElements.define("ui-arrow", UIArrow);
+define("ui-arrow", UIArrow);
 
 declare global {
   interface HTMLElementTagNameMap {

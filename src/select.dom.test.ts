@@ -82,6 +82,37 @@ describe("ui-select", () => {
     expect(popup.getAttribute("aria-activedescendant")).toBe(options[3].id);
   });
 
+  it("clamps arrow navigation at the ends (no wrap)", async () => {
+    const { trigger, popup, options } = await mount();
+    trigger.click(); // active = Apple (first)
+    key(popup, "ArrowUp"); // clamped — stays on the first option
+    expect(popup.getAttribute("aria-activedescendant")).toBe(options[0].id);
+    key(popup, "End"); // → Date (last enabled)
+    key(popup, "ArrowDown"); // clamped — stays on the last option
+    expect(popup.getAttribute("aria-activedescendant")).toBe(options[3].id);
+  });
+
+  it("Space extends a pending typeahead search instead of committing", async () => {
+    document.body.innerHTML = `
+      <ui-select name="city">
+        <button data-select-trigger><span data-select-value>Choose…</span></button>
+        <ui-select-popup>
+          <ui-select-option value="ny">New York</ui-select-option>
+          <ui-select-option value="no">New Orleans</ui-select-option>
+        </ui-select-popup>
+      </ui-select>`;
+    await Promise.resolve();
+    const select = document.querySelector<HTMLElement & { value: string | null }>("ui-select")!;
+    const trigger = document.querySelector<HTMLButtonElement>("[data-select-trigger]")!;
+    trigger.click();
+    const popup = document.querySelector("ui-select-popup")!;
+    const options = [...document.querySelectorAll("ui-select-option")];
+    for (const ch of ["n", "e", "w", " ", "o"]) key(popup, ch);
+    expect(select.value).toBe(null); // Space searched, didn't commit
+    expect(popup.getAttribute("aria-activedescendant")).toBe(options[1].id); // "New Orleans"
+    expect(popup.hasAttribute("data-open")).toBe(true);
+  });
+
   it("reflects a preselected option and the value setter", async () => {
     const { select, valueEl, options } = await mount();
     expect(select.value).toBe(null);
@@ -96,6 +127,54 @@ describe("ui-select", () => {
     key(popup, "Escape");
     expect(popup.hasAttribute("data-open")).toBe(false);
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it("formResetCallback restores the markup's selected option", async () => {
+    document.body.innerHTML = `
+      <ui-select name="fruit">
+        <button data-select-trigger><span data-select-value>Choose…</span></button>
+        <ui-select-popup>
+          <ui-select-option value="apple">Apple</ui-select-option>
+          <ui-select-option value="banana" selected>Banana</ui-select-option>
+        </ui-select-popup>
+      </ui-select>`;
+    await Promise.resolve();
+    const select = document.querySelector("ui-select")!;
+    const valueEl = document.querySelector<HTMLElement>("[data-select-value]")!;
+    expect(select.value).toBe("banana"); // preselected from markup
+    select.value = "apple";
+    select.formResetCallback();
+    expect(select.value).toBe("banana");
+    expect(valueEl.textContent).toBe("Banana");
+  });
+
+  it("formResetCallback clears the selection when nothing was preselected", async () => {
+    const { select, valueEl } = await mount();
+    select.value = "banana";
+    select.formResetCallback();
+    expect(select.value).toBe(null);
+    expect(valueEl.textContent).toBe("Choose…"); // placeholder restored
+  });
+
+  it("reports valueMissing while required with no selection", async () => {
+    const { select } = await mount("required");
+    expect(select.validity.valueMissing).toBe(true);
+    expect(select.checkValidity()).toBe(false);
+    select.value = "apple";
+    expect(select.validity.valid).toBe(true);
+    expect(select.checkValidity()).toBe(true);
+  });
+
+  it("formDisabledCallback blocks opening and reflects data-disabled", async () => {
+    const { select, trigger, popup } = await mount();
+    select.formDisabledCallback(true);
+    expect(select.hasAttribute("data-disabled")).toBe(true);
+    trigger.click();
+    expect(popup.hasAttribute("data-open")).toBe(false);
+    select.formDisabledCallback(false);
+    expect(select.hasAttribute("data-disabled")).toBe(false);
+    trigger.click();
+    expect(popup.hasAttribute("data-open")).toBe(true);
   });
 });
 
@@ -262,6 +341,28 @@ describe("ui-select — adopts an authored native <select> (no-JS fallback)", ()
     expect(groups[0].getAttribute("aria-labelledby")).toBe(
       groups[0].querySelector("ui-select-group-label")?.id,
     );
+  });
+
+  it("formResetCallback re-seeds from the restored native <select>", async () => {
+    const { host, native } = await mount();
+    const trigger = host.querySelector<HTMLButtonElement>("[data-select-trigger]")!;
+    trigger.click();
+    const apple = [...host.querySelectorAll<HTMLElement>("ui-select-option")].find(
+      (o) => o.getAttribute("value") === "apple",
+    )!;
+    apple.click();
+    expect(host.value).toBe("apple");
+    // Emulate `form.reset()`: the browser restores the retired <select>'s
+    // default selection (banana, from its `selected` attribute — set directly
+    // because happy-dom's defaultSelected doesn't track the attribute), then
+    // invokes the host's formResetCallback.
+    for (const o of native.options) o.selected = o.value === "banana";
+    document.querySelector("ui-select")!.formResetCallback();
+    await Promise.resolve(); // the re-seed waits for the reset pass to finish
+    expect(host.value).toBe("banana");
+    expect(
+      host.querySelector('ui-select-option[value="banana"]')?.getAttribute("aria-selected"),
+    ).toBe("true");
   });
 
   it("adopts <select multiple> and writes every choice back to the native control", async () => {

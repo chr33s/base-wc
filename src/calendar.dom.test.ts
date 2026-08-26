@@ -91,6 +91,34 @@ describe("ui-calendar", () => {
     );
   });
 
+  it("formResetCallback restores the wire-time value", async () => {
+    const el = await mount('value="2026-07-15"');
+    el.querySelector<HTMLButtonElement>('[data-calendar-day="2026-07-20"]')!.click();
+    expect(el.value).toBe("2026-07-20");
+    expect(el.getAttribute("value")).toBe("2026-07-20"); // selection reflects
+    el.formResetCallback();
+    expect(el.value).toBe("2026-07-15"); // reset restores the initial value
+    expect(el.getAttribute("value")).toBe("2026-07-15");
+  });
+
+  it("formDisabledCallback disables the day buttons (disabled fieldset ancestor)", async () => {
+    const el = await mount();
+    const day = () => el.querySelector<HTMLButtonElement>('[data-calendar-day="2026-07-15"]')!;
+    el.formDisabledCallback(true);
+    expect(day().disabled).toBe(true);
+    el.formDisabledCallback(false);
+    expect(day().disabled).toBe(false);
+  });
+
+  it("reports valueMissing while required and empty", async () => {
+    const el = await mount("required");
+    expect(el.validity.valueMissing).toBe(true);
+    expect(el.checkValidity()).toBe(false);
+    el.value = "2026-07-15";
+    expect(el.validity.valid).toBe(true);
+    expect(el.checkValidity()).toBe(true);
+  });
+
   it("disables days outside [min, max]", async () => {
     const el = await mount('value="2026-07-15" min="2026-07-10" max="2026-07-20"');
     expect(el.querySelector<HTMLButtonElement>('[data-calendar-day="2026-07-05"]')!.disabled).toBe(

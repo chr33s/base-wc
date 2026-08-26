@@ -21,13 +21,23 @@
  * ```
  *
  * **One registry.** Registered axes and series live in the store
- * ({@link ChartStore}) and nowhere else: this element renders from
- * `state.series`, `ui-chart-legend`/`ui-chart-tooltip` read the same list back
- * through {@link UIChart.getSeries}, and a series' visibility is the `hidden`
- * flag on its own registration. The list is kept in document order, so paint
- * order matches authored order and a series' position in it *is* its palette
- * slot — the `--series-index` on its marks, its legend swatch and its tooltip
- * row, which therefore stays put while other series are toggled.
+ * ({@link ChartStore}) and nowhere else — and the registered objects are the
+ * child **elements themselves** (`ui-chart-axis`/`ui-chart-bar`/… implement
+ * the registration interfaces; their attribute getters are the fields): this
+ * element renders from `state.series`, `ui-chart-legend`/`ui-chart-tooltip`
+ * read the same list back through {@link UIChart.getSeries}, and a series'
+ * visibility is its element's own native `hidden`. The list is kept in
+ * document order, so paint order matches authored order and a series'
+ * position in it *is* its palette slot — the `--series-index` on its marks,
+ * its legend swatch and its tooltip row, which therefore stays put while
+ * other series are toggled.
+ *
+ * **Renders are batched.** Every invalidation except a highlight (see
+ * {@link ChartInvalidation}) queues one render on a microtask, so mounting K
+ * children — each of which registers, and each registration invalidates —
+ * paints once, not K times. A highlight change stays synchronous: it can't
+ * alter geometry, arrives on every pointer move, and only re-applies the
+ * highlight attributes.
  *
  * This module decides *what* the picture is; `chart-plot.ts` owns the `<svg>`
  * that shows it, and `chart-domain.ts` turns an axis plus the data into a
@@ -51,24 +61,27 @@
 import "./chart-axis.ts";
 import {
   type AxisRegistration,
+  type ChartInvalidation,
+  type ChartListener,
   type ChartRow,
   type ChartState,
   ChartStore,
   type HighlightState,
   type SeriesRegistration,
   type SeriesRenderContext,
-  type StackOffset,
   type StackedValue,
   getSeriesType,
   isNumberValue,
   numberAttribute,
   parseTable,
   stackSeries,
+  toNumeric,
 } from "./chart-core.ts";
 import { DEFAULT_TICK_COUNT, axisScale, categoryRows } from "./chart-domain.ts";
 import { ChartPlot, type GridSpec } from "./chart-plot.ts";
 import { isDiscreteScale, type Scale } from "./chart-scale.ts";
 import { round } from "./chart-shape.ts";
+import { define } from "./define.ts";
 import { connectLightDom } from "./lifecycle.ts";
 
 export interface UIChartSelectDetail {
@@ -85,7 +98,7 @@ export interface UIChartHighlightDetail {
 }
 
 /** Order two registrations by their elements' document position, so paint order follows authored order however they happened to register. Pairs with no ordering (a detached element) keep insertion order, `Array#sort` being stable. */
-function byDocumentOrder(a: SeriesRegistration, b: SeriesRegistration): number {
+function byDocumentOrder(a: SeriesRegistration, b: SeriesRegistration) {
   const relation = a.element.compareDocumentPosition(b.element);
   if (relation & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
   if (relation & Node.DOCUMENT_POSITION_PRECEDING) return 1;
@@ -100,9 +113,7 @@ function byDocumentOrder(a: SeriesRegistration, b: SeriesRegistration): number {
  * derived from the *visible* series on every render, hiding one bar re-splits
  * the band across the rest instead of leaving its column empty.
  */
-function groupSlots(
-  visible: readonly SeriesRegistration[],
-): Map<SeriesRegistration, { index: number; count: number }> {
+function groupSlots(visible: readonly SeriesRegistration[]) {
   const byType = new Map<string, SeriesRegistration[]>();
   for (const registration of visible) {
     const siblings = byType.get(registration.type);
@@ -138,8 +149,9 @@ export class UIChart extends HTMLElement {
   #table: HTMLTableElement | null = null;
   #tableObserver: MutationObserver | null = null;
   #childObserver: MutationObserver | null = null;
-  #unsubscribe: (() => void) | null = null;
   #wired = false;
+  /** A full render is queued on a microtask — see {@link #invalidate}. */
+  #renderQueued = false;
   /** Set once a consumer assigns `.data`, which (as documented) wins over the authored `<table>` — so neither the initial ingest nor a later table mutation overwrites it. */
   #dataFromProperty = false;
 
@@ -152,20 +164,21 @@ export class UIChart extends HTMLElement {
   /** The rounded box the plot was last drawn at — `undefined` while unmeasured. Interaction reads this rather than the store's raw (sub-pixel) `width`/`height`, so the pointer is mapped into the same coordinate space `#render` actually drew into. */
   #plotSize: { width: number; height: number } | undefined;
 
-  get data(): ChartRow[] {
-    return this.#store.getState().data;
+  get data() {
+    return this.#store.state.data;
   }
   set data(rows: ChartRow[]) {
     this.#dataFromProperty = true;
-    this.#store.setState({ data: rows });
+    this.#store.state.data = rows;
+    this.#invalidate("data");
   }
 
-  get label(): string | null {
+  get label() {
     return this.getAttribute("label");
   }
 
   /** How stacked series accumulate: `"none"` (default — a running total in series order) or `"diverging"`, which keeps separate positive/negative totals so a mixed-sign stack splits above and below the zero baseline. */
-  get stackOffset(): StackOffset {
+  get stackOffset() {
     return this.getAttribute("stack-offset") === "diverging" ? "diverging" : "none";
   }
 
@@ -186,62 +199,65 @@ export class UIChart extends HTMLElement {
     if (!this.#wired) return;
     if (name === "label") this.#syncLabel();
     else if (name === "width" || name === "height") this.#measure();
-    else this.#render();
+    else this.#scheduleRender();
   }
 
   // -------------------------------------------------------------------------
   // registration API — used by ui-chart-axis / ui-chart-grid / series elements
   // -------------------------------------------------------------------------
 
-  /** @internal Register an axis; the returned callback removes it again. The registration is live — an axis mutates its own fields and calls {@link requestRender}. */
-  registerAxis(registration: AxisRegistration): () => void {
-    this.#store.setState({ axes: [...this.#store.getState().axes, registration] });
+  /** @internal Register an axis; the returned callback removes it again. The registration is live — the axis element *is* it, so an attribute edit is already visible here; the axis just calls {@link requestRender}. */
+  registerAxis(registration: AxisRegistration) {
+    this.#store.state.axes.push(registration);
+    this.#invalidate("registry");
     return () => {
-      this.#store.setState({
-        axes: this.#store.getState().axes.filter((axis) => axis !== registration),
-      });
+      const { axes } = this.#store.state;
+      const at = axes.indexOf(registration);
+      if (at >= 0) axes.splice(at, 1);
+      this.#invalidate("registry");
     };
   }
 
   /** @internal Register a series; the returned callback removes it (and its rendered group) again. The list is kept in document order — see {@link byDocumentOrder}. */
-  registerSeries(registration: SeriesRegistration): () => void {
-    const series = [...this.#store.getState().series, registration].sort(byDocumentOrder);
-    this.#store.setState({ series });
+  registerSeries(registration: SeriesRegistration) {
+    this.#store.state.series.push(registration);
+    this.#store.state.series.sort(byDocumentOrder);
+    this.#invalidate("registry");
     return () => {
       this.#plot?.removeSeries(registration);
-      this.#store.setState({
-        series: this.#store.getState().series.filter((s) => s !== registration),
-      });
+      const { series } = this.#store.state;
+      const at = series.indexOf(registration);
+      if (at >= 0) series.splice(at, 1);
+      this.#invalidate("registry");
     };
   }
 
   /** @internal `ui-chart-grid` opts a dimension into rendered grid lines — undeclared dimensions draw none. */
-  registerGrid(dim: "x" | "y"): () => void {
+  registerGrid(dim: "x" | "y") {
     this.#grids.set(dim, (this.#grids.get(dim) ?? 0) + 1);
-    this.#render();
+    this.#invalidate("registry");
     return () => {
       const remaining = (this.#grids.get(dim) ?? 1) - 1;
       if (remaining > 0) this.#grids.set(dim, remaining);
       else this.#grids.delete(dim);
-      this.#render();
+      this.#invalidate("registry");
     };
   }
 
   /**
    * @internal A registered axis or series was edited in place (an attribute
-   * changed): re-render, and let subscribers know the registries moved on.
-   * Going through the store rather than calling `#render` directly is what
-   * lets `ui-chart-legend` rebuild from a registry signal instead of watching
-   * this element's DOM for changes.
+   * changed): queue a render, and let subscribers know the registries moved
+   * on. Going through {@link #invalidate} rather than rendering directly is
+   * what lets `ui-chart-legend` rebuild from a registry signal instead of
+   * watching this element's DOM for changes.
    */
-  requestRender(): void {
-    const { series, axes } = this.#store.getState();
-    this.#store.setState({ series: [...series], axes: [...axes] });
+  requestRender() {
+    this.#invalidate("registry");
   }
 
-  /** @internal */
-  getStore(): ChartStore {
-    return this.#store;
+  /** @internal Subscribe to this chart's invalidations (what `ui-chart-legend` rebuilds from). Listeners run synchronously; the returned callback unsubscribes. */
+  subscribe(listener: ChartListener) {
+    return this.#store.subscribe(listener);
   }
 
   /**
@@ -251,30 +267,28 @@ export class UIChart extends HTMLElement {
    * same list this element renders from rather than re-discovering series by
    * querying the DOM.
    */
-  getSeries(): readonly SeriesRegistration[] {
-    return this.#store.getState().series.filter((s) => !getSeriesType(s.type)?.annotation);
+  getSeries() {
+    return this.#store.state.series.filter((s) => !getSeriesType(s.type)?.annotation);
   }
 
-  /** Toggle a series' visibility (used by `ui-chart-legend`). */
-  setSeriesHidden(element: HTMLElement, hidden: boolean): void {
-    const series = this.#store.getState().series;
-    const registration = series.find((s) => s.element === element);
+  /** Toggle a series' visibility (used by `ui-chart-legend`). For an element-backed series this sets the element's own native `hidden`. */
+  setSeriesHidden(element: HTMLElement, hidden: boolean) {
+    const registration = this.#store.state.series.find((s) => s.element === element);
     if (!registration || registration.hidden === hidden) return;
     registration.hidden = hidden;
-    // Same objects, new array identity: the patch is what tells subscribers
-    // (this element's own renderer, and the legend) that the list changed.
-    this.#store.setState({ series: [...series] });
+    this.#invalidate("registry");
   }
 
-  isSeriesHidden(element: HTMLElement): boolean {
-    return this.#store.getState().series.some((s) => s.element === element && s.hidden);
+  isSeriesHidden(element: HTMLElement) {
+    return this.#store.state.series.some((s) => s.element === element && s.hidden);
   }
 
   /** @internal Programmatically set the active highlight (pointer/keyboard/legend all funnel through this). */
-  setHighlight(next: HighlightState): void {
-    const { highlight } = this.#store.getState();
+  setHighlight(next: HighlightState) {
+    const { highlight } = this.#store.state;
     if (highlight.index === next.index && highlight.series === next.series) return;
-    this.#store.setState({ highlight: next });
+    this.#store.state.highlight = next;
+    this.#invalidate("highlight");
     this.#emitHighlight(next);
   }
 
@@ -293,10 +307,9 @@ export class UIChart extends HTMLElement {
     this.#observeChildren();
     this.#measure();
     this.#observeResize();
-    this.#unsubscribe = this.#store.subscribe((_state, patch) => this.#onStateChange(patch));
     this.#attachListeners();
     if (!this.hasAttribute("tabindex")) this.tabIndex = 0;
-    this.#render();
+    this.#scheduleRender();
   }
 
   #teardown() {
@@ -315,8 +328,6 @@ export class UIChart extends HTMLElement {
     this.#childObserver = null;
     // Forget which table was being watched, so re-wiring re-attaches to it.
     this.#table = null;
-    this.#unsubscribe?.();
-    this.#unsubscribe = null;
     this.#detachListeners();
   }
 
@@ -336,16 +347,34 @@ export class UIChart extends HTMLElement {
     this.removeEventListener("keydown", this.#onKeydown);
   }
 
-  #onStateChange(patch: Partial<ChartState>) {
-    const changed = Object.keys(patch);
-    // A highlight is the one state change that cannot alter geometry, and it
-    // arrives on every pointer move — so it only re-applies the highlight
-    // attributes instead of rebuilding scales, grid lines, bands and marks.
-    if (changed.length === 1 && changed[0] === "highlight") {
-      this.#plot?.applyHighlight(this.#store.getState().highlight);
-    } else {
+  /**
+   * The single funnel every state change goes through, *after* the state has
+   * been mutated in place. A highlight is the one kind that cannot alter
+   * geometry, and it arrives on every pointer move — so it re-applies the
+   * highlight attributes synchronously instead of rebuilding scales, grid
+   * lines, bands and marks. Everything else queues one batched render.
+   * Subscribers (the legend) are told the kind either way.
+   */
+  #invalidate(kind: ChartInvalidation) {
+    if (kind === "highlight") this.#plot?.applyHighlight(this.#store.state.highlight);
+    else this.#scheduleRender();
+    this.#store.notify(kind);
+  }
+
+  /**
+   * Coalesce renders onto one microtask: mounting K children registers K
+   * times (axes, series, grids, plus the initial data ingest and measure),
+   * and each registration invalidates — deferring the actual `#render` means
+   * all of that paints once. The microtask also lands before the browser
+   * paints, so nothing is visible in between.
+   */
+  #scheduleRender() {
+    if (this.#renderQueued) return;
+    this.#renderQueued = true;
+    queueMicrotask(() => {
+      this.#renderQueued = false;
       this.#render();
-    }
+    });
   }
 
   #syncLabel() {
@@ -356,7 +385,8 @@ export class UIChart extends HTMLElement {
 
   #ingestTable() {
     if (this.#dataFromProperty) return;
-    this.#store.setState({ data: this.#table ? parseTable(this.#table) : [] });
+    this.#store.state.data = this.#table ? parseTable(this.#table) : [];
+    this.#invalidate("data");
   }
 
   /**
@@ -422,7 +452,13 @@ export class UIChart extends HTMLElement {
   #measure() {
     const width = numberAttribute(this, "width");
     const height = numberAttribute(this, "height");
-    if (width !== undefined && height !== undefined) this.#store.setState({ width, height });
+    if (width !== undefined && height !== undefined) this.#setSize(width, height);
+  }
+
+  #setSize(width: number, height: number) {
+    this.#store.state.width = width;
+    this.#store.state.height = height;
+    this.#invalidate("size");
   }
 
   #observeResize() {
@@ -442,7 +478,7 @@ export class UIChart extends HTMLElement {
         const box = entry.contentBoxSize?.[0];
         const width = box ? box.inlineSize : entry.contentRect.width;
         const height = box ? box.blockSize : entry.contentRect.height;
-        this.#store.setState({ width, height });
+        this.#setSize(width, height);
       });
     });
     // Observe the <svg> itself, not the host: consumer CSS is free to lay out
@@ -461,7 +497,7 @@ export class UIChart extends HTMLElement {
   #render() {
     const plot = this.#plot;
     if (!this.#wired || !plot) return;
-    const state = this.#store.getState();
+    const state = this.#store.state;
     const { data } = state;
     // Rounded once, here: a measured box arrives with sub-pixel fractions, and
     // every coordinate derived from it — the viewBox, grid line ends, band
@@ -495,7 +531,6 @@ export class UIChart extends HTMLElement {
       if (!type) continue;
       const slot = slots.get(registration) ?? { index: 0, count: 1 };
       const context: SeriesRenderContext = {
-        element: registration.element,
         config: registration,
         data,
         xScale: this.#xScale,
@@ -555,7 +590,7 @@ export class UIChart extends HTMLElement {
   }
 
   /** The data row each band stands for, positionally — see `categoryRows`. Empty unless the index axis is discrete and names a column. */
-  #bandRows(data: readonly ChartRow[]): number[] {
+  #bandRows(data: readonly ChartRow[]) {
     const scale = this.#xScale;
     const key = this.#indexAxis?.key;
     if (!scale || !isDiscreteScale(scale) || !key) return [];
@@ -563,7 +598,7 @@ export class UIChart extends HTMLElement {
   }
 
   /** Each dimension that both opted into grid lines and has a continuous scale to tick. */
-  #gridSpecs(): GridSpec[] {
+  #gridSpecs() {
     const specs: GridSpec[] = [];
     for (const dim of ["x", "y"] as const) {
       if (!this.#grids.has(dim)) continue;
@@ -576,10 +611,7 @@ export class UIChart extends HTMLElement {
   }
 
   /** Each stacked series' `[y0, y1]` per row. Only a series that both stacks *and* declares a `stack` group participates — everything else plots its raw values. */
-  #stacks(
-    data: readonly ChartRow[],
-    visible: readonly SeriesRegistration[],
-  ): Map<SeriesRegistration, StackedValue[]> {
+  #stacks(data: readonly ChartRow[], visible: readonly SeriesRegistration[]) {
     const stackable = visible.filter((s) => s.stack !== undefined && getSeriesType(s.type)?.stacks);
     const stacked = stackSeries(data, stackable, this.stackOffset);
     return new Map(stackable.map((registration, i) => [registration, stacked[i]!]));
@@ -589,23 +621,33 @@ export class UIChart extends HTMLElement {
   // interaction
   // -------------------------------------------------------------------------
 
-  #onPointerOver = (event: PointerEvent) => {
-    const target = event.target;
-    if (!(target instanceof Element)) return;
+  /**
+   * The rendered mark (and its series) under `target`, if any — the
+   * mark-resolution dance `pointerover` and `click` share: any series type's
+   * own hit shape carries a `data-index` inside a series group, so this
+   * generalizes across every series type uniformly without naming a specific
+   * `data-part`.
+   */
+  #markAt(target: EventTarget | null) {
+    if (!(target instanceof Element)) return null;
+    const mark = target.closest<SVGElement>("[data-index]");
+    if (!mark) return null;
+    const series = this.#plot?.seriesAt(mark);
+    return series ? { mark, series } : null;
+  }
 
+  #onPointerOver = (event: PointerEvent) => {
     // A mark (any series type's own hit shape — bar/scatter's <rect>/<circle>,
     // pie's <path>, …) paints on top of a band rect where the two overlap, so
-    // it must win the hit test: check it first, keyed only by "has a
-    // data-index inside a series group" rather than a specific data-part name,
-    // so this generalizes across every series type uniformly.
-    const mark = target.closest<SVGElement>("[data-index]");
-    const registration = mark ? this.#plot?.seriesAt(mark) : undefined;
-    if (mark && registration) {
-      this.setHighlight({ index: Number(mark.dataset.index), series: registration.element });
+    // it must win the hit test.
+    const hit = this.#markAt(event.target);
+    if (hit) {
+      this.setHighlight({ index: Number(hit.mark.dataset.index), series: hit.series.element });
       return;
     }
 
-    const band = target.closest<SVGRectElement>('[data-part="band"]');
+    if (!(event.target instanceof Element)) return;
+    const band = event.target.closest<SVGRectElement>('[data-part="band"]');
     if (!band?.dataset.index) return;
     this.setHighlight({ index: Number(band.dataset.index), series: null });
   };
@@ -635,7 +677,7 @@ export class UIChart extends HTMLElement {
   };
 
   /** The pointer in local (viewBox) coordinates, or `null` when the plot has no laid-out box to map through. Maps into `#plotSize` — the same rounded box `#render` drew the viewBox and every mark at — not the store's raw sub-pixel measurement, so a pointer at the plot's own edge is never (by up to half a rounding unit) reported as outside it. */
-  #localPoint(event: PointerEvent): { x: number; y: number } | null {
+  #localPoint(event: PointerEvent) {
     if (!this.#plot || !this.#plotSize) return null;
     const rect = this.#plot.svg.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return null;
@@ -647,7 +689,7 @@ export class UIChart extends HTMLElement {
   }
 
   /** The nearest datum across every rendered series that implements `hitTest`, or `null` if none does (the usual case — a series plotted against the shared index axis resolves through {@link #nearestIndex} instead). */
-  #hitTest(x: number, y: number): { index: number; element: HTMLElement } | null {
+  #hitTest(x: number, y: number) {
     let best: { index: number; element: HTMLElement } | null = null;
     let bestDistance = Number.POSITIVE_INFINITY;
     for (const [registration, context] of this.#plot?.rendered() ?? []) {
@@ -660,17 +702,15 @@ export class UIChart extends HTMLElement {
     return best;
   }
 
-  /** The data row whose index-axis value is closest to `value` — the axis-trigger fallback for a continuous axis with a `key`. */
-  #nearestIndex(value: number): number | null {
-    const { data } = this.#store.getState();
+  /** The data row whose index-axis value is closest to `value` — the axis-trigger fallback for a continuous axis with a `key`. A row with no plottable value in that column (`toNumeric` → `NaN`; `Number(null)` would have been 0, parking a null row at the origin) never competes, and `null` comes back when no row does. */
+  #nearestIndex(value: number) {
+    const { data } = this.#store.state;
     const key = this.#indexAxis?.key;
     if (!key || data.length === 0) return null;
-    let best = 0;
+    let best: number | null = null;
     let bestDistance = Number.POSITIVE_INFINITY;
     data.forEach((row, i) => {
-      const raw = row[key];
-      const numeric = raw instanceof Date ? raw.getTime() : Number(raw);
-      const distance = Math.abs(numeric - value);
+      const distance = Math.abs(toNumeric(row[key] ?? null) - value);
       if (distance < bestDistance) {
         bestDistance = distance;
         best = i;
@@ -684,20 +724,16 @@ export class UIChart extends HTMLElement {
   };
 
   #onClick = (event: MouseEvent) => {
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-    const mark = target.closest<SVGElement>("[data-index]");
-    if (!mark) return;
-    const registration = this.#plot?.seriesAt(mark);
-    if (!registration) return;
-    const index = Number(mark.dataset.index);
-    const value = this.#store.getState().data[index]?.[registration.key];
+    const hit = this.#markAt(event.target);
+    if (!hit) return;
+    const index = Number(hit.mark.dataset.index);
+    const value = this.#store.state.data[index]?.[hit.series.key];
     this.dispatchEvent(
       new CustomEvent<UIChartSelectDetail>("select", {
         bubbles: true,
         detail: {
-          series: registration.key,
-          seriesIndex: this.getSeries().indexOf(registration),
+          series: hit.series.key,
+          seriesIndex: this.getSeries().indexOf(hit.series),
           index,
           value: isNumberValue(value) ? value : null,
         },
@@ -706,7 +742,7 @@ export class UIChart extends HTMLElement {
   };
 
   #onKeydown = (event: KeyboardEvent) => {
-    const { data, highlight } = this.#store.getState();
+    const { data, highlight } = this.#store.state;
     if (data.length === 0) return;
     const current = highlight.index ?? -1;
     if (event.key === "ArrowRight") {
@@ -721,7 +757,7 @@ export class UIChart extends HTMLElement {
   };
 
   #emitHighlight(next: HighlightState) {
-    const registration = this.#store.getState().series.find((s) => s.element === next.series);
+    const registration = this.#store.state.series.find((s) => s.element === next.series);
     const seriesIndex = registration ? this.getSeries().indexOf(registration) : -1;
     this.dispatchEvent(
       new CustomEvent<UIChartHighlightDetail>("highlight", {
@@ -736,7 +772,7 @@ export class UIChart extends HTMLElement {
   }
 }
 
-if (!customElements.get("ui-chart")) customElements.define("ui-chart", UIChart);
+define("ui-chart", UIChart);
 
 declare global {
   interface HTMLElementTagNameMap {

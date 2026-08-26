@@ -13,7 +13,10 @@
  * `aria-activedescendant` references a row id we guarantee exists by scrolling
  * the active index into the window before pointing at it, and each visible row
  * carries `aria-posinset`/`aria-setsize` so assistive tech announces "row 4,213
- * of 10,000" correctly under virtualization.
+ * of 10,000" correctly under virtualization. Keyboard navigation is the shared
+ * {@link listNav} engine (wrap policy — arrows loop past the ends, like
+ * autocomplete and Base UI; PageUp/PageDown clamp), with the open/close and
+ * blur guards owned by the {@link AriaCombobox} core.
  *
  * The element is **form-associated** via {@link ElementInternals}: its selected
  * `value` participates in `<form>` submission and `FormData` under its `name`.
@@ -25,8 +28,11 @@
  * under `name`.
  */
 import { AriaCombobox } from "./combobox-core.ts";
+import { define } from "./define.ts";
+import { type FormControl, formControl } from "./form-control.ts";
 import { nextId } from "./id.ts";
 import { connectLightDom } from "./lifecycle.ts";
+import { listNav, type ListNav } from "./list-nav.ts";
 import { normalize } from "./text.ts";
 
 /** A single combobox option. Supplied via the `items` property, not markup. */
@@ -54,16 +60,20 @@ export interface ComboboxChangeDetail {
   readonly values: string[];
 }
 
-const ROW_H = 36; // must match the consumer's `.cb-row` height
+// Nominal row height, used until a pooled row has real layout to measure
+// (the first open re-measures, so consumer CSS may use any fixed row height).
+const ROW_H = 36;
 const OVERSCAN = 4; // rows rendered beyond each edge of the viewport
 
 export class UICombobox extends HTMLElement {
   static formAssociated = true;
 
-  // `attachInternals` is guarded so the element can still be constructed in
-  // environments without form-association support (e.g. happy-dom under test);
-  // form-value calls then become no-ops.
-  #internals: ElementInternals | null = this.attachInternals?.() ?? null;
+  #formControl: FormControl = formControl(this, {
+    // Any committed selection satisfies `required` (multi → first value).
+    value: () => (this.multiple ? ([...this.#selected.keys()][0] ?? null) : this.#selectedValue),
+    onReset: () => this.#onFormReset(),
+    onFormDisabled: (disabled) => this.#applyFormDisabled(disabled),
+  });
   #uid = nextId("cb");
 
   #input!: HTMLInputElement;
@@ -73,26 +83,57 @@ export class UICombobox extends HTMLElement {
   #chips: HTMLElement | null = null;
   #clear: HTMLElement | null = null;
   #wired = false;
+  /** Whether *we* disabled the inner input (so we may re-enable it later). */
+  #managedDisabled = false;
 
   #rows: HTMLDivElement[] = []; // recycled row pool — the ONLY option elements
+  #rowH = ROW_H; // measured from the first pooled row on open; ROW_H until then
   #all: ComboboxItem[] = []; // full data set (the store)
   #normalizedLabels: string[] = []; // normalize(#all[i].label), cached for filtering
   #filtered: ComboboxItem[] = []; // current filter result
   #controller: AriaCombobox | null = null;
+  // Shared listbox keyboard engine over the virtual rows. POLICY: the combobox
+  // wraps past the ends (like autocomplete and Base UI); paging clamps.
+  #nav: ListNav = listNav({
+    count: () => this.#filtered.length,
+    activeIndex: () => this.#controller?.activeIndex ?? -1,
+    onActive: (i) => this.#setActive(i),
+    loop: true,
+    onCommit: (i) => this.#selectIndex(i),
+    page: () => Math.max(1, Math.floor(this.#viewport.clientHeight / this.#rowH) - 1),
+  });
   #selectedValue: string | null = null; // single-select
   #selected = new Map<string, string>(); // multi-select: value → label, in order
 
-  get form(): HTMLFormElement | null {
-    return this.#internals?.form ?? null;
+  get form() {
+    return this.#formControl.form;
   }
-  get name(): string | null {
+  get name() {
     return this.getAttribute("name");
   }
+  get validity() {
+    return this.#formControl.validity;
+  }
+  get validationMessage() {
+    return this.#formControl.validationMessage;
+  }
+  checkValidity() {
+    return this.#formControl.checkValidity();
+  }
+  reportValidity() {
+    return this.#formControl.reportValidity();
+  }
+  formResetCallback() {
+    this.#formControl.handleReset();
+  }
+  formDisabledCallback(disabled: boolean) {
+    this.#formControl.handleDisabled(disabled);
+  }
   /** Multi-select mode — options toggle without closing; `value` is an array. */
-  get multiple(): boolean {
+  get multiple() {
     return this.hasAttribute("multiple");
   }
-  get value(): string | string[] | null {
+  get value() {
     return this.multiple ? [...this.#selected.keys()] : this.#selectedValue;
   }
   set value(next: string | string[] | null) {
@@ -109,19 +150,19 @@ export class UICombobox extends HTMLElement {
     this.#syncFormValue();
     if (this.#controller?.open) this.#renderWindow();
   }
-  get counts(): ComboboxCounts {
+  get counts() {
     return { total: this.#all.length, matched: this.#filtered.length, domRows: this.#rows.length };
   }
 
-  #labelFor(value: string): string {
+  #labelFor(value: string) {
     return this.#all.find((it) => it.value === value)?.label ?? value;
   }
   // Single source of truth: the committed single-select label is always derived
   // from #selectedValue, so it can't drift from the store.
-  get #selectedLabel(): string {
+  get #selectedLabel() {
     return this.#selectedValue == null ? "" : this.#labelFor(this.#selectedValue);
   }
-  #isSelected(value: string): boolean {
+  #isSelected(value: string) {
     return this.multiple ? this.#selected.has(value) : value === this.#selectedValue;
   }
 
@@ -133,7 +174,7 @@ export class UICombobox extends HTMLElement {
     if (this.#wired) this.#applyFilter("");
   }
 
-  #optId(index: number): string {
+  #optId(index: number) {
     return `${this.#uid}-opt-${index}`;
   }
 
@@ -186,14 +227,15 @@ export class UICombobox extends HTMLElement {
       popup,
       listbox: viewport,
       idPrefix: "cb",
+      // The host is the dismiss/blur boundary, so chips and the clear control
+      // are part of the widget and never light-dismiss it.
+      host: this,
       // The viewport owns its own scroll height, so don't constrain it.
       anchorOptions: { offset: 6, padding: 8, constrainHeight: false },
-      // Chips and clear are part of the widget and must not light-dismiss it.
-      dismissWithin: () => [popup, input, this.#chips, this.#clear],
-      onDismiss: () => this.#close({ revert: true }),
       onInput: this.#onInput,
-      onKeydown: this.#onKeydown,
-      onBlur: this.#onBlur,
+      onClose: () => this.#close({ revert: true }),
+      onArrowOpen: () => this.#openForBrowsing(),
+      onNavigate: (e) => this.#nav.handle(e),
       onOptionCommit: (index) => this.#selectIndex(index),
     });
 
@@ -213,7 +255,7 @@ export class UICombobox extends HTMLElement {
   // it instead of leaving its lower rows permanently unrendered.
   #ensurePool() {
     const visible = this.#viewport.clientHeight
-      ? Math.ceil(this.#viewport.clientHeight / ROW_H)
+      ? Math.ceil(this.#viewport.clientHeight / this.#rowH)
       : 9;
     const needed = visible + OVERSCAN * 2;
     for (let i = this.#rows.length; i < needed; i++) {
@@ -231,7 +273,7 @@ export class UICombobox extends HTMLElement {
     const q = normalize(query);
     this.#filtered =
       q === "" ? this.#all : this.#all.filter((_, i) => this.#normalizedLabels[i].includes(q));
-    this.#spacer.style.height = `${this.#filtered.length * ROW_H}px`; // full virtual height
+    this.#spacer.style.height = `${this.#filtered.length * this.#rowH}px`; // full virtual height
     this.#viewport.scrollTop = 0;
     this.#empty?.toggleAttribute("hidden", this.#filtered.length > 0);
     this.#renderWindow();
@@ -245,7 +287,7 @@ export class UICombobox extends HTMLElement {
     const total = this.#filtered.length;
     const scrollTop = this.#viewport.scrollTop;
     const maxFirst = Math.max(0, total - this.#rows.length);
-    const first = Math.max(0, Math.min(Math.floor(scrollTop / ROW_H) - OVERSCAN, maxFirst));
+    const first = Math.max(0, Math.min(Math.floor(scrollTop / this.#rowH) - OVERSCAN, maxFirst));
     for (let p = 0; p < this.#rows.length; p++) {
       const row = this.#rows[p];
       const index = first + p;
@@ -257,7 +299,7 @@ export class UICombobox extends HTMLElement {
       }
       const item = this.#filtered[index];
       row.hidden = false;
-      row.style.transform = `translateY(${index * ROW_H}px)`;
+      row.style.transform = `translateY(${index * this.#rowH}px)`;
       row.textContent = item.label;
       row.id = this.#optId(index);
       row.dataset.index = String(index);
@@ -278,8 +320,8 @@ export class UICombobox extends HTMLElement {
     index = Math.max(0, Math.min(index, total - 1));
     this.#controller?.setActive(index, this.#optId(index));
     if (scroll) {
-      const top = index * ROW_H;
-      const bottom = top + ROW_H;
+      const top = index * this.#rowH;
+      const bottom = top + this.#rowH;
       const vh = this.#viewport.clientHeight;
       if (top < this.#viewport.scrollTop) this.#viewport.scrollTop = top;
       else if (bottom > this.#viewport.scrollTop + vh) this.#viewport.scrollTop = bottom - vh;
@@ -287,74 +329,25 @@ export class UICombobox extends HTMLElement {
     this.#renderWindow(); // now the active row is in the pool…
   }
 
-  // ---- keyboard ---------------------------------------------------------
+  // ---- input ------------------------------------------------------------
   #onInput = () => {
     this.#open();
     this.#applyFilter(this.#input.value);
     this.#setActive(0); // autoHighlight first match
   };
 
-  #onKeydown = (e: KeyboardEvent) => {
-    const page = Math.max(1, Math.floor(this.#viewport.clientHeight / ROW_H) - 1);
-    switch (e.key) {
-      case "ArrowDown":
-        e.preventDefault();
-        if (this.#controller?.open) this.#setActive(this.#controller.activeIndex + 1);
-        else this.#openForBrowsing();
-        break;
-      case "ArrowUp":
-        e.preventDefault();
-        if (this.#controller?.open) this.#setActive(this.#controller.activeIndex - 1);
-        else this.#openForBrowsing();
-        break;
-      case "PageDown":
-        if (this.#controller?.open) {
-          e.preventDefault();
-          this.#setActive(this.#controller.activeIndex + page);
-        }
-        break;
-      case "PageUp":
-        if (this.#controller?.open) {
-          e.preventDefault();
-          this.#setActive(this.#controller.activeIndex - page);
-        }
-        break;
-      case "Home":
-        if (this.#controller?.open) {
-          e.preventDefault();
-          this.#setActive(0);
-        }
-        break;
-      case "End":
-        if (this.#controller?.open) {
-          e.preventDefault();
-          this.#setActive(this.#filtered.length - 1);
-        }
-        break;
-      case "Enter":
-        if (this.#controller?.open && this.#controller.activeIndex >= 0) {
-          e.preventDefault();
-          this.#selectIndex(this.#controller.activeIndex);
-        }
-        break;
-      case "Escape":
-        if (this.#controller?.open) {
-          e.preventDefault();
-          this.#close({ revert: true });
-        }
-        break;
-    }
-  };
-
-  #onBlur = (e: FocusEvent) => {
-    if (!this.contains(e.relatedTarget as Node | null)) this.#close({ revert: true });
-  };
-
   // ---- open / close -----------------------------------------------------
   #open() {
     if (!this.#controller?.show()) return;
-    // The popup now has real layout — grow the row pool to fill its height.
+    // The popup now has real layout — grow the row pool to fill its height and
+    // measure the true row height (consumer CSS owns it; ROW_H is a fallback).
     this.#ensurePool();
+    const measured = this.#rows[0]?.offsetHeight || ROW_H;
+    if (measured !== this.#rowH) {
+      this.#rowH = measured;
+      this.#spacer.style.height = `${this.#filtered.length * this.#rowH}px`;
+      this.#renderWindow();
+    }
   }
 
   #openForBrowsing() {
@@ -424,18 +417,49 @@ export class UICombobox extends HTMLElement {
   }
 
   #syncFormValue() {
-    if (!this.#internals) return;
     if (this.multiple) {
       const name = this.name;
       if (!name) {
-        this.#internals.setFormValue(null);
+        this.#formControl.setValue(null);
         return;
       }
       const data = new FormData();
       for (const v of this.#selected.keys()) data.append(name, v);
-      this.#internals.setFormValue(data);
+      this.#formControl.setValue(data);
     } else {
-      this.#internals.setFormValue(this.#selectedValue);
+      this.#formControl.setValue(this.#selectedValue);
+    }
+  }
+
+  /** `form.reset()`: clear the selection and input (there is no markup preset —
+   * items arrive via the `items` property, so the default is empty). */
+  #onFormReset() {
+    this.#selected.clear();
+    this.#selectedValue = null;
+    if (this.#wired) {
+      this.#renderChips();
+      this.#input.value = "";
+      if (this.#controller?.open) this.#renderWindow();
+    }
+    this.#syncFormValue();
+  }
+
+  /**
+   * One-way managed disable of the inner input on form-driven disabled (host
+   * `disabled` attribute / disabled `<fieldset>` ancestor): re-enabling only
+   * touches an input *we* disabled, never one the author disabled directly.
+   */
+  #applyFormDisabled(disabled: boolean) {
+    this.toggleAttribute("data-disabled", disabled);
+    if (!this.#wired) return;
+    if (disabled) {
+      if (!this.#input.disabled) {
+        this.#input.disabled = true;
+        this.#managedDisabled = true;
+      }
+    } else if (this.#managedDisabled) {
+      this.#input.disabled = false;
+      this.#managedDisabled = false;
     }
   }
 
@@ -502,19 +526,13 @@ export class UIComboboxChips extends HTMLElement {}
 /** One selected-value chip (rendered by the combobox). */
 export class UIComboboxChip extends HTMLElement {}
 
-if (!customElements.get("ui-combobox")) customElements.define("ui-combobox", UICombobox);
-if (!customElements.get("ui-combobox-popup"))
-  customElements.define("ui-combobox-popup", UIComboboxPopup);
-if (!customElements.get("ui-combobox-viewport"))
-  customElements.define("ui-combobox-viewport", UIComboboxViewport);
-if (!customElements.get("ui-combobox-spacer"))
-  customElements.define("ui-combobox-spacer", UIComboboxSpacer);
-if (!customElements.get("ui-combobox-empty"))
-  customElements.define("ui-combobox-empty", UIComboboxEmpty);
-if (!customElements.get("ui-combobox-chips"))
-  customElements.define("ui-combobox-chips", UIComboboxChips);
-if (!customElements.get("ui-combobox-chip"))
-  customElements.define("ui-combobox-chip", UIComboboxChip);
+define("ui-combobox", UICombobox);
+define("ui-combobox-popup", UIComboboxPopup);
+define("ui-combobox-viewport", UIComboboxViewport);
+define("ui-combobox-spacer", UIComboboxSpacer);
+define("ui-combobox-empty", UIComboboxEmpty);
+define("ui-combobox-chips", UIComboboxChips);
+define("ui-combobox-chip", UIComboboxChip);
 
 declare global {
   interface HTMLElementTagNameMap {

@@ -5,9 +5,11 @@
  *
  * This is the framework-free replacement for `@mui/x-charts`'s `Store` +
  * plugin system (`@mui/x-internals/store` + `internals/plugins/*`): a plain
- * object store with a `subscribe`/`setState` surface (no React, no reselect —
- * charts are small enough that a full recompute per `setState` is cheap), and
- * a `registerSeriesType` registry that each series element module
+ * mutable state bag plus an explicit invalidation channel ({@link ChartStore}
+ * — mutate the state, then `notify` the {@link ChartInvalidation} kind that
+ * describes what moved; no immutable-patch protocol, no reselect — charts are
+ * small enough that a full recompute per invalidation is cheap), and a
+ * `registerSeriesType` registry that each series element module
  * (`chart-bar.ts`, `chart-line.ts`, …) populates on evaluation, so unused
  * chart types tree-shake away. `ui-chart` (`chart.ts`) is the only consumer
  * that touches the DOM directly; everything here is pure and side-effect-free
@@ -16,9 +18,12 @@
  *
  * The store holds the *only* copy of the registered axes and series: `ui-chart`
  * renders from `state.series`, and `ui-chart-legend`/`ui-chart-tooltip` read
- * the same list back through `chart.getSeries()`. Nothing re-derives the series
- * list by querying the DOM, and nothing tracks visibility on the side — a
- * series' identity (its {@link SeriesRegistration} object), its order, and its
+ * the same list back through `chart.getSeries()`. The registered objects are
+ * (usually) the series/axis **elements themselves** — `chart-series.ts`/
+ * `chart-axis.ts` implement the registration interfaces directly, so there is
+ * no mirror object to keep in sync. Nothing re-derives the series list by
+ * querying the DOM, and nothing tracks visibility on the side — a series'
+ * identity (its {@link SeriesRegistration} object), its order, and its
  * {@link SeriesRegistration.hidden} state each live in exactly one place.
  */
 import type { CategoryValue, Scale, ScaleType } from "./chart-scale.ts";
@@ -39,7 +44,7 @@ export type ChartRow = Record<string, ChartValue>;
  * differs from the value used for scaling (e.g. `data-value="1400"` inside a
  * cell reading "$1,400").
  */
-export function parseTable(table: HTMLTableElement): ChartRow[] {
+export function parseTable(table: HTMLTableElement) {
   // `querySelectorAll`, not `.rows` (an `HTMLTableSectionElement` property some
   // DOM implementations — including the happy-dom test environment — don't
   // implement), so this works identically under real browsers and unit tests.
@@ -67,7 +72,7 @@ export function parseTable(table: HTMLTableElement): ChartRow[] {
   });
 }
 
-function parseCell(cell: HTMLTableCellElement): ChartValue {
+function parseCell(cell: HTMLTableCellElement) {
   const override = cell.getAttribute("data-value");
   const time = cell.querySelector("time[datetime]");
   if (time) {
@@ -88,12 +93,12 @@ export function isNumberValue(value: ChartValue | undefined): value is number {
 }
 
 /** Read an optional numeric attribute: the parsed number, or `undefined` when the attribute is absent — an unauthored bound or tick count means "derive it", which is not the same as `0`. */
-export function numberAttribute(element: HTMLElement, name: string): number | undefined {
+export function numberAttribute(element: HTMLElement, name: string) {
   return element.hasAttribute(name) ? Number(element.getAttribute(name)) : undefined;
 }
 
 /** Coerce a cell value to the number a continuous scale needs (`Date` → epoch ms). `null`/unparsable → `NaN`. */
-export function toNumeric(value: ChartValue): number {
+export function toNumeric(value: ChartValue) {
   if (value instanceof Date) return value.getTime();
   if (value == null) return Number.NaN;
   return Number(value);
@@ -160,7 +165,7 @@ export function stackSeries(
   data: readonly ChartRow[],
   series: ReadonlyArray<{ key: string; stack?: string }>,
   offset: StackOffset = "none",
-): StackedValue[][] {
+) {
   // Keyed by stack id (a string) or, for an unstacked series, by its own
   // position (a number) — so an unstacked series groups only with itself, and
   // no authored `stack` id can ever collide with that.
@@ -202,15 +207,20 @@ export function stackSeries(
 
 export type AxisPosition = "top" | "bottom" | "left" | "right";
 
+/**
+ * One registered axis. `ui-chart-axis` implements this interface directly —
+ * the element *is* its registration, its attribute getters are these fields —
+ * so an attribute edit is already visible here with nothing to re-sync.
+ */
 export interface AxisRegistration {
   /** Which edge this axis sits on. One axis per orientation is used — the first registered horizontal (`top`/`bottom`) axis is the chart's index axis, the first vertical one its value axis; MUI's multi-axis `axisId` model is not ported. */
-  position: AxisPosition;
+  readonly position: AxisPosition;
   /** Dataset column this axis reads its domain from (band/point/time axes; omitted for a scatter value axis). */
-  key?: string;
-  scaleType: ScaleType;
-  min?: number;
-  max?: number;
-  tickCount?: number;
+  readonly key?: string;
+  readonly scaleType: ScaleType;
+  readonly min?: number;
+  readonly max?: number;
+  readonly tickCount?: number;
   /**
    * Draw this axis's own tick markup for the scale `ui-chart` has just built
    * from the registration — or clear it, given `undefined`, which says this
@@ -234,19 +244,27 @@ export interface HighlightScope {
  * slot. Nothing resolves a series through {@link SeriesRegistration.key}, so
  * two series plotting the *same* dataset column — a bar and a line over
  * `Revenue`, the canonical combo chart — never collide.
+ *
+ * `ui-chart-series`'s subclasses implement this interface directly: the
+ * element *is* the registration, its attribute getters are these fields, and
+ * {@link SeriesRegistration.element} is the element itself. A plain object
+ * satisfying the interface registers just as well (tests do), which is why
+ * `element` stays an explicit field rather than the interface extending
+ * `HTMLElement`.
  */
 export interface SeriesRegistration {
-  element: HTMLElement;
-  type: string;
+  /** The DOM handle for this series — the registered element itself, for an element-backed registration. What `HighlightState.series` points at, and what document ordering compares. */
+  readonly element: HTMLElement;
+  readonly type: string;
   /** The primary dataset column: the value column for bar/line/pie (plotted against the shared index axis or, for pie, allocated as slices), or the y-value column for an x/y-pair series like scatter. */
-  key: string;
+  readonly key: string;
   /** The x-value column for a series that plots two independent value columns (scatter) rather than reading its x position from a shared category/index axis. */
-  xKey?: string;
+  readonly xKey?: string;
   /** Display name for legend/tooltip text. Falls back to `key` (the raw column name) when omitted. */
-  label?: string;
-  stack?: string;
-  highlightScope: HighlightScope;
-  /** Live visibility — toggled through `ui-chart`'s `setSeriesHidden` (what `ui-chart-legend` drives) and read back by `isSeriesHidden`. This field is the only record of it; there is no parallel set. */
+  readonly label?: string;
+  readonly stack?: string;
+  readonly highlightScope: HighlightScope;
+  /** Live visibility — toggled through `ui-chart`'s `setSeriesHidden` (what `ui-chart-legend` drives) and read back by `isSeriesHidden`. This field is the only record of it. On an element-backed registration it is the element's own native `hidden` — so `<ui-chart-bar hidden>` starts hidden, and the state survives a DOM move with the element. */
   hidden: boolean;
 }
 
@@ -268,40 +286,50 @@ export interface ChartState {
   highlight: HighlightState;
 }
 
-/** Notified after every `setState`, with the merged state and the `patch` that produced it — a listener that only cares about, say, a highlight change can check the patch instead of redoing all of its work. */
-export type ChartListener = (state: ChartState, patch: Partial<ChartState>) => void;
+/**
+ * What a {@link ChartStore.notify} call says changed — the invalidation kinds
+ * consumers key off explicitly (rather than sniffing the shape of a patch):
+ * - `"data"` — the dataset rows were replaced (table re-ingest, `.data` set).
+ * - `"size"` — the measured/authored plot box changed.
+ * - `"registry"` — the registered axes/series/grids changed: one was added,
+ *   removed, edited in place (an attribute change), or had its `hidden`
+ *   toggled. This is the kind `ui-chart-legend` rebuilds from.
+ * - `"highlight"` — only the active highlight moved. The one kind that cannot
+ *   alter geometry, and it arrives on every pointer move — `ui-chart` handles
+ *   it synchronously without scheduling a render.
+ */
+export type ChartInvalidation = "data" | "size" | "registry" | "highlight";
 
-function initialState(initial: Partial<ChartState>): ChartState {
-  return {
+/** Notified synchronously by every {@link ChartStore.notify}, with the kind of change. State is read back from the store — it was already mutated in place before the notification. */
+export type ChartListener = (kind: ChartInvalidation) => void;
+
+/**
+ * The chart's state bag plus its invalidation channel. State is **plain and
+ * mutable** — a caller edits `state` directly (push a registration, assign
+ * `data`, flip `hidden`) and then calls {@link ChartStore.notify} with the
+ * {@link ChartInvalidation} kind describing what moved. There is no
+ * immutable-patch protocol: nothing needed one (a chart re-derives everything
+ * per render), and cloning arrays purely to signal "something changed" only
+ * disguised the mutation that had already happened.
+ */
+export class ChartStore {
+  readonly state: ChartState = {
     data: [],
     width: 0,
     height: 0,
     axes: [],
     series: [],
     highlight: { index: null, series: null },
-    ...initial,
   };
-}
 
-/** A minimal observable store: `setState` replaces state wholesale and notifies every subscriber synchronously — charts are small enough that a full recompute per update is cheap, so there is no selector/memoization layer. */
-export class ChartStore {
-  #state: ChartState;
   #listeners = new Set<ChartListener>();
 
-  constructor(initial: Partial<ChartState> = {}) {
-    this.#state = initialState(initial);
+  /** Tell every subscriber, synchronously, what kind of change just happened. */
+  notify(kind: ChartInvalidation) {
+    for (const listener of this.#listeners) listener(kind);
   }
 
-  getState(): ChartState {
-    return this.#state;
-  }
-
-  setState(patch: Partial<ChartState>): void {
-    this.#state = { ...this.#state, ...patch };
-    for (const listener of this.#listeners) listener(this.#state, patch);
-  }
-
-  subscribe(listener: ChartListener): () => void {
+  subscribe(listener: ChartListener) {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
   }
@@ -326,7 +354,7 @@ export function isMarkHighlighted(
   scope: HighlightScope,
   seriesElement: HTMLElement,
   index: number,
-): boolean {
+) {
   if (scope.highlight === "none") return false;
   if (highlight.series === seriesElement) {
     if (scope.highlight === "series") return true;
@@ -346,7 +374,7 @@ export function isSeriesHighlighted(
   highlight: HighlightState,
   scope: HighlightScope,
   seriesElement: HTMLElement,
-): boolean {
+) {
   return scope.highlight !== "none" && highlight.series === seriesElement;
 }
 
@@ -355,7 +383,7 @@ export function isSeriesFaded(
   highlight: HighlightState,
   scope: HighlightScope,
   seriesElement: HTMLElement,
-): boolean {
+) {
   if (scope.fade === "none" || highlight.series === null) return false;
   return highlight.series !== seriesElement;
 }
@@ -373,7 +401,7 @@ export function isMarkFaded(
   scope: HighlightScope,
   seriesElement: HTMLElement,
   index: number,
-): boolean {
+) {
   if (scope.fade === "none") return false;
   if (highlight.series === null && highlight.index === null) return false;
   if (isMarkHighlighted(highlight, scope, seriesElement, index)) return false;
@@ -399,7 +427,7 @@ export interface MarkDescriptor {
 }
 
 export interface SeriesRenderContext {
-  element: HTMLElement;
+  /** The registration being rendered — for an element-backed series this *is* the element (`config.element === config`), so a renderer narrows `config.element` with `instanceof` to reach its own attribute surface. */
   config: SeriesRegistration;
   data: readonly ChartRow[];
   xScale: Scale | undefined;
@@ -443,8 +471,19 @@ export interface SeriesTypeDefinition {
   stacks: boolean;
   /** An annotation (a reference line) rather than a data series: excluded from the palette slots, the legend, and the tooltip. Defaults to `false` — a plain data series. */
   annotation?: boolean;
-  /** This series' contribution to its axis's domain along `dim`, or `null` if it has none (e.g. an empty dataset). */
-  getExtremum(data: readonly ChartRow[], key: string, dim: "x" | "y"): [number, number] | null;
+  /**
+   * This series' contribution to its axis's domain along `dim`, or `null` if
+   * it has none (e.g. an empty dataset). Receives the whole registration —
+   * not just a column name — because the contribution can depend on series
+   * config: scatter picks `xKey` vs `key` by dimension, and a zero-baseline
+   * geometry (a bar, an unstacked `area` line, both of which draw from y=0 to
+   * the value) must merge `[0, 0]` in so the baseline is always in-domain.
+   */
+  getExtremum(
+    data: readonly ChartRow[],
+    series: SeriesRegistration,
+    dim: "x" | "y",
+  ): [number, number] | null;
   /** Build this series' marks in local plot-pixel coordinates. */
   computeMarks(context: SeriesRenderContext): MarkDescriptor[];
   /** Nearest-datum hit test for axis-trigger interaction on non-banded axes (e.g. scatter, whose points carry their own x); band axes resolve the index from their own scale/hit-rects instead, and a series type that plots against the shared index axis needs none. */
@@ -454,10 +493,10 @@ export interface SeriesTypeDefinition {
 const seriesTypes = new Map<string, SeriesTypeDefinition>();
 
 /** Register a series type's renderer (called once at module evaluation by each `chart-*.ts` series module). Re-registering the same `type` replaces the previous definition. */
-export function registerSeriesType(definition: SeriesTypeDefinition): void {
+export function registerSeriesType(definition: SeriesTypeDefinition) {
   seriesTypes.set(definition.type, definition);
 }
 
-export function getSeriesType(type: string): SeriesTypeDefinition | undefined {
+export function getSeriesType(type: string) {
   return seriesTypes.get(type);
 }

@@ -14,23 +14,59 @@ import { isRTL } from "./direction.ts";
 
 export type Orientation = "horizontal" | "vertical" | "both";
 
-const NEXT_KEYS: Record<Orientation, string[]> = {
-  horizontal: ["ArrowRight"],
-  vertical: ["ArrowDown"],
-  both: ["ArrowRight", "ArrowDown"],
-};
-const PREV_KEYS: Record<Orientation, string[]> = {
-  horizontal: ["ArrowLeft"],
-  vertical: ["ArrowUp"],
-  both: ["ArrowLeft", "ArrowUp"],
-};
+export interface NavKeyOptions {
+  /** Arrow-key axis. Default `"horizontal"`. */
+  orientation?: Orientation;
+  /** Wrap past the ends (else clamp). Default `true`. */
+  loop?: boolean;
+  /** Swap the horizontal arrows for right-to-left contexts. Default `false`. */
+  rtl?: boolean;
+}
+
+/**
+ * Resolve a navigation keydown to a target index, or `null` when the key does
+ * not navigate. This is the one copy of the arrow/Home/End arithmetic shared by
+ * {@link roving} and by components with a different focus model (menus,
+ * listboxes via `aria-activedescendant`, accordion headers). `current` must be
+ * a valid index into the list (callers resolve their "nothing active yet" state
+ * before calling).
+ */
+export function resolveNavKey(
+  key: string,
+  count: number,
+  current: number,
+  { orientation = "horizontal", loop = true, rtl = false }: NavKeyOptions = {},
+) {
+  if (count <= 0) return null;
+  if (key === "Home") return 0;
+  if (key === "End") return count - 1;
+  const horizontal = orientation !== "vertical";
+  const vertical = orientation !== "horizontal";
+  let delta: number;
+  if (
+    (horizontal && key === (rtl ? "ArrowLeft" : "ArrowRight")) ||
+    (vertical && key === "ArrowDown")
+  ) {
+    delta = 1;
+  } else if (
+    (horizontal && key === (rtl ? "ArrowRight" : "ArrowLeft")) ||
+    (vertical && key === "ArrowUp")
+  ) {
+    delta = -1;
+  } else {
+    return null;
+  }
+  const target = current + delta;
+  if (loop) return (target + count) % count;
+  return Math.max(0, Math.min(target, count - 1));
+}
 
 // Input types that don't consume arrow/Home/End/Space for text editing, so
 // roving may still navigate away from them.
 const NON_TEXT_INPUT_TYPES = new Set(["button", "checkbox", "radio", "submit", "reset", "image"]);
 
 /** Whether the target is a text field that owns its own caret/typing keys. */
-function isTextEntry(target: EventTarget | null): boolean {
+function isTextEntry(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable) return true;
   if (target.tagName === "TEXTAREA") return true;
@@ -61,20 +97,9 @@ export interface Roving {
 }
 
 /** Attach roving-tabindex keyboard navigation to `container`. */
-export function roving(container: HTMLElement, options: RovingOptions): Roving {
+export function roving(container: HTMLElement, options: RovingOptions) {
   const orientation = options.orientation ?? "horizontal";
   const loop = options.loop ?? true;
-
-  // Under RTL the horizontal arrows swap: ArrowLeft advances, ArrowRight goes
-  // back. Computed per keydown so a runtime `dir` change is respected.
-  const nextKeys = () => {
-    const rtl = orientation !== "vertical" && isRTL(container);
-    return NEXT_KEYS[orientation].map((k) => (k === "ArrowRight" && rtl ? "ArrowLeft" : k));
-  };
-  const prevKeys = () => {
-    const rtl = orientation !== "vertical" && isRTL(container);
-    return PREV_KEYS[orientation].map((k) => (k === "ArrowLeft" && rtl ? "ArrowRight" : k));
-  };
 
   const refresh = (activeIndex = 0) => {
     const items = options.items();
@@ -92,11 +117,7 @@ export function roving(container: HTMLElement, options: RovingOptions): Roving {
     items.forEach((el, n) => {
       el.tabIndex = n === i ? 0 : -1;
     });
-    // `i` is already wrapped or clamped into range and an empty list returned
-    // above, so this cannot be undefined — but the index signature says it can,
-    // and the compiler is right to insist the narrowing be written down.
     const target = items[i];
-    if (target === undefined) return;
     target.focus();
     options.onMove?.(target, i);
   };
@@ -112,18 +133,15 @@ export function roving(container: HTMLElement, options: RovingOptions): Roving {
     // A focused text field owns its arrow/Home/End/Space keys for caret
     // movement and typing.
     if (isTextEntry(e.target)) return;
-    if (nextKeys().includes(e.key)) {
+    // RTL is read per keydown so a runtime `dir` change is respected.
+    const target = resolveNavKey(e.key, items.length, current, {
+      orientation,
+      loop,
+      rtl: orientation !== "vertical" && isRTL(container),
+    });
+    if (target !== null) {
       e.preventDefault();
-      focusItem(current + 1);
-    } else if (prevKeys().includes(e.key)) {
-      e.preventDefault();
-      focusItem(current - 1);
-    } else if (e.key === "Home") {
-      e.preventDefault();
-      focusItem(0);
-    } else if (e.key === "End") {
-      e.preventDefault();
-      focusItem(items.length - 1);
+      focusItem(target);
     } else if (e.key === "Enter" || e.key === " ") {
       // Only intercept activation when the consumer handles it; otherwise let
       // the item's native action (button click, link navigation) proceed.
@@ -131,9 +149,7 @@ export function roving(container: HTMLElement, options: RovingOptions): Roving {
       // Suppress the default action (Space scrolls the page on non-button
       // custom-element items) before activating.
       e.preventDefault();
-      const item = items[current];
-      if (item === undefined) return;
-      options.onActivate(item, current);
+      options.onActivate(items[current], current);
     }
   };
 

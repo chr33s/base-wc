@@ -10,13 +10,17 @@
  * Markup: `[data-field-control]` plus optional `[data-field-label]`,
  * `[data-field-description]` and `[data-field-error]`.
  */
+import { define } from "./define.ts";
 import { connectLightDom } from "./lifecycle.ts";
 import { nextId } from "./id.ts";
 
+// The control contract: native controls implement it, and the library's
+// form-value-bearing elements expose the same members via the shared
+// form-control layer — so validity is never silently assumed.
 type Validatable = HTMLElement & {
-  validity?: ValidityState;
-  validationMessage?: string;
-  checkValidity?: () => boolean;
+  readonly validity: ValidityState;
+  readonly validationMessage: string;
+  checkValidity(): boolean;
 };
 
 export class UIField extends HTMLElement {
@@ -28,7 +32,7 @@ export class UIField extends HTMLElement {
   #showErrors = false;
 
   /** The associated control (for `ui-form` orchestration). */
-  get control(): HTMLElement | null {
+  get control() {
     return this.#control;
   }
 
@@ -77,8 +81,8 @@ export class UIField extends HTMLElement {
     this.#control.addEventListener("blur", this.#onBlur);
   }
 
-  #isValid(): boolean {
-    return this.#control?.validity ? this.#control.validity.valid : true;
+  #isValid() {
+    return this.#control ? this.#control.validity.valid : true;
   }
 
   #applyDescribedBy() {
@@ -120,18 +124,15 @@ export class UIField extends HTMLElement {
   };
 
   /** Force validation display; returns whether the control is valid. */
-  validate(): boolean {
+  validate() {
     this.#showErrors = true;
-    const valid =
-      typeof this.#control?.checkValidity === "function"
-        ? this.#control.checkValidity()
-        : this.#isValid();
+    const valid = this.#control ? this.#control.checkValidity() : true;
     this.#refresh();
     return valid;
   }
 }
 
-if (!customElements.get("ui-field")) customElements.define("ui-field", UIField);
+define("ui-field", UIField);
 
 declare global {
   interface HTMLElementTagNameMap {

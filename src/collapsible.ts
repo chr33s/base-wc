@@ -8,7 +8,29 @@
  * Markup: a `[data-collapsible-trigger]` and a `[data-collapsible-content]`.
  */
 import { connectLightDom } from "./lifecycle.ts";
+import { define } from "./define.ts";
 import { nextId } from "./id.ts";
+
+/**
+ * Reflect one disclosure's open state onto its parts — `aria-expanded` on the
+ * trigger, `data-state` (`open` / `closed`) on both the host and the content,
+ * and the content's `hidden` flag. The one copy of the sync shared by
+ * `ui-collapsible` and `ui-accordion`'s items.
+ */
+export function syncDisclosure(
+  trigger: HTMLElement | null,
+  content: HTMLElement | null,
+  host: HTMLElement,
+  open: boolean,
+) {
+  const state = open ? "open" : "closed";
+  trigger?.setAttribute("aria-expanded", String(open));
+  host.setAttribute("data-state", state);
+  if (content) {
+    content.toggleAttribute("hidden", !open);
+    content.setAttribute("data-state", state);
+  }
+}
 
 export class UICollapsible extends HTMLElement {
   static observedAttributes = ["open"];
@@ -17,7 +39,7 @@ export class UICollapsible extends HTMLElement {
   #content: HTMLElement | null = null;
   #wired = false;
 
-  get open(): boolean {
+  get open() {
     return this.hasAttribute("open");
   }
   set open(next: boolean) {
@@ -48,13 +70,7 @@ export class UICollapsible extends HTMLElement {
   }
 
   #sync() {
-    this.#trigger?.setAttribute("aria-expanded", String(this.open));
-    const state = this.open ? "open" : "closed";
-    this.setAttribute("data-state", state);
-    if (this.#content) {
-      this.#content.toggleAttribute("hidden", !this.open);
-      this.#content.setAttribute("data-state", state);
-    }
+    syncDisclosure(this.#trigger, this.#content, this, this.open);
   }
 
   #toggle = () => {
@@ -63,7 +79,7 @@ export class UICollapsible extends HTMLElement {
   };
 }
 
-if (!customElements.get("ui-collapsible")) customElements.define("ui-collapsible", UICollapsible);
+define("ui-collapsible", UICollapsible);
 
 declare global {
   interface HTMLElementTagNameMap {

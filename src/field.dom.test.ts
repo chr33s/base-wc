@@ -63,4 +63,27 @@ describe("ui-field", () => {
     expect(field.validate()).toBe(true);
     expect(error.hidden).toBe(true);
   });
+
+  it("validates a library control through the form-control layer (required otp)", async () => {
+    document.body.innerHTML = `
+      <ui-field>
+        <label data-field-label>Code</label>
+        <ui-otp-field data-field-control name="code" length="4" required></ui-otp-field>
+        <p data-field-error>Enter the code.</p>
+      </ui-field>`;
+    await new Promise((r) => setTimeout(r, 0));
+    const field = document.querySelector("ui-field")!;
+    const otp = document.querySelector("ui-otp-field")!;
+    const error = document.querySelector<HTMLElement>("[data-field-error]")!;
+
+    expect(field.validate()).toBe(false); // empty + required → valueMissing
+    expect(error.hidden).toBe(false);
+    expect(error.textContent).toBe("Please fill out this field."); // real validationMessage
+    expect(otp.getAttribute("aria-invalid")).toBe("true");
+
+    otp.value = "1234";
+    expect(field.validate()).toBe(true);
+    expect(error.hidden).toBe(true);
+    expect(otp.hasAttribute("aria-invalid")).toBe(false);
+  });
 });

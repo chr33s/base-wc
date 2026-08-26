@@ -10,14 +10,16 @@
  * click fires a bubbling `dismiss` event, plays the `[data-state]` exit animation
  * (via {@link runExit}), and removes the host.
  */
+import { define } from "./define.ts";
 import { nextId } from "./id.ts";
 import { connectLightDom } from "./lifecycle.ts";
+import { ensureButton } from "./parts.ts";
 import { runExit, setOpenState } from "./transitions.ts";
 
 export class UIBanner extends HTMLElement {
   #wired = false;
 
-  get dismissible(): boolean {
+  get dismissible() {
     return this.hasAttribute("dismissible");
   }
 
@@ -37,7 +39,6 @@ export class UIBanner extends HTMLElement {
   }
 
   #wire() {
-    this.#wired = true;
     const title = this.querySelector("[data-banner-title]");
     if (title) {
       if (!title.id) title.id = nextId("ui-banner-title");
@@ -50,17 +51,17 @@ export class UIBanner extends HTMLElement {
     }
 
     if (this.dismissible) {
-      let btn = this.querySelector<HTMLElement>("[data-banner-dismiss]");
-      if (!btn) {
-        btn = document.createElement("button");
-        (btn as HTMLButtonElement).type = "button";
-        btn.setAttribute("data-banner-dismiss", "");
-        btn.setAttribute("aria-label", "Dismiss");
-        btn.textContent = "✕";
-        this.append(btn);
-      }
+      const btn = ensureButton(this, {
+        marker: "data-banner-dismiss",
+        label: "Dismiss",
+        text: "✕",
+      });
       btn.addEventListener("click", () => this.close());
     }
+    // Marked wired only after the parts pass. Every part is genuinely optional
+    // (title/description are skipped, the dismiss button is generated), so a
+    // completed pass is a completed wire — no retry needed.
+    this.#wired = true;
   }
 
   /** Dismiss the banner, playing its exit animation before removal. */
@@ -72,7 +73,7 @@ export class UIBanner extends HTMLElement {
   }
 }
 
-if (!customElements.get("ui-banner")) customElements.define("ui-banner", UIBanner);
+define("ui-banner", UIBanner);
 
 declare global {
   interface HTMLElementTagNameMap {

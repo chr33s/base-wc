@@ -2,10 +2,10 @@
 import { afterEach, beforeAll, describe, expect, it } from "vite-plus/test";
 import type { MarkDescriptor, SeriesTypeDefinition } from "./chart-core.ts";
 import { isNumberValue, numericExtent, registerSeriesType } from "./chart-core.ts";
-import { createScale, isDiscreteScale } from "./chart-scale.ts";
+import { isDiscreteScale, pointScale } from "./chart-scale.ts";
 import "./chart.ts";
 import "./chart-scatter.ts";
-import type { UIChart } from "./chart.ts";
+import type { UIChart, UIChartHighlightDetail } from "./chart.ts";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -20,10 +20,11 @@ beforeAll(() => {
     stacks: false,
     // A real series type only returns null for a dimension it genuinely
     // doesn't contribute to (bar/line never plot against a continuous x); this
-    // fake computes whichever column chart.ts asks for so the container's own
-    // xKey-vs-key column selection (see chart.ts's #seriesExtremum) is what
-    // gets exercised, not a stub that ignores dim.
-    getExtremum: (data, key) => numericExtent(data, key),
+    // fake contributes whichever column fits the dimension — the same
+    // xKey-vs-key selection scatter's own getExtremum makes, now that the
+    // registration (not a pre-picked column) is what a type receives.
+    getExtremum: (data, series, dim) =>
+      numericExtent(data, dim === "x" ? (series.xKey ?? series.key) : series.key),
     computeMarks: (context) => {
       const marks: MarkDescriptor[] = [];
       context.data.forEach((row, i) => {
@@ -44,19 +45,25 @@ beforeAll(() => {
   registerSeriesType(fakeBar);
 });
 
-// `ui-chart` wires via `connectLightDom`, which defers to a microtask so a
-// component can wait for late-authored light-DOM parts. Awaiting one
-// microtask flushes it (and every child element's own `connectLightDom`
-// microtask, queued in the same tick) — every registration/render after that
-// is synchronous (`#render()` runs immediately, matching `anchor.ts`'s "first
-// placement stays synchronous" precedent), so no further waiting is needed.
-async function mountChart(inner: string, size = true): Promise<UIChart> {
+// `ui-chart` wires via `connectLightDom` (a microtask, so a component can
+// wait for late-authored light-DOM parts) and **batches its full renders**
+// onto a microtask of their own — mounting K children paints once, and any
+// mutation (a registration, an attribute edit, `setSeriesHidden`) defers its
+// re-render the same way. A zero-delay macrotask drains all of it — wiring,
+// registrations, observer deliveries, and the coalesced render — so tests
+// assert on settled DOM. Highlight changes stay synchronous and need none of
+// this.
+function flush() {
+  return new Promise((resolve) => setTimeout(resolve));
+}
+
+async function mountChart(inner: string, size = true) {
   document.body.innerHTML = `<ui-chart${size ? ' width="400" height="200"' : ""}>${inner}</ui-chart>`;
-  await Promise.resolve();
+  await flush();
   return document.querySelector("ui-chart")!;
 }
 
-function addFakeSeries(chart: UIChart, key = "Revenue") {
+async function addFakeSeries(chart: UIChart, key = "Revenue") {
   const element = document.createElement("div");
   chart.append(element);
   const unregister = chart.registerSeries({
@@ -66,7 +73,17 @@ function addFakeSeries(chart: UIChart, key = "Revenue") {
     highlightScope: { highlight: "item", fade: "global" },
     hidden: false,
   });
+  await flush();
   return { element, unregister };
+}
+
+/** Collect every `highlight` event's detail — the public read of the active highlight. */
+function trackHighlights(chart: UIChart) {
+  const events: UIChartHighlightDetail[] = [];
+  chart.addEventListener("highlight", (e) =>
+    events.push((e as CustomEvent<UIChartHighlightDetail>).detail),
+  );
+  return events;
 }
 
 const TABLE = `
@@ -137,7 +154,7 @@ describe("ui-chart", () => {
       <ui-chart-axis position="bottom" scale="linear"></ui-chart-axis>
       <ui-chart-axis position="left"></ui-chart-axis>
     </ui-chart>`;
-    await Promise.resolve();
+    await flush();
     const chart = document.querySelector("ui-chart")!;
     const element = document.createElement("div");
     chart.append(element);
@@ -149,6 +166,7 @@ describe("ui-chart", () => {
       highlightScope: { highlight: "item", fade: "global" },
       hidden: false,
     });
+    await flush();
     // The bottom axis has no `key` of its own (continuous, series-driven) —
     // its domain must come from the series' xKey ("a": [3, 9]), not its
     // primary key ("b": [10, 50]). A tick at the xKey's max (9) should exist.
@@ -188,11 +206,9 @@ describe("ui-chart", () => {
       expect(x + width).toBeLessThanOrEqual(400.001); // mountChart's default width
     }
     // The middle category never needs clamping — its rect must be centred
-    // exactly on the scale's own (unclamped) point position.
-    const scale = createScale("point", ["Jan", "Feb", "Mar"], [0, 400], {
-      paddingInner: 0.3,
-      paddingOuter: 0.15,
-    });
+    // exactly on the scale's own (unclamped) point position. Same constructor
+    // and padding `axisScale` itself uses for a point axis.
+    const scale = pointScale(["Jan", "Feb", "Mar"], [0, 400], { padding: 0.15 });
     if (!isDiscreteScale(scale)) throw new Error("expected a point scale");
     const feb = bands[1]!;
     const x = Number(feb.getAttribute("x"));
@@ -236,9 +252,11 @@ describe("ui-chart", () => {
     // Registrations are counted, not just flagged: removing one of two grid
     // elements must not switch the whole dimension off.
     chart.querySelector("ui-chart-grid")!.remove();
+    await flush();
     expect(lines()).toBeGreaterThan(0);
 
     chart.querySelector("ui-chart-grid")!.remove();
+    await flush();
     expect(lines()).toBe(0);
   });
 
@@ -248,7 +266,7 @@ describe("ui-chart", () => {
       <ui-chart-axis position="bottom" key="Month" scale="band"></ui-chart-axis>
       <ui-chart-axis position="left"></ui-chart-axis>
     `);
-    addFakeSeries(chart);
+    await addFakeSeries(chart);
 
     const group = chart.querySelector('[data-part="series"]');
     expect(group).not.toBeNull();
@@ -264,11 +282,12 @@ describe("ui-chart", () => {
       <ui-chart-axis position="bottom" key="Month" scale="band"></ui-chart-axis>
       <ui-chart-axis position="left"></ui-chart-axis>
     `);
-    const { element } = addFakeSeries(chart);
+    const { element } = await addFakeSeries(chart);
     expect(chart.querySelectorAll('[data-part="series"]').length).toBe(1);
 
     chart.setSeriesHidden(element, true);
     expect(chart.isSeriesHidden(element)).toBe(true);
+    await flush();
     expect(chart.querySelectorAll('[data-part="series"]').length).toBe(0);
   });
 
@@ -288,6 +307,7 @@ describe("ui-chart", () => {
       hidden: true,
     });
     expect(chart.isSeriesHidden(element)).toBe(true);
+    await flush();
     expect(chart.querySelectorAll('[data-part="series"]').length).toBe(0);
   });
 
@@ -312,7 +332,7 @@ describe("ui-chart", () => {
       <ui-chart-axis position="bottom" key="Month" scale="band"></ui-chart-axis>
       <ui-chart-axis position="left"></ui-chart-axis>
     `);
-    addFakeSeries(chart);
+    await addFakeSeries(chart);
     const events: unknown[] = [];
     chart.addEventListener("highlight", (e) => events.push((e as CustomEvent).detail));
 
@@ -330,7 +350,7 @@ describe("ui-chart", () => {
       <ui-chart-axis position="bottom" key="Month" scale="band"></ui-chart-axis>
       <ui-chart-axis position="left"></ui-chart-axis>
     `);
-    addFakeSeries(chart);
+    await addFakeSeries(chart);
 
     chart.setHighlight({ index: 1, series: null });
     const marks = chart.querySelectorAll('[data-part="mark"]');
@@ -340,13 +360,14 @@ describe("ui-chart", () => {
 
   it("walks the highlighted index with ArrowRight/ArrowLeft and clears on Escape", async () => {
     const chart = await mountChart(TABLE);
+    const events = trackHighlights(chart);
     chart.setHighlight({ index: 0, series: null });
     chart.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
-    expect(chart.getStore().getState().highlight.index).toBe(1);
+    expect(events.at(-1)).toMatchObject({ index: 1 });
     chart.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
-    expect(chart.getStore().getState().highlight.index).toBe(0);
+    expect(events.at(-1)).toMatchObject({ index: 0 });
     chart.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    expect(chart.getStore().getState().highlight.index).toBeNull();
+    expect(events.at(-1)).toMatchObject({ index: null });
   });
 
   it("dispatches select with the clicked mark's series/index/value", async () => {
@@ -355,7 +376,7 @@ describe("ui-chart", () => {
       <ui-chart-axis position="bottom" key="Month" scale="band"></ui-chart-axis>
       <ui-chart-axis position="left"></ui-chart-axis>
     `);
-    addFakeSeries(chart);
+    await addFakeSeries(chart);
 
     const events: unknown[] = [];
     chart.addEventListener("select", (e) => events.push((e as CustomEvent).detail));
@@ -364,21 +385,22 @@ describe("ui-chart", () => {
     expect(events).toEqual([{ series: "Revenue", seriesIndex: 0, index: 2, value: 101 }]);
   });
 
-  it("keeps getStore().getState().axes/series in sync with the live registration lists (not permanently empty)", async () => {
+  it("keeps the series registry live: a registration appears in getSeries() and unregistering removes it", async () => {
     const chart = await mountChart(`
       ${TABLE}
       <ui-chart-axis position="bottom" key="Month" scale="band"></ui-chart-axis>
       <ui-chart-axis position="left"></ui-chart-axis>
     `);
-    expect(chart.getStore().getState().axes.length).toBe(2);
-    expect(chart.getStore().getState().series.length).toBe(0);
+    expect(chart.getSeries().length).toBe(0);
 
-    const { unregister } = addFakeSeries(chart);
-    expect(chart.getStore().getState().series.length).toBe(1);
-    expect(chart.getStore().getState().series[0]!.key).toBe("Revenue");
+    const { unregister } = await addFakeSeries(chart);
+    expect(chart.getSeries().length).toBe(1);
+    expect(chart.getSeries()[0]!.key).toBe("Revenue");
 
     unregister();
-    expect(chart.getStore().getState().series.length).toBe(0);
+    expect(chart.getSeries().length).toBe(0);
+    await flush();
+    expect(chart.querySelectorAll('[data-part="series"]').length).toBe(0);
   });
 });
 
@@ -393,8 +415,8 @@ describe("ui-chart: one registry", () => {
       <ui-chart-axis position="bottom" key="Month" scale="band"></ui-chart-axis>
       <ui-chart-axis position="left"></ui-chart-axis>
     `);
-    addFakeSeries(chart, "Revenue");
-    addFakeSeries(chart, "Revenue");
+    await addFakeSeries(chart, "Revenue");
+    await addFakeSeries(chart, "Revenue");
 
     const groups = [...chart.querySelectorAll('[data-part="series"]')];
     expect(groups.length).toBe(2);
@@ -411,8 +433,8 @@ describe("ui-chart: one registry", () => {
       <ui-chart-axis position="bottom" key="Month" scale="band"></ui-chart-axis>
       <ui-chart-axis position="left"></ui-chart-axis>
     `);
-    const first = addFakeSeries(chart, "Revenue");
-    addFakeSeries(chart, "Cost");
+    const first = await addFakeSeries(chart, "Revenue");
+    await addFakeSeries(chart, "Cost");
 
     const slotOfCost = () =>
       (chart.querySelector('[data-part="series"][data-series="Cost"]') as HTMLElement).dataset
@@ -422,6 +444,7 @@ describe("ui-chart: one registry", () => {
     // Hiding the series in front of it used to renumber it to 0 — changing its
     // colour mid-interaction, and disagreeing with its own legend swatch.
     chart.setSeriesHidden(first.element, true);
+    await flush();
     expect(slotOfCost()).toBe("1");
   });
 
@@ -430,8 +453,8 @@ describe("ui-chart: one registry", () => {
       ${TABLE}
       <ui-chart-axis position="bottom" key="Month" scale="band"></ui-chart-axis>
     `);
-    addFakeSeries(chart, "Revenue");
-    addFakeSeries(chart, "Cost");
+    await addFakeSeries(chart, "Revenue");
+    await addFakeSeries(chart, "Cost");
     expect(chart.getSeries().map((s) => s.key)).toEqual(["Revenue", "Cost"]);
 
     const [revenue] = chart.getSeries();
@@ -451,7 +474,7 @@ describe("ui-chart: highlight is not a re-render", () => {
       <ui-chart-axis position="left"></ui-chart-axis>
       <ui-chart-grid axis="y"></ui-chart-grid>
     `);
-    addFakeSeries(chart);
+    await addFakeSeries(chart);
     const gridLine = chart.querySelector('[data-part="grid-line"]');
     const band = chart.querySelectorAll('[data-part="band"]')[1]!;
     expect(gridLine).not.toBeNull();
@@ -478,21 +501,26 @@ describe("ui-chart: lifecycle", () => {
     chart.setAttribute("height", "200");
     chart.innerHTML = TABLE;
     document.querySelector("#from")!.append(chart);
-    await Promise.resolve();
+    await flush();
 
     document.querySelector("#to")!.append(chart);
-    await Promise.resolve();
+    await flush();
 
     // Teardown used to drop every listener and leave the element flagged as
     // wired, so a moved chart painted once and then ignored input forever.
+    const events = trackHighlights(chart);
     chart.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
-    expect(chart.getStore().getState().highlight.index).toBe(0);
+    expect(events.at(-1)).toMatchObject({ index: 0 });
     expect(chart.querySelectorAll("svg").length).toBe(1);
   });
 
   it("re-observes its own box after a move, when no explicit size is authored", async () => {
     const observed: Element[] = [];
+    const callbacks: ResizeObserverCallback[] = [];
     class StubResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        callbacks.push(callback);
+      }
       observe(target: Element) {
         observed.push(target);
       }
@@ -506,16 +534,21 @@ describe("ui-chart: lifecycle", () => {
       const chart = document.createElement("ui-chart");
       chart.innerHTML = TABLE;
       document.querySelector("#from")!.append(chart);
-      await Promise.resolve();
+      await flush();
       expect(observed).toEqual([chart.querySelector("svg")]);
 
-      // Stand in for the observer having already reported a size once: the
-      // guard must key on "no explicit width/height attributes", not on "not
-      // measured yet", or a chart that has ever been measured stops observing
-      // the moment it moves.
-      chart.getStore().setState({ width: 400, height: 200 });
+      // Deliver a measurement through the observer itself, so the chart has
+      // genuinely measured once: the re-observe guard must key on "no explicit
+      // width/height attributes", not on "not measured yet", or a chart that
+      // has ever been measured stops observing the moment it moves.
+      const entry = { contentRect: { width: 400, height: 200 } } as ResizeObserverEntry;
+      callbacks[0]!([entry], new StubResizeObserver(() => {}) as unknown as ResizeObserver);
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await flush();
+      expect(chart.querySelector("svg")!.getAttribute("viewBox")).toBe("0 0 400 200");
+
       document.querySelector("#to")!.append(chart);
-      await Promise.resolve();
+      await flush();
       // Teardown disconnected the old observer, so re-wiring has to make a new
       // one — a moved chart that never measures again would freeze at its last
       // size (or, having never been measured, never render at all).
@@ -554,6 +587,34 @@ describe("ui-chart: lifecycle", () => {
     expect(events.at(-1)).toMatchObject({ index: 1 }); // the domain-max point, at the plot's own edge
   });
 
+  it("regression: a row with a null index-axis value never wins the nearest-index hover contest", async () => {
+    // `#nearestIndex` used to inline `Number(raw)`, and `Number(null)` is 0 —
+    // so a null-valued row sat at the origin and beat every real row whenever
+    // the pointer neared x=0. `toNumeric(null)` is NaN, which never wins.
+    const chart = await mountChart(`
+      <table>
+        <thead><tr><th>X</th><th>Y</th></tr></thead>
+        <tbody>
+          <tr><td>5</td><td>1</td></tr>
+          <tr><td></td><td>2</td></tr>
+          <tr><td>10</td><td>3</td></tr>
+        </tbody>
+      </table>
+      <ui-chart-axis position="bottom" scale="linear" key="X" min="0" max="10"></ui-chart-axis>
+      <ui-chart-axis position="left" min="0" max="5"></ui-chart-axis>
+    `);
+    chart.querySelector("svg")!.getBoundingClientRect = () =>
+      ({ x: 0, y: 0, top: 0, left: 0, width: 400, height: 200 }) as DOMRect;
+
+    const events = trackHighlights(chart);
+    // x=0 in plot space inverts to value 0 — nearest *plottable* row is X=5
+    // (index 0); the null row (index 1) would have been distance 0 away.
+    chart.dispatchEvent(
+      new PointerEvent("pointermove", { bubbles: true, clientX: 0, clientY: 50 }),
+    );
+    expect(events.at(-1)).toMatchObject({ index: 0 });
+  });
+
   it("re-attaches its plot when the chart's own innerHTML is replaced", async () => {
     const chart = await mountChart(`
       ${TABLE}
@@ -565,7 +626,7 @@ describe("ui-chart: lifecycle", () => {
     // itself never disconnects — so nothing would otherwise put it back, and
     // the chart would report data-state="rendered" with no plot at all.
     chart.innerHTML = TABLE;
-    await Promise.resolve();
+    await flush();
 
     expect(chart.querySelectorAll("svg").length).toBe(1);
     expect(chart.querySelector('[data-part="series-root"]')).not.toBeNull();
@@ -577,7 +638,7 @@ describe("ui-chart: lifecycle", () => {
     expect(chart.getAttribute("data-state")).toBe("empty");
 
     chart.insertAdjacentHTML("afterbegin", TABLE);
-    await Promise.resolve();
+    await flush();
 
     expect(chart.data.length).toBe(3);
     expect(chart.getAttribute("data-state")).toBe("rendered");
@@ -588,7 +649,7 @@ describe("ui-chart: lifecycle", () => {
     expect(chart.data[0]!.Revenue).toBe(120);
 
     chart.querySelector("tbody td:last-child")!.textContent = "999";
-    await Promise.resolve();
+    await flush();
     expect(chart.data[0]!.Revenue).toBe(999);
   });
 
@@ -597,7 +658,7 @@ describe("ui-chart: lifecycle", () => {
     chart.data = [{ Month: "Apr", Revenue: 999 }];
 
     chart.querySelector("tbody td")!.textContent = "Dec";
-    await Promise.resolve();
+    await flush();
     expect(chart.data).toEqual([{ Month: "Apr", Revenue: 999 }]);
   });
 
@@ -611,7 +672,7 @@ describe("ui-chart: lifecycle", () => {
     expect(chart.getAttribute("data-state")).toBe("rendered");
 
     chart.querySelector("table")!.remove();
-    await Promise.resolve();
+    await flush();
 
     expect(chart.data).toEqual([]);
     expect(chart.getAttribute("data-state")).toBe("empty");
@@ -623,7 +684,7 @@ describe("ui-chart: lifecycle", () => {
     const wrapper = document.createElement("div");
     table.replaceWith(wrapper);
     wrapper.append(table);
-    await Promise.resolve();
+    await flush();
 
     expect(chart.data).toEqual([]);
   });
@@ -632,7 +693,7 @@ describe("ui-chart: lifecycle", () => {
 describe("ui-chart-axis", () => {
   it("defaults to position bottom and scale linear", async () => {
     document.body.innerHTML = `<ui-chart width="100" height="100"><ui-chart-axis></ui-chart-axis></ui-chart>`;
-    await Promise.resolve();
+    await flush();
     const axis = document.querySelector("ui-chart-axis")!;
     expect(axis.position).toBe("bottom");
     expect(axis.scaleType).toBe("linear");
@@ -652,13 +713,14 @@ describe("ui-chart-axis", () => {
     // second horizontal one, so it must drop the ticks it had drawn rather
     // than leave a stale set of them on the page.
     left!.setAttribute("position", "bottom");
+    await flush();
     expect(left!.querySelectorAll('[data-part="tick"]').length).toBe(0);
     expect(bottom!.querySelectorAll('[data-part="tick"]').length).toBe(3);
   });
 
   it("reads position/key/scale from attributes", async () => {
     document.body.innerHTML = `<ui-chart width="100" height="100"><ui-chart-axis position="left" key="Revenue" scale="log"></ui-chart-axis></ui-chart>`;
-    await Promise.resolve();
+    await flush();
     const axis = document.querySelector("ui-chart-axis")!;
     expect(axis.position).toBe("left");
     expect(axis.key).toBe("Revenue");

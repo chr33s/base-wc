@@ -65,6 +65,20 @@ describe("ui-switch", () => {
     expect(el.hasAttribute("data-disabled")).toBe(true);
   });
 
+  it("re-syncs when a programmatic driver signals via an input event", async () => {
+    // A host that mutates the control programmatically (e.g. ui-table's
+    // select-all) fires `input` — the property setter itself fires no event.
+    const { el, input } = await mount();
+    input.checked = true;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(el.getAttribute("data-state")).toBe("checked");
+    expect(input.getAttribute("aria-checked")).toBe("true");
+    input.checked = false;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(el.getAttribute("data-state")).toBe("unchecked");
+    expect(input.getAttribute("aria-checked")).toBe("false");
+  });
+
   it("no-ops without an authored native control", async () => {
     document.body.innerHTML = `<ui-switch></ui-switch>`;
     await Promise.resolve();

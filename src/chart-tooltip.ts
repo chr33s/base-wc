@@ -37,6 +37,7 @@
  */
 import type { ChartValue } from "./chart-core.ts";
 import type { UIChart, UIChartHighlightDetail } from "./chart.ts";
+import { define } from "./define.ts";
 import { connectLightDom } from "./lifecycle.ts";
 
 const TOKENS = ["{key}", "{label}", "{value}", "{index}"] as const;
@@ -49,7 +50,7 @@ interface Row {
   seriesIndex: number | null;
 }
 
-function formatValue(value: ChartValue): string {
+function formatValue(value: ChartValue) {
   if (value == null) return "";
   if (value instanceof Date) return value.toLocaleDateString();
   return String(value);
@@ -60,7 +61,7 @@ export class UIChartTooltip extends HTMLElement {
   #chart: UIChart | null = null;
   #active = false;
 
-  get trigger(): "axis" | "item" {
+  get trigger() {
     return this.getAttribute("trigger") === "item" ? "item" : "axis";
   }
 
@@ -122,7 +123,7 @@ export class UIChartTooltip extends HTMLElement {
     this.style.top = `${event.clientY + 12}px`;
   };
 
-  #rows(chart: UIChart, detail: UIChartHighlightDetail): Row[] {
+  #rows(chart: UIChart, detail: UIChartHighlightDetail) {
     const series = chart.getSeries();
     const visible = series.filter((registration) => !registration.hidden);
     // `item` trigger: the highlight's palette slot names the series exactly.
@@ -161,7 +162,7 @@ export class UIChartTooltip extends HTMLElement {
     this.append(table);
   }
 
-  #buildRow(row: Row): HTMLTableRowElement {
+  #buildRow(row: Row) {
     const tr = document.createElement("tr");
     tr.setAttribute("data-part", "row");
     tr.setAttribute("data-series", row.key);
@@ -181,7 +182,7 @@ export class UIChartTooltip extends HTMLElement {
     return tr;
   }
 
-  #instantiate(template: HTMLTemplateElement, row: Row): DocumentFragment {
+  #instantiate(template: HTMLTemplateElement, row: Row) {
     const clone = template.content.cloneNode(true) as DocumentFragment;
     const values = {
       "{key}": row.key,
@@ -234,8 +235,7 @@ export class UIChartTooltip extends HTMLElement {
   }
 }
 
-if (!customElements.get("ui-chart-tooltip"))
-  customElements.define("ui-chart-tooltip", UIChartTooltip);
+define("ui-chart-tooltip", UIChartTooltip);
 
 declare global {
   interface HTMLElementTagNameMap {

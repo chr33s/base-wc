@@ -5,10 +5,12 @@
  * `ui-checkbox` is a **pure enhancer of a native checkbox**: author
  * `<ui-checkbox><input type="checkbox" name="tos" /></ui-checkbox>` and it works
  * with no JavaScript (the checkbox toggles and submits on its own). On upgrade
- * the component {@link adoptedControl | adopts} that input and mirrors its
- * checked / indeterminate / disabled state onto the `data-state` / `data-disabled`
- * hooks, while the **browser owns focus, keyboard, and submission**. There is no
- * self-rendered / `ElementInternals` fallback: the native input is the control.
+ * the component adopts that input and mirrors its checked / indeterminate /
+ * disabled state onto the `data-state` / `data-disabled` hooks, while the
+ * **browser owns focus, keyboard, and submission**. The adoption, getters and
+ * mirroring live in the shared {@link NativeCheckboxElement} base (`ui-switch`
+ * is the same enhancer with switch semantics); this class only adds
+ * `indeterminate`.
  *
  * `ui-checkbox-group` registers its child checkboxes and derives a parent
  * "select all" checkbox's state (checked / unchecked / indeterminate) from them,
@@ -20,73 +22,23 @@
  * `ui-checkbox[data-state="checked"]` — so a bare
  * `<ui-checkbox><input type="checkbox" /></ui-checkbox>` needs no extra child.
  */
+import { define } from "./define.ts";
+import { NativeCheckboxElement } from "./form-control.ts";
 import { connectLightDom } from "./lifecycle.ts";
-import { adoptedControl } from "./native.ts";
 
-export class UICheckbox extends HTMLElement {
-  /** The adopted native checkbox — the interactive control + form value. */
-  #native: HTMLInputElement | null = null;
-  #wired = false;
-
-  get form(): HTMLFormElement | null {
-    return this.#native?.form ?? null;
-  }
-  get name(): string | null {
-    return this.#native?.name ?? null;
-  }
-  get value(): string {
-    return this.#native?.value || "on";
-  }
-  get checked(): boolean {
-    return this.#native?.checked ?? false;
-  }
-  set checked(next: boolean) {
-    if (!this.#native) return;
-    this.#native.checked = next;
-    this.#sync();
-  }
-  get indeterminate(): boolean {
-    return this.#native?.indeterminate ?? false;
+export class UICheckbox extends NativeCheckboxElement {
+  get indeterminate() {
+    return this.input?.indeterminate ?? false;
   }
   set indeterminate(next: boolean) {
-    if (!this.#native) return;
-    this.#native.indeterminate = next;
-    this.#sync();
-  }
-  get disabled(): boolean {
-    return this.#native?.disabled ?? false;
+    if (!this.input) return;
+    this.input.indeterminate = next;
+    this.sync();
   }
 
-  connectedCallback() {
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
+  protected override stateOf(input: HTMLInputElement) {
+    return input.indeterminate ? "indeterminate" : input.checked ? "checked" : "unchecked";
   }
-
-  #wire() {
-    this.#native = adoptedControl<HTMLInputElement>(this, 'input[type="checkbox"]');
-    if (!this.#native) return;
-    this.#wired = true;
-    // `change` covers user toggles; `input` lets a host that mutates the control
-    // programmatically (e.g. a "select all" driving row boxes) signal the change
-    // with `dispatchEvent(new Event("input"))` — the property setters fire no
-    // event, and `indeterminate` has none at all.
-    this.#native.addEventListener("change", this.#sync);
-    this.#native.addEventListener("input", this.#sync);
-    this.#sync();
-  }
-
-  /** Mirror the native control's state onto the CSS state hooks. */
-  #sync = () => {
-    if (!this.#native) return;
-    this.setAttribute(
-      "data-state",
-      this.#native.indeterminate ? "indeterminate" : this.#native.checked ? "checked" : "unchecked",
-    );
-    this.toggleAttribute("data-disabled", this.#native.disabled);
-  };
 }
 
 export class UICheckboxGroup extends HTMLElement {
@@ -110,7 +62,7 @@ export class UICheckboxGroup extends HTMLElement {
   }
 
   /** Child checkboxes (everything except the "select all" master). */
-  #items(): UICheckbox[] {
+  #items() {
     return [...this.querySelectorAll<UICheckbox>("ui-checkbox")].filter((c) => c !== this.#master);
   }
 
@@ -154,9 +106,8 @@ export class UICheckboxGroup extends HTMLElement {
   }
 }
 
-if (!customElements.get("ui-checkbox")) customElements.define("ui-checkbox", UICheckbox);
-if (!customElements.get("ui-checkbox-group"))
-  customElements.define("ui-checkbox-group", UICheckboxGroup);
+define("ui-checkbox", UICheckbox);
+define("ui-checkbox-group", UICheckboxGroup);
 
 declare global {
   interface HTMLElementTagNameMap {

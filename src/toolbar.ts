@@ -6,6 +6,8 @@
  * {@link roving} helper; `orientation` picks the arrow axis.
  */
 import { connectLightDom } from "./lifecycle.ts";
+import { define } from "./define.ts";
+import { scopedQuery } from "./query.ts";
 import { roving, type Roving } from "./roving.ts";
 
 // `ui-switch` / `ui-checkbox` are not listed: they enhance a native checkbox,
@@ -24,7 +26,7 @@ export class UIToolbar extends HTMLElement {
   #roving: Roving | null = null;
   #wired = false;
 
-  get orientation(): "horizontal" | "vertical" {
+  get orientation() {
     return this.getAttribute("orientation") === "vertical" ? "vertical" : "horizontal";
   }
 
@@ -37,6 +39,11 @@ export class UIToolbar extends HTMLElement {
   }
 
   #wire() {
+    // Only wire once at least one item exists (disabled ones count — they still
+    // prove the children are parsed), so a wiring pass that beats the parser
+    // sees connectLightDom retry on the next light-DOM mutation instead of
+    // silently claiming an empty host.
+    if (scopedQuery(this, TOOLBAR_ITEMS).length === 0) return;
     this.#wired = true;
     this.setAttribute("role", "toolbar");
     this.setAttribute("aria-orientation", this.orientation);
@@ -49,15 +56,16 @@ export class UIToolbar extends HTMLElement {
   }
 
   // Stable membership regardless of the roving tab stop — do NOT filter on
-  // tabindex here, or items parked at -1 would drop out of navigation.
-  #items(): HTMLElement[] {
-    return [...this.querySelectorAll<HTMLElement>(TOOLBAR_ITEMS)].filter(
+  // tabindex here, or items parked at -1 would drop out of navigation. Scoped
+  // so a nested ui-toolbar keeps ownership of its own controls.
+  #items() {
+    return scopedQuery(this, TOOLBAR_ITEMS).filter(
       (el) => !el.hasAttribute("disabled") && !el.closest("[inert]"),
     );
   }
 }
 
-if (!customElements.get("ui-toolbar")) customElements.define("ui-toolbar", UIToolbar);
+define("ui-toolbar", UIToolbar);
 
 declare global {
   interface HTMLElementTagNameMap {

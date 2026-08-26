@@ -59,7 +59,7 @@ const E5 = Math.sqrt(10);
 const E2 = Math.sqrt(2);
 
 /** The step between ticks that best divides `[start, stop]` into ~`count` nice steps. */
-function tickIncrement(start: number, stop: number, count: number): number {
+function tickIncrement(start: number, stop: number, count: number) {
   const step = (stop - start) / Math.max(0, count);
   const power = Math.floor(Math.log10(step));
   const error = step / 10 ** power;
@@ -68,7 +68,7 @@ function tickIncrement(start: number, stop: number, count: number): number {
 }
 
 /** Evenly-spaced "nice" tick values covering `[start, stop]` (inclusive), targeting `count` ticks. */
-export function linearTicks(start: number, stop: number, count = 10): number[] {
+export function linearTicks(start: number, stop: number, count = 10) {
   if (start === stop) return [start];
   const reverse = stop < start;
   const [lo, hi] = reverse ? [stop, start] : [start, stop];
@@ -121,7 +121,7 @@ function makeContinuous(
   forward: (v: number) => number,
   inverse: (v: number) => number,
   ticksFn: (d0: number, d1: number, count: number) => number[],
-): ContinuousScale {
+) {
   const [d0, d1] = domain;
   const [r0, r1] = range;
   const t0 = forward(d0);
@@ -138,10 +138,7 @@ function makeContinuous(
 }
 
 /** A linear scale: `domain` and `range` are each `[min, max]` in value/pixel space. */
-export function linearScale(
-  domain: readonly [number, number],
-  range: readonly [number, number],
-): ContinuousScale {
+export function linearScale(domain: readonly [number, number], range: readonly [number, number]) {
   return makeContinuous(
     domain,
     range,
@@ -156,22 +153,19 @@ export function powScale(
   domain: readonly [number, number],
   range: readonly [number, number],
   exponent: number,
-): ContinuousScale {
+) {
   const forward = (v: number) => Math.sign(v) * Math.abs(v) ** exponent;
   const inverse = (v: number) => Math.sign(v) * Math.abs(v) ** (1 / exponent);
   return makeContinuous(domain, range, forward, inverse, linearTicks);
 }
 
 /** `sqrt` is `pow` with `exponent = 0.5` (d3-scale's default power scale). */
-export function sqrtScale(
-  domain: readonly [number, number],
-  range: readonly [number, number],
-): ContinuousScale {
+export function sqrtScale(domain: readonly [number, number], range: readonly [number, number]) {
   return powScale(domain, range, 0.5);
 }
 
 /** Powers of `base` (default 10) covering `[d0, d1]`, refined with 1/2/5 steps when there are few decades — matches d3-scale's log-ticks behaviour closely enough for axis labeling. */
-function logTicks(d0: number, d1: number, base = 10): number[] {
+function logTicks(d0: number, d1: number, base = 10) {
   const sign = d0 < 0 ? -1 : 1;
   const lo = Math.min(sign * d0, sign * d1);
   const hi = Math.max(sign * d0, sign * d1);
@@ -195,7 +189,7 @@ export function logScale(
   domain: readonly [number, number],
   range: readonly [number, number],
   base = 10,
-): ContinuousScale {
+) {
   const sign = domain[0] < 0 ? -1 : 1;
   const forward = (v: number) => (sign * Math.log(sign * v)) / Math.log(base);
   const inverse = (v: number) => sign * base ** (sign * v);
@@ -212,7 +206,7 @@ interface TimeInterval {
   step(date: Date, k: number): Date;
 }
 
-function atStartOfDay(date: Date): Date {
+function atStartOfDay(date: Date) {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
   return d;
@@ -318,7 +312,7 @@ function chooseInterval(target: number): [TimeInterval, number] {
   return [chosen[0], chosen[1]];
 }
 
-function timeTicks(d0: number, d1: number, count = 10): number[] {
+function timeTicks(d0: number, d1: number, count = 10) {
   if (d1 < d0) [d0, d1] = [d1, d0];
   const target = (d1 - d0) / Math.max(1, count);
   const [interval, k] = chooseInterval(target);
@@ -335,10 +329,7 @@ function timeTicks(d0: number, d1: number, count = 10): number[] {
 }
 
 /** A time scale: `domain` is `[startMs, endMs]` (local time), `ticks()` returns calendar-aware timestamps. */
-export function timeScale(
-  domain: readonly [number, number],
-  range: readonly [number, number],
-): ContinuousScale {
+export function timeScale(domain: readonly [number, number], range: readonly [number, number]) {
   return makeContinuous(
     domain,
     range,
@@ -360,7 +351,7 @@ export function timeScale(
  * produces. Every part of the chart family that groups or looks up categories
  * goes through this, so they all agree on what "the same category" means.
  */
-export function categoryKey(value: CategoryValue): string | number {
+export function categoryKey(value: CategoryValue) {
   return value instanceof Date ? value.getTime() : value;
 }
 
@@ -389,7 +380,7 @@ export function bandScale(
   domain: readonly CategoryValue[],
   range: readonly [number, number],
   options: { paddingInner?: number; paddingOuter?: number } = {},
-): DiscreteScale {
+) {
   const paddingInner = clampPadding(options.paddingInner ?? 0);
   const paddingOuter = clampPadding(options.paddingOuter ?? 0);
   const [r0, r1] = range;
@@ -427,7 +418,7 @@ export function pointScale(
   domain: readonly CategoryValue[],
   range: readonly [number, number],
   options: { padding?: number } = {},
-): DiscreteScale {
+) {
   const padding = clampPadding(options.padding ?? 0);
   const [r0, r1] = range;
   const n = domain.length;
@@ -455,35 +446,58 @@ export function pointScale(
   return scale;
 }
 
-function clampPadding(p: number): number {
+function clampPadding(p: number) {
   return Math.max(0, Math.min(1, p));
 }
 
+/** The continuous member of {@link ScaleType} — everything but the discrete `band`/`point`. */
+export type ContinuousScaleType = Exclude<ScaleType, "band" | "point">;
+
 /**
- * Build the scale for an axis's `scaleType`, given its resolved domain and
- * pixel range. `paddingOuter` doubles as `point`'s own `padding` when the
- * caller doesn't distinguish them (as `chart-domain.ts`'s `axisScale`
- * doesn't) — a point axis otherwise defaults to zero outer padding and its
- * end categories sit exactly on the plot's pixel edges.
+ * Build the continuous scale for `type` over a numeric `[min, max]` domain.
+ * Properly typed — a caller that has already ruled out `band`/`point` (as
+ * `chart-domain.ts`'s `axisScale` does) dispatches here once, with no
+ * `domain as [number, number]` casts.
+ */
+export function continuousScale(
+  type: ContinuousScaleType,
+  domain: readonly [number, number],
+  range: readonly [number, number],
+) {
+  switch (type) {
+    case "log":
+      return logScale(domain, range);
+    case "sqrt":
+      return sqrtScale(domain, range);
+    case "time":
+      return timeScale(domain, range);
+    default:
+      return linearScale(domain, range);
+  }
+}
+
+/**
+ * Build the scale for any `scaleType`, given its resolved domain and pixel
+ * range — the union-typed convenience wrapper over `bandScale`/`pointScale`/
+ * {@link continuousScale} for a caller that carries the discriminator around
+ * (the chart family itself branches on it and calls the typed constructors
+ * directly instead). `paddingOuter` doubles as `point`'s own `padding` when
+ * the caller doesn't distinguish them — a point axis otherwise defaults to
+ * zero outer padding and its end categories sit exactly on the plot's pixel
+ * edges.
  */
 export function createScale(
   type: ScaleType,
   domain: readonly CategoryValue[] | readonly [number, number],
   range: readonly [number, number],
   options: { paddingInner?: number; paddingOuter?: number; padding?: number } = {},
-): Scale {
+) {
   switch (type) {
     case "band":
       return bandScale(domain, range, options);
     case "point":
       return pointScale(domain, range, { padding: options.padding ?? options.paddingOuter });
-    case "log":
-      return logScale(domain as [number, number], range);
-    case "sqrt":
-      return sqrtScale(domain as [number, number], range);
-    case "time":
-      return timeScale(domain as [number, number], range);
     default:
-      return linearScale(domain as [number, number], range);
+      return continuousScale(type, domain as readonly [number, number], range);
   }
 }

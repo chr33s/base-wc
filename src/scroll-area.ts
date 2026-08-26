@@ -13,6 +13,7 @@
 type Orientation = "vertical" | "horizontal";
 
 import { connectLightDom } from "./lifecycle.ts";
+import { define } from "./define.ts";
 
 export class UIScrollArea extends HTMLElement {
   #viewport: HTMLElement | null = null;
@@ -67,6 +68,22 @@ export class UIScrollArea extends HTMLElement {
     if (this.#viewport.firstElementChild) this.#observer.observe(this.#viewport.firstElementChild);
   }
 
+  /**
+   * The shared thumb geometry for one scrollbar on the current axis: the thumb
+   * length (with its 20px minimum), the track range it travels
+   * (`trackLen - thumbLen`), and the viewport's scrollable range
+   * (`contentLen - viewLen`). One copy, used by both the thumb placement in
+   * `#update` and its inverse, the drag mapping in `#onThumbDown`.
+   */
+  #metrics(bar: HTMLElement, vertical: boolean) {
+    const vp = this.#viewport!;
+    const trackLen = vertical ? bar.clientHeight : bar.clientWidth;
+    const contentLen = vertical ? vp.scrollHeight : vp.scrollWidth;
+    const viewLen = vertical ? vp.clientHeight : vp.clientWidth;
+    const thumbLen = Math.max((contentLen > 0 ? viewLen / contentLen : 1) * trackLen, 20);
+    return { thumbLen, dragRange: trackLen - thumbLen, maxScroll: contentLen - viewLen };
+  }
+
   #update = () => {
     const vp = this.#viewport;
     if (!vp) return;
@@ -80,14 +97,9 @@ export class UIScrollArea extends HTMLElement {
       bar.toggleAttribute("hidden", !(vertical ? overflowY : overflowX));
       const thumb = bar.querySelector<HTMLElement>("ui-scroll-thumb");
       if (!thumb) continue;
-      const trackLen = vertical ? bar.clientHeight : bar.clientWidth;
-      const contentLen = vertical ? vp.scrollHeight : vp.scrollWidth;
-      const viewLen = vertical ? vp.clientHeight : vp.clientWidth;
+      const { thumbLen, dragRange, maxScroll } = this.#metrics(bar, vertical);
       const scroll = vertical ? vp.scrollTop : vp.scrollLeft;
-      const ratio = contentLen > 0 ? viewLen / contentLen : 1;
-      const thumbLen = Math.max(ratio * trackLen, 20);
-      const maxScroll = contentLen - viewLen;
-      const pos = maxScroll > 0 ? (scroll / maxScroll) * (trackLen - thumbLen) : 0;
+      const pos = maxScroll > 0 ? (scroll / maxScroll) * dragRange : 0;
       if (vertical) {
         thumb.style.height = `${thumbLen}px`;
         thumb.style.transform = `translateY(${Math.round(pos)}px)`;
@@ -105,15 +117,9 @@ export class UIScrollArea extends HTMLElement {
     const vertical = orientation === "vertical";
     const start = vertical ? e.clientY : e.clientX;
     const startScroll = vertical ? vp.scrollTop : vp.scrollLeft;
-    const trackLen = vertical ? bar.clientHeight : bar.clientWidth;
-    const contentLen = vertical ? vp.scrollHeight : vp.scrollWidth;
-    const viewLen = vertical ? vp.clientHeight : vp.clientWidth;
     // Map pointer travel to scroll using the inverse of #update's thumb
-    // placement: the thumb moves across (trackLen - thumbLen) to cover the
-    // (contentLen - viewLen) scroll range, and thumbLen has the same 20px floor.
-    const thumbLen = Math.max((contentLen > 0 ? viewLen / contentLen : 1) * trackLen, 20);
-    const dragRange = trackLen - thumbLen;
-    const maxScroll = contentLen - viewLen;
+    // placement: the thumb moves across dragRange to cover maxScroll.
+    const { dragRange, maxScroll } = this.#metrics(bar, vertical);
 
     const move = (ev: PointerEvent) => {
       const delta = (vertical ? ev.clientY : ev.clientX) - start;
@@ -136,12 +142,10 @@ export class UIScrollViewport extends HTMLElement {}
 export class UIScrollScrollbar extends HTMLElement {}
 export class UIScrollThumb extends HTMLElement {}
 
-if (!customElements.get("ui-scroll-area")) customElements.define("ui-scroll-area", UIScrollArea);
-if (!customElements.get("ui-scroll-viewport"))
-  customElements.define("ui-scroll-viewport", UIScrollViewport);
-if (!customElements.get("ui-scroll-scrollbar"))
-  customElements.define("ui-scroll-scrollbar", UIScrollScrollbar);
-if (!customElements.get("ui-scroll-thumb")) customElements.define("ui-scroll-thumb", UIScrollThumb);
+define("ui-scroll-area", UIScrollArea);
+define("ui-scroll-viewport", UIScrollViewport);
+define("ui-scroll-scrollbar", UIScrollScrollbar);
+define("ui-scroll-thumb", UIScrollThumb);
 
 declare global {
   interface HTMLElementTagNameMap {

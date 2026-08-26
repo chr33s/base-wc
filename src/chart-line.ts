@@ -35,15 +35,16 @@
  */
 import {
   type MarkDescriptor,
-  type SeriesRegistration,
   type SeriesRenderContext,
+  mergeExtent,
   numericExtent,
   registerSeriesType,
   toNumeric,
 } from "./chart-core.ts";
-import { type ContinuousScale, isDiscreteScale } from "./chart-scale.ts";
+import { isDiscreteScale } from "./chart-scale.ts";
 import { SERIES_ATTRIBUTES, UIChartSeries } from "./chart-series.ts";
-import { type CurveType, type Point, areaPath, linePath, round } from "./chart-shape.ts";
+import { type Point, areaPath, linePath, round } from "./chart-shape.ts";
+import { define } from "./define.ts";
 
 export class UIChartLine extends UIChartSeries {
   static observedAttributes = [
@@ -56,7 +57,7 @@ export class UIChartLine extends UIChartSeries {
     "values",
   ];
 
-  protected readonly seriesType = "line";
+  readonly type = "line";
 
   /**
    * The sparkline recipe: space-separated numbers plotted with no shared
@@ -64,7 +65,7 @@ export class UIChartLine extends UIChartSeries {
    * `undefined` when unauthored, in which case this series reads the normal
    * `key` column against the chart's registered axes instead.
    */
-  get values(): number[] | undefined {
+  get values() {
     const raw = this.getAttribute("values");
     if (raw === null) return undefined;
     const parsed = raw
@@ -75,7 +76,7 @@ export class UIChartLine extends UIChartSeries {
     return parsed.length > 0 ? parsed : undefined;
   }
 
-  get curve(): CurveType {
+  get curve() {
     const value = this.getAttribute("curve");
     return value === "step" ||
       value === "step-before" ||
@@ -85,26 +86,21 @@ export class UIChartLine extends UIChartSeries {
       : "linear";
   }
 
-  get area(): boolean {
+  get area() {
     return this.hasAttribute("area");
   }
 
-  get marks(): boolean {
+  get marks() {
     return this.hasAttribute("marks");
   }
 
-  /** The stack group this area belongs to. An empty attribute is not an id — `stack=""` means unstacked. */
-  get stack(): string | undefined {
-    return this.getAttribute("stack") || undefined;
+  /** The stack group this area belongs to — `undefined` unless `area` is also set (a stacked *bare* line has no visual meaning, so only an area stacks). An empty attribute is not an id — `stack=""` means unstacked. */
+  get stack() {
+    return this.area ? this.getAttribute("stack") || undefined : undefined;
   }
 
-  get connectNulls(): boolean {
+  get connectNulls() {
     return this.hasAttribute("connect-nulls");
-  }
-
-  protected override seriesFields(): Partial<SeriesRegistration> {
-    // A stacked bare line has no visual meaning — only an area stacks.
-    return { stack: this.area ? this.stack : undefined };
   }
 }
 
@@ -116,10 +112,7 @@ export class UIChartLine extends UIChartSeries {
  * sparkline is `<ui-chart><ui-chart-line values="…"></ui-chart-line></ui-chart>`
  * with no `<ui-chart-axis>` children).
  */
-function sparklinePoints(
-  values: readonly number[],
-  plot: { width: number; height: number },
-): Point[] {
+function sparklinePoints(values: readonly number[], plot: { width: number; height: number }) {
   const finite = values.filter((v) => Number.isFinite(v));
   const lo = finite.length > 0 ? Math.min(...finite) : 0;
   const hi = finite.length > 0 ? Math.max(...finite) : 1;
@@ -138,10 +131,7 @@ function sparklinePoints(
  * value scale comes back alongside the points, so the area baseline below is
  * computed from the same narrowed scale rather than re-asserting its type.
  */
-function cartesianPoints(
-  context: SeriesRenderContext,
-  line: UIChartLine,
-): { points: Point[]; yScale: ContinuousScale } | null {
+function cartesianPoints(context: SeriesRenderContext, line: UIChartLine) {
   const { xScale, yScale, categoryKey, config, data, stacked } = context;
   if (!xScale || !yScale || !categoryKey || isDiscreteScale(yScale)) return null;
   const useStacked = line.area && stacked !== undefined;
@@ -160,11 +150,7 @@ function cartesianPoints(
 }
 
 /** This series' marks for a resolved set of points: the optional area fill (down to `baseline`), the stroke, and the optional per-point circles. */
-function lineMarks(
-  points: readonly Point[],
-  baseline: number | number[],
-  line: UIChartLine,
-): MarkDescriptor[] {
+function lineMarks(points: readonly Point[], baseline: number | number[], line: UIChartLine) {
   const marks: MarkDescriptor[] = [];
   if (line.area) {
     marks.push({
@@ -198,11 +184,20 @@ function lineMarks(
 registerSeriesType({
   type: "line",
   stacks: true,
-  getExtremum(data, key, dim) {
-    return dim === "y" ? numericExtent(data, key) : null;
+  getExtremum(data, series, dim) {
+    if (dim !== "y") return null;
+    const extent = numericExtent(data, series.key);
+    // An unstacked `area` line fills down to y=0 (computeMarks' baseline is
+    // `yScale(0)`), the same zero-baseline geometry as a bar — so 0 must be
+    // in-domain, or with data like [101, 134] the fill extends far outside
+    // the plot box. A bare line has no baseline and reports its raw extent;
+    // a *stacked* area never reaches here (`seriesExtremum` reports the
+    // stacked span, whose y0 run starts at 0, instead).
+    const element = series.element;
+    return element instanceof UIChartLine && element.area ? mergeExtent([0, 0], extent) : extent;
   },
-  computeMarks(context): MarkDescriptor[] {
-    const line = context.element;
+  computeMarks(context) {
+    const line = context.config.element;
     if (!(line instanceof UIChartLine)) return [];
 
     // The sparkline recipe and the cartesian one are separate flows, not one
@@ -219,7 +214,7 @@ registerSeriesType({
   },
 });
 
-if (!customElements.get("ui-chart-line")) customElements.define("ui-chart-line", UIChartLine);
+define("ui-chart-line", UIChartLine);
 
 declare global {
   interface HTMLElementTagNameMap {

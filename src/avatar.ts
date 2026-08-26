@@ -6,13 +6,14 @@
  * `statechange` event fires on each transition.
  */
 import { connectLightDom } from "./lifecycle.ts";
+import { define } from "./define.ts";
 
 export type AvatarState = "loading" | "loaded" | "error";
 
 export class UIAvatar extends HTMLElement {
   #wired = false;
 
-  get state(): AvatarState {
+  get state() {
     return (this.getAttribute("data-state") as AvatarState | null) ?? "loading";
   }
 
@@ -25,6 +26,10 @@ export class UIAvatar extends HTMLElement {
   }
 
   #wire() {
+    // Only wire once one of the authored slots exists, so a wiring pass that
+    // beats the parser sees connectLightDom retry on the next light-DOM
+    // mutation instead of settling on `error` against an empty host.
+    if (!this.querySelector("[data-avatar-image], [data-avatar-fallback]")) return;
     this.#wired = true;
     const img = this.querySelector<HTMLImageElement>("[data-avatar-image]");
     if (!img || !img.getAttribute("src")) {
@@ -51,7 +56,7 @@ export class UIAvatar extends HTMLElement {
   }
 }
 
-if (!customElements.get("ui-avatar")) customElements.define("ui-avatar", UIAvatar);
+define("ui-avatar", UIAvatar);
 
 declare global {
   interface HTMLElementTagNameMap {

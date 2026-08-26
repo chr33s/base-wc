@@ -19,10 +19,11 @@ import {
 } from "./chart-core.ts";
 import {
   type CategoryValue,
-  type Scale,
+  bandScale,
   categoryKey,
-  createScale,
+  continuousScale,
   niceLinearDomain,
+  pointScale,
 } from "./chart-scale.ts";
 
 /** Band padding as a fraction of one step — MUI's own bar-chart defaults. */
@@ -32,7 +33,7 @@ const BAND_PADDING = { paddingInner: 0.3, paddingOuter: 0.15 };
 export const DEFAULT_TICK_COUNT = 6;
 
 /** The distinct non-null values of `key` across `data`, in first-seen order: a band/point axis's domain. Categories are compared by {@link categoryKey}, so two `Date` cells for the same instant are one category. */
-export function categoricalDomain(data: readonly ChartRow[], key: string): CategoryValue[] {
+export function categoricalDomain(data: readonly ChartRow[], key: string) {
   const seen = new Set<string | number>();
   const domain: CategoryValue[] = [];
   for (const row of data) {
@@ -58,7 +59,7 @@ export function categoryRows(
   data: readonly ChartRow[],
   key: string,
   domain: readonly CategoryValue[],
-): number[] {
+) {
   const first = new Map<string | number, number>();
   data.forEach((row, i) => {
     const raw = row[key];
@@ -91,8 +92,10 @@ export function seriesExtremum(
     }
     return lo <= hi ? [lo, hi] : null;
   }
-  const key = dim === "x" ? (registration.xKey ?? registration.key) : registration.key;
-  return type.getExtremum(data, key, dim);
+  // The type sees the whole registration: which column feeds `dim` (scatter's
+  // xKey-vs-key choice) and whether a zero baseline must stay in-domain (bar,
+  // an unstacked area line) are the series' own business, not this module's.
+  return type.getExtremum(data, registration, dim);
 }
 
 export interface AxisScaleOptions {
@@ -119,12 +122,16 @@ export interface AxisScaleOptions {
  * A bound pinned by an explicit `min`/`max` is never rounded: the consumer
  * asked for exactly that range.
  */
-export function axisScale(options: AxisScaleOptions): Scale {
+export function axisScale(options: AxisScaleOptions) {
   const { axis, data, range, dim, series, stacks } = options;
 
   if (axis.scaleType === "band" || axis.scaleType === "point") {
     const domain = axis.key ? categoricalDomain(data, axis.key) : [];
-    return createScale(axis.scaleType, domain, range, BAND_PADDING);
+    // A point axis takes the same outer padding a band axis gets — zero would
+    // sit its end categories exactly on the plot's pixel edges.
+    return axis.scaleType === "band"
+      ? bandScale(domain, range, BAND_PADDING)
+      : pointScale(domain, range, { padding: BAND_PADDING.paddingOuter });
   }
 
   let extent: [number, number] | null = null;
@@ -144,5 +151,5 @@ export function axisScale(options: AxisScaleOptions): Scale {
   // A single-valued domain has no span to map onto the range; widen it so the
   // one value sits in the middle of the plot rather than at 0/0.
   if (extent[0] === extent[1]) extent = [extent[0] - 1, extent[1] + 1];
-  return createScale(axis.scaleType, extent, range);
+  return continuousScale(axis.scaleType, extent, range);
 }

@@ -61,6 +61,25 @@ describe("ui-color-picker", () => {
     hue.dispatchEvent(new Event("input", { bubbles: true }));
     expect(el.value).toBe("#00ff00"); // hue 120° at full sat/val = green
   });
+
+  it("formResetCallback restores the value attribute's color", async () => {
+    const el = await mount('value="#3366ff"');
+    el.value = "#000000";
+    expect(el.value).toBe("#000000");
+    el.formResetCallback();
+    expect(el.value).toBe("#3366ff");
+  });
+
+  it("formDisabledCallback disables the inner controls", async () => {
+    const el = await mount();
+    const hue = el.querySelector<HTMLInputElement>("[data-color-hue]")!;
+    el.formDisabledCallback(true);
+    expect(hue.disabled).toBe(true);
+    expect(el.hasAttribute("data-disabled")).toBe(true);
+    el.formDisabledCallback(false);
+    expect(hue.disabled).toBe(false);
+    expect(el.hasAttribute("data-disabled")).toBe(false);
+  });
 });
 
 describe("ui-color-field", () => {
@@ -78,5 +97,19 @@ describe("ui-color-field", () => {
       new CustomEvent("change", { bubbles: true, detail: { value: "#abcdef" } }),
     );
     expect(input.value).toBe("#abcdef");
+  });
+
+  it("adopts an authored [data-color-trigger] instead of generating one", async () => {
+    document.body.innerHTML = `
+      <ui-color-field>
+        <input type="color" name="brand" value="#112233" />
+        <button data-color-trigger aria-label="Pick a brand color">Swatch</button>
+      </ui-color-field>`;
+    await flush();
+    const field = document.querySelector("ui-color-field")!;
+    const triggers = field.querySelectorAll("[data-color-trigger]");
+    expect(triggers.length).toBe(1); // adopted, not duplicated
+    expect(triggers[0].getAttribute("aria-label")).toBe("Pick a brand color");
+    expect(triggers[0].getAttribute("aria-haspopup")).toBe("dialog");
   });
 });

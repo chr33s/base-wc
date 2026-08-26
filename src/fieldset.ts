@@ -6,25 +6,17 @@
  * re-enables only the controls it disabled (controls disabled on their own are
  * left alone).
  */
+import { define } from "./define.ts";
+import { FORM_CONTROL_TAGS } from "./form-control.ts";
 import { connectLightDom } from "./lifecycle.ts";
 import { nextId } from "./id.ts";
 
-// `ui-switch` / `ui-checkbox` are not listed: they enhance a native checkbox,
-// so disabling their inner `input` (matched below) is what suppresses interaction
-// and submission.
-const CONTROLS = [
-  "input",
-  "select",
-  "textarea",
-  "button",
-  "ui-radio-group",
-  "ui-select",
-  "ui-combobox",
-  "ui-number-field",
-  "ui-slider",
-  "ui-toggle",
-  "ui-toggle-group",
-].join(",");
+// Native controls plus the library's form-value-bearing elements (the shared
+// {@link FORM_CONTROL_TAGS} roster, so a new form control is picked up here
+// automatically). Pure native enhancers (`ui-switch`, `ui-checkbox`,
+// `ui-date-field`, …) are not listed: disabling their inner `input` (matched
+// below) is what suppresses interaction and submission.
+const CONTROLS = ["input", "select", "textarea", "button", ...FORM_CONTROL_TAGS].join(",");
 
 export class UIFieldset extends HTMLElement {
   static observedAttributes = ["disabled"];
@@ -73,7 +65,7 @@ export class UIFieldset extends HTMLElement {
   }
 }
 
-if (!customElements.get("ui-fieldset")) customElements.define("ui-fieldset", UIFieldset);
+define("ui-fieldset", UIFieldset);
 
 declare global {
   interface HTMLElementTagNameMap {

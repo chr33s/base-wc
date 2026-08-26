@@ -39,7 +39,6 @@
  */
 import {
   type ChartRow,
-  type SeriesRegistration,
   type SeriesRenderContext,
   type SeriesTypeDefinition,
   numericExtent,
@@ -49,22 +48,19 @@ import {
 import { isDiscreteScale } from "./chart-scale.ts";
 import { SERIES_ATTRIBUTES, UIChartSeries } from "./chart-series.ts";
 import { round } from "./chart-shape.ts";
+import { define } from "./define.ts";
 
 export class UIChartScatter extends UIChartSeries {
   static observedAttributes = [...SERIES_ATTRIBUTES, "x-key", "r"];
 
-  protected readonly seriesType = "scatter";
+  readonly type = "scatter";
 
-  get xKey(): string {
+  get xKey() {
     return this.getAttribute("x-key") ?? "";
   }
 
-  get r(): string {
+  get r() {
     return this.getAttribute("r") ?? "4";
-  }
-
-  protected override seriesFields(): Partial<SeriesRegistration> {
-    return { xKey: this.xKey };
   }
 }
 
@@ -79,7 +75,7 @@ interface ScatterPoint {
  * missing either coordinate. `[]` when either axis scale is missing/discrete
  * or the series has no `xKey` — a scatter series is meaningless without both.
  */
-function scatterPoints(context: SeriesRenderContext): ScatterPoint[] {
+function scatterPoints(context: SeriesRenderContext) {
   const { xScale, yScale, config, data } = context;
   const xKey = config.xKey;
   if (!xKey || !xScale || !yScale || isDiscreteScale(xScale) || isDiscreteScale(yScale)) return [];
@@ -98,12 +94,15 @@ const scatterSeriesType: SeriesTypeDefinition = {
   type: "scatter",
   stacks: false,
 
-  getExtremum(data, key) {
-    return numericExtent(data, key);
+  // The x contribution reads `xKey` (the column scatter actually plots on x),
+  // the y contribution `key` — the per-dimension column choice lives here,
+  // with the series type that knows it, not in chart-domain.ts.
+  getExtremum(data, series, dim) {
+    return numericExtent(data, dim === "x" ? (series.xKey ?? series.key) : series.key);
   },
 
   computeMarks(context) {
-    const scatter = context.element;
+    const scatter = context.config.element;
     if (!(scatter instanceof UIChartScatter)) return [];
     return scatterPoints(context).map(({ index, cx, cy }) => ({
       key: String(index),
@@ -128,8 +127,7 @@ const scatterSeriesType: SeriesTypeDefinition = {
 
 registerSeriesType(scatterSeriesType);
 
-if (!customElements.get("ui-chart-scatter"))
-  customElements.define("ui-chart-scatter", UIChartScatter);
+define("ui-chart-scatter", UIChartScatter);
 
 declare global {
   interface HTMLElementTagNameMap {

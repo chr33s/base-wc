@@ -12,18 +12,22 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-// `ui-chart` wires via `connectLightDom`, which defers to a microtask so a
-// component can wait for late-authored light-DOM parts. Awaiting one
-// microtask flushes it (and every child element's own `connectLightDom`
-// microtask, queued in the same tick) — every registration/render after that
-// is synchronous, so no further waiting is needed.
-async function mountChart(inner: string, size = true): Promise<UIChart> {
+// `ui-chart` wires via `connectLightDom` (a microtask) and batches its full
+// renders onto a microtask of their own — mounting K children paints once,
+// and any later mutation defers its re-render the same way. A zero-delay
+// macrotask drains all of it (wiring, registrations, observer deliveries and
+// the coalesced render), so tests assert on settled DOM.
+function flush() {
+  return new Promise((resolve) => setTimeout(resolve));
+}
+
+async function mountChart(inner: string, size = true) {
   document.body.innerHTML = `<ui-chart${size ? ' width="400" height="200"' : ""}>${inner}</ui-chart>`;
-  await Promise.resolve();
+  await flush();
   return document.querySelector("ui-chart")!;
 }
 
-function referenceLineGroup(chart: UIChart): Element | null {
+function referenceLineGroup(chart: UIChart) {
   return chart.querySelector('[data-part="series"][data-type="reference-line"]');
 }
 
@@ -129,7 +133,7 @@ describe("ui-chart-reference-line (registration + geometry)", () => {
     const fakeBar: SeriesTypeDefinition = {
       type: "fake-bar-for-reference-line",
       stacks: false,
-      getExtremum: (data, key) => numericExtent(data, key),
+      getExtremum: (data, series) => numericExtent(data, series.key),
       computeMarks: () => [],
     };
     registerSeriesType(fakeBar);
@@ -151,6 +155,7 @@ describe("ui-chart-reference-line (registration + geometry)", () => {
       highlightScope: { highlight: "item", fade: "global" },
       hidden: false,
     });
+    await flush();
 
     const group = referenceLineGroup(chart);
     expect(group).not.toBeNull();

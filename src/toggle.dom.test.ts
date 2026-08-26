@@ -107,4 +107,23 @@ describe("ui-toggle-group", () => {
     expect(toggles[2].pressed).toBe(true);
     expect(group.value).toEqual(["bold", "underline"]);
   });
+
+  it("handles a toggle appended after the group wired exactly once", async () => {
+    const { group } = await mount("multiple");
+    const late = document.createElement("ui-toggle");
+    late.setAttribute("value", "strike");
+    late.textContent = "S";
+    group.append(late);
+
+    const onChange = vi.fn<(e: Event) => void>();
+    group.addEventListener("change", onChange);
+    late.click();
+
+    // The group owns the activation: pressing sticks (no self-toggle cancelling
+    // the group's toggle) and exactly one change event fires, from the group.
+    expect(late.pressed).toBe(true);
+    expect(group.value).toEqual(["strike"]);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange.mock.calls[0][0].target).toBe(group);
+  });
 });

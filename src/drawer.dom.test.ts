@@ -68,6 +68,26 @@ describe("ui-drawer", () => {
     document.querySelector<HTMLButtonElement>("#close")!.click();
     expect(drawer.open).toBe(false);
   });
+
+  it("marks data-state for CSS enter/exit animations", async () => {
+    const { drawer, trigger, popup } = await mount();
+    trigger.click();
+    expect(popup.getAttribute("data-state")).toBe("open");
+    drawer.hide();
+    expect(popup.getAttribute("data-state")).toBe("closed");
+  });
+
+  it("static drawers ignore Escape and outside press", async () => {
+    const { drawer, trigger, popup } = await mount("static");
+    trigger.click();
+    key(popup, "Escape");
+    document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    expect(popup.hasAttribute("data-open")).toBe(true);
+    expect(drawer.open).toBe(true);
+    drawer.hide(); // only an explicit action closes it; balance the scroll lock
+    expect(drawer.open).toBe(false);
+    expect(document.documentElement.style.overflow).toBe("");
+  });
 });
 
 describe("ui-drawer — swipe to open", () => {

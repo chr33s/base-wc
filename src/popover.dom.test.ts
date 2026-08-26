@@ -98,6 +98,37 @@ describe("ui-popover", () => {
     expect(popup.hasAttribute("data-open")).toBe(false);
   });
 
+  it("Escape still dismisses when the popup has no focusable content", async () => {
+    document.body.innerHTML = `
+      <ui-popover>
+        <button data-popover-trigger>Open</button>
+        <ui-popover-popup><p>Plain text only</p></ui-popover-popup>
+      </ui-popover>`;
+    await Promise.resolve();
+    const trigger = document.querySelector<HTMLButtonElement>("[data-popover-trigger]")!;
+    const popup = document.querySelector("ui-popover-popup")!;
+    trigger.click();
+    expect(popup.hasAttribute("data-open")).toBe(true);
+    // With nothing focusable inside, focus falls back to the popup itself…
+    expect(document.activeElement).toBe(popup);
+    // …so Escape (listened on the host) still has a live path to dismissal.
+    key(document.activeElement!, "Escape");
+    expect(popup.hasAttribute("data-open")).toBe(false);
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("opens imperatively in the same task as connection (sync-wire guard)", async () => {
+    document.body.innerHTML = `
+      <ui-popover>
+        <button data-popover-trigger>Open</button>
+        <ui-popover-popup><button id="inside">Go</button></ui-popover-popup>
+      </ui-popover>`;
+    const popover = document.querySelector("ui-popover")!;
+    popover.show(); // no microtask wait — must wire synchronously
+    expect(popover.open).toBe(true);
+    expect(document.querySelector("ui-popover-popup")!.hasAttribute("data-open")).toBe(true);
+  });
+
   it("stays interactive (non-modal): does not lock scroll", async () => {
     const { trigger } = await mount();
     document.documentElement.style.overflow = "";

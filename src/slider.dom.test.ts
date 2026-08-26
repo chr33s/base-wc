@@ -75,6 +75,15 @@ describe("ui-slider", () => {
     expect(thumb.getAttribute("aria-valuemax")).toBe("0"); // not the 100 fallback
     expect(slider.style.getPropertyValue("--slider")).toBe("0.5"); // (-50 − −100)/(0 − −100)
   });
+
+  it("formResetCallback restores the initial values", async () => {
+    const { slider, thumb } = await mount();
+    key(thumb, "ArrowRight");
+    expect(slider.value).toBe(41);
+    slider.formResetCallback();
+    expect(slider.value).toBe(40);
+    expect(thumb.getAttribute("aria-valuenow")).toBe("40");
+  });
 });
 
 describe("ui-slider — adopts a native range input (no-JS fallback)", () => {
@@ -119,6 +128,16 @@ describe("ui-slider — adopts a native range input (no-JS fallback)", () => {
     const { slider, input } = await mountNative();
     slider.value = 10;
     expect(input.value).toBe("10");
+    expect(slider.style.getPropertyValue("--slider")).toBe("0.1");
+  });
+
+  it("the programmatic value setter dispatches no events", async () => {
+    const { slider, input } = await mountNative();
+    let events = 0;
+    input.addEventListener("input", () => events++);
+    input.addEventListener("change", () => events++);
+    slider.value = 10;
+    expect(events).toBe(0); // like a native control's value setter
     expect(slider.style.getPropertyValue("--slider")).toBe("0.1");
   });
 });

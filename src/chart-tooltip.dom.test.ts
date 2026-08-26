@@ -12,15 +12,18 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-// `ui-chart` wires via `connectLightDom`, which defers to a microtask so a
-// component can wait for late-authored light-DOM parts. Awaiting one
-// microtask flushes it (and every child element's own `connectLightDom`
-// microtask, queued in the same tick) — every registration/render after that
-// is synchronous (`#render()` runs immediately, matching `anchor.ts`'s "first
-// placement stays synchronous" precedent), so no further waiting is needed.
-async function mountChart(inner: string, size = true): Promise<UIChart> {
+// `ui-chart` wires via `connectLightDom` (a microtask) and batches its full
+// renders onto a microtask of their own — mounting K children paints once,
+// and any later mutation defers its re-render the same way. A zero-delay
+// macrotask drains all of it (wiring, registrations, observer deliveries and
+// the coalesced render), so tests assert on settled DOM.
+function flush() {
+  return new Promise((resolve) => setTimeout(resolve));
+}
+
+async function mountChart(inner: string, size = true) {
   document.body.innerHTML = `<ui-chart${size ? ' width="400" height="200"' : ""}>${inner}</ui-chart>`;
-  await Promise.resolve();
+  await flush();
   return document.querySelector("ui-chart")!;
 }
 
@@ -44,11 +47,11 @@ const SERIES = `
 `;
 
 /** Append a `<ui-chart-tooltip>` into `chart` and let its own `connectLightDom` microtask flush. */
-async function mountTooltip(chart: UIChart, trigger?: "axis" | "item"): Promise<UIChartTooltip> {
+async function mountTooltip(chart: UIChart, trigger?: "axis" | "item") {
   const tooltip = document.createElement("ui-chart-tooltip") as UIChartTooltip;
   if (trigger) tooltip.setAttribute("trigger", trigger);
   chart.append(tooltip);
-  await Promise.resolve();
+  await flush();
   return tooltip;
 }
 
@@ -259,7 +262,7 @@ describe("ui-chart-tooltip", () => {
     // authored ahead of the real table — and read the tooltip's own rows back
     // in as data.
     const chart = await mountChart(`<ui-chart-tooltip></ui-chart-tooltip>${TABLE}${SERIES}`);
-    await Promise.resolve();
+    await flush();
     const before = chart.data;
 
     fireHighlight(chart, { index: 1, series: null, seriesIndex: null });
@@ -267,7 +270,7 @@ describe("ui-chart-tooltip", () => {
 
     // Any direct-child mutation re-checks which table is the dataset.
     chart.append(document.createElement("span"));
-    await Promise.resolve();
+    await flush();
     expect(chart.data).toEqual(before);
     expect(chart.data.length).toBe(3);
   });
@@ -279,7 +282,7 @@ describe("ui-chart-tooltip", () => {
     // has to re-wire — a moved tooltip that never shows again is the bug here.
     chart.append(document.createElement("div"));
     chart.querySelector("div")!.append(tooltip);
-    await Promise.resolve();
+    await flush();
 
     fireHighlight(chart, { index: 1, series: null, seriesIndex: null });
     expect(tooltip.querySelectorAll('[data-part="row"]').length).toBe(2);

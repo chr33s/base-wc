@@ -40,10 +40,11 @@ import { type MarkDescriptor, registerSeriesType } from "./chart-core.ts";
 import { type Scale, isDiscreteScale } from "./chart-scale.ts";
 import { SERIES_ATTRIBUTES, UIChartSeries } from "./chart-series.ts";
 import { round } from "./chart-shape.ts";
+import { define } from "./define.ts";
 import { nextId } from "./id.ts";
 
 /** Parse an axis value: a plain number, or (for a time-scaled axis) an ISO date string. `NaN` if neither parses. */
-function parseReferenceValue(raw: string): number {
+function parseReferenceValue(raw: string) {
   const trimmed = raw.trim();
   if (trimmed === "") return Number.NaN;
   const numeric = Number(trimmed);
@@ -52,7 +53,7 @@ function parseReferenceValue(raw: string): number {
 }
 
 /** Where `value` sits on `scale`: the band's center for a discrete scale (a line through the middle of the category it names), the scaled position for a continuous one. `undefined` if the axis is absent or the value is outside a discrete domain. */
-function toPixel(scale: Scale | undefined, value: number): number | undefined {
+function toPixel(scale: Scale | undefined, value: number) {
   if (!scale) return undefined;
   return isDiscreteScale(scale) ? scale.center(value) : scale(value);
 }
@@ -60,20 +61,20 @@ function toPixel(scale: Scale | undefined, value: number): number | undefined {
 export class UIChartReferenceLine extends UIChartSeries {
   static observedAttributes = [...SERIES_ATTRIBUTES, "axis", "value"];
 
-  protected readonly seriesType = "reference-line";
+  readonly type = "reference-line";
 
   #id = nextId("reference-line");
 
   /** A reference line plots no dataset column, so it reports an id of its own as its key — that is what shows up as `data-series` on its rendered group. */
-  override get key(): string {
+  override get key() {
     return this.#id;
   }
 
-  get axis(): "x" | "y" {
+  get axis() {
     return this.getAttribute("axis") === "x" ? "x" : "y";
   }
 
-  get value(): string | null {
+  get value() {
     return this.getAttribute("value");
   }
 }
@@ -85,8 +86,8 @@ registerSeriesType({
   // A reference line is a fixed annotation, never a data contribution — it
   // must never widen/shift the axis domain that determines where it draws.
   getExtremum: () => null,
-  computeMarks(context): MarkDescriptor[] {
-    const element = context.element;
+  computeMarks(context) {
+    const element = context.config.element;
     if (!(element instanceof UIChartReferenceLine)) return [];
     const raw = element.value;
     if (raw === null) return [];
@@ -131,8 +132,7 @@ registerSeriesType({
   },
 });
 
-if (!customElements.get("ui-chart-reference-line"))
-  customElements.define("ui-chart-reference-line", UIChartReferenceLine);
+define("ui-chart-reference-line", UIChartReferenceLine);
 
 declare global {
   interface HTMLElementTagNameMap {

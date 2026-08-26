@@ -26,6 +26,8 @@
  * wants the raw fraction rather than the generated arc paths.
  */
 import { arcPath } from "./chart-shape.ts";
+import { define } from "./define.ts";
+import { rangeNumber, syncRangeState } from "./range.ts";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const DEG2RAD = Math.PI / 180;
@@ -39,23 +41,23 @@ export class UIGauge extends HTMLElement {
   #viewBoxWidth = 200;
   #viewBoxHeight = 200;
 
-  get min(): number {
-    return Number(this.getAttribute("min") ?? 0);
+  get min() {
+    return rangeNumber(this, "min", 0);
   }
-  get max(): number {
-    return Number(this.getAttribute("max") ?? 100);
+  get max() {
+    return rangeNumber(this, "max", 100);
   }
-  get value(): number {
-    return Number(this.getAttribute("value") ?? 0);
+  get value() {
+    return rangeNumber(this, "value", 0);
   }
-  get startAngle(): number {
-    return Number(this.getAttribute("start-angle") ?? -120);
+  get startAngle() {
+    return rangeNumber(this, "start-angle", -120);
   }
-  get endAngle(): number {
-    return Number(this.getAttribute("end-angle") ?? 120);
+  get endAngle() {
+    return rangeNumber(this, "end-angle", 120);
   }
-  get thickness(): number {
-    return Number(this.getAttribute("thickness") ?? 12);
+  get thickness() {
+    return rangeNumber(this, "thickness", 12);
   }
 
   connectedCallback() {
@@ -91,8 +93,12 @@ export class UIGauge extends HTMLElement {
 
   #sync() {
     const { min, max } = this;
-    const value = Math.max(min, Math.min(this.value, max));
-    const fraction = max > min ? (value - min) / (max - min) : 0;
+    const { fraction } = syncRangeState(this, {
+      min,
+      max,
+      value: this.value,
+      property: "--gauge",
+    });
 
     const startAngle = this.startAngle * DEG2RAD;
     const endAngle = this.endAngle * DEG2RAD;
@@ -113,15 +119,10 @@ export class UIGauge extends HTMLElement {
       "d",
       arcPath({ innerRadius, outerRadius, startAngle, endAngle: valueAngle, cx, cy }),
     );
-
-    this.setAttribute("aria-valuemin", String(min));
-    this.setAttribute("aria-valuemax", String(max));
-    this.setAttribute("aria-valuenow", String(value));
-    this.style.setProperty("--gauge", String(fraction));
   }
 }
 
-if (!customElements.get("ui-gauge")) customElements.define("ui-gauge", UIGauge);
+define("ui-gauge", UIGauge);
 
 declare global {
   interface HTMLElementTagNameMap {

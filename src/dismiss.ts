@@ -13,7 +13,7 @@
 export function onOutsidePress(
   inside: ReadonlyArray<Element | null | undefined>,
   onDismiss: (event: PointerEvent) => void,
-): () => void {
+) {
   const handler = (event: PointerEvent) => {
     const path = event.composedPath();
     if (inside.some((el) => el != null && path.includes(el))) return;

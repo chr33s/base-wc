@@ -3,21 +3,23 @@ import { afterEach, describe, expect, it } from "vite-plus/test";
 import { arcPath, pieAngles } from "./chart-shape.ts";
 import "./chart-pie.ts";
 import "./chart.ts";
-import type { UIChart } from "./chart.ts";
 
 afterEach(() => {
   document.body.innerHTML = "";
 });
 
-// `ui-chart` (and `ui-chart-pie`) wire via `connectLightDom`, which defers to
-// a microtask so a component can wait for late-authored light-DOM parts.
-// Awaiting one microtask flushes it (and every child element's own
-// `connectLightDom` microtask, queued in the same tick) — every
-// registration/render after that is synchronous, so no further waiting is
-// needed.
-async function mountChart(inner: string, size = true): Promise<UIChart> {
+// `ui-chart` wires via `connectLightDom` (a microtask) and batches its full
+// renders onto a microtask of their own — mounting K children paints once,
+// and any later mutation defers its re-render the same way. A zero-delay
+// macrotask drains all of it (wiring, registrations, observer deliveries and
+// the coalesced render), so tests assert on settled DOM.
+function flush() {
+  return new Promise((resolve) => setTimeout(resolve));
+}
+
+async function mountChart(inner: string, size = true) {
   document.body.innerHTML = `<ui-chart${size ? ' width="300" height="300"' : ""}>${inner}</ui-chart>`;
-  await Promise.resolve();
+  await flush();
   return document.querySelector("ui-chart")!;
 }
 
@@ -208,10 +210,11 @@ describe("ui-chart-pie", () => {
     `);
     const before = [...chart.querySelectorAll('[data-part="arc"]')].map((a) => a.getAttribute("d"));
 
-    // Mutating the stored registration in place (rather than
-    // unregister/re-register) still picks up the new column on the very next
-    // synchronous render.
+    // The element *is* its registration, so the attribute edit is already the
+    // update — the next (batched) render picks up the new column with no
+    // unregister/re-register churn.
     chart.querySelector("ui-chart-pie")!.setAttribute("key", "B");
+    await flush();
 
     expect(chart.querySelector('[data-part="series"]')!.getAttribute("data-series")).toBe("B");
     const after = [...chart.querySelectorAll('[data-part="arc"]')].map((a) => a.getAttribute("d"));

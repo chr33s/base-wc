@@ -81,6 +81,48 @@ describe("ui-dialog", () => {
     expect(document.documentElement.style.overflow).toBe("");
   });
 
+  it("marks data-state for CSS enter/exit animations", async () => {
+    const { dialog, trigger, popup } = await mount();
+    trigger.click();
+    expect(popup.getAttribute("data-state")).toBe("open");
+    dialog.hide();
+    // The exit path flips to `closed` so a `[data-state]` animation can play
+    // before the popup leaves the top layer.
+    expect(popup.getAttribute("data-state")).toBe("closed");
+  });
+
+  it("traps Tab within the dialog, wrapping from last to first", async () => {
+    document.body.innerHTML = `
+      <ui-dialog>
+        <button data-dialog-trigger>Open</button>
+        <ui-dialog-popup>
+          <button id="first">First</button>
+          <button id="last">Last</button>
+        </ui-dialog-popup>
+      </ui-dialog>`;
+    await Promise.resolve();
+    document.querySelector<HTMLButtonElement>("[data-dialog-trigger]")!.click();
+    expect(document.activeElement).toBe(document.querySelector("#first"));
+    document.querySelector<HTMLButtonElement>("#last")!.focus();
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }),
+    );
+    expect(document.activeElement).toBe(document.querySelector("#first")); // wrapped
+    document.querySelector("ui-dialog")!.hide(); // balance the scroll lock
+  });
+
+  it("opens in the same task as connection (sync-wire guard)", async () => {
+    document.body.innerHTML = `
+      <ui-dialog>
+        <ui-dialog-popup><button id="ok">OK</button></ui-dialog-popup>
+      </ui-dialog>`;
+    const dialog = document.querySelector("ui-dialog")!;
+    dialog.show(); // no microtask wait — must wire synchronously
+    expect(dialog.open).toBe(true);
+    expect(document.querySelector("ui-dialog-popup")!.hasAttribute("data-open")).toBe(true);
+    dialog.hide();
+  });
+
   it("alert dialogs use role=alertdialog and force an action", async () => {
     const { dialog, trigger, popup } = await mount("alert");
     expect(popup.getAttribute("role")).toBe("alertdialog");

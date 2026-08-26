@@ -30,7 +30,8 @@
  * `[data-toast-description]` / `[data-toast-action]` / `[data-toast-close]`) or
  * created through the manager.
  */
-import { nextId } from "./id.ts";
+import { define } from "./define.ts";
+import { labelFrom, nextId } from "./id.ts";
 import { runExit, setOpenState } from "./transitions.ts";
 
 /** Options for {@link UIToastViewport.add} / {@link toast}. */
@@ -60,7 +61,7 @@ export class UIToast extends HTMLElement {
   #swiping = false;
 
   /** Auto-dismiss delay in ms (`0` = sticky). */
-  get duration(): number {
+  get duration() {
     const d = Number(this.getAttribute("duration") ?? DEFAULT_DURATION);
     return Number.isFinite(d) ? d : DEFAULT_DURATION;
   }
@@ -76,16 +77,13 @@ export class UIToast extends HTMLElement {
     this.setAttribute("aria-atomic", "true");
 
     // Label/describe from the title/description parts for assistive tech.
-    const title = this.querySelector("[data-toast-title]");
-    const description = this.querySelector("[data-toast-description]");
-    if (title) {
-      if (!title.id) title.id = nextId("ui-toast-title");
-      this.setAttribute("aria-labelledby", title.id);
-    }
-    if (description) {
-      if (!description.id) description.id = nextId("ui-toast-description");
-      this.setAttribute("aria-describedby", description.id);
-    }
+    labelFrom(this, "aria-labelledby", this.querySelector("[data-toast-title]"), "ui-toast-title");
+    labelFrom(
+      this,
+      "aria-describedby",
+      this.querySelector("[data-toast-description]"),
+      "ui-toast-description",
+    );
 
     this.setAttribute("data-open", "");
     setOpenState(this, true);
@@ -187,12 +185,12 @@ export class UIToastViewport extends HTMLElement {
   #observer: MutationObserver | null = null;
 
   /** How many toasts stay visible before the rest fade behind (default 3). */
-  get #visible(): number {
+  get #visible() {
     const n = Number(this.getAttribute("visible"));
     return Number.isFinite(n) && n > 0 ? n : 3;
   }
   /** Vertical gap between toasts when the stack is expanded, in px (default 14). */
-  get #gap(): number {
+  get #gap() {
     const n = Number(this.getAttribute("gap"));
     return Number.isFinite(n) ? n : 14;
   }
@@ -283,7 +281,7 @@ export class UIToastViewport extends HTMLElement {
   };
 
   /** Build, enqueue and return a toast for `options`. */
-  add(options: ToastOptions): UIToast {
+  add(options: ToastOptions) {
     const toast = document.createElement("ui-toast") as UIToast;
     toast.id = options.id ?? nextId("ui-toast");
     if (options.type) toast.dataset.type = options.type;
@@ -339,14 +337,13 @@ export class UIToastViewport extends HTMLElement {
 }
 
 /** Show a toast via the first `<ui-toast-viewport>` in the document. */
-export function toast(options: ToastOptions): UIToast | null {
+export function toast(options: ToastOptions) {
   const viewport = document.querySelector<UIToastViewport>("ui-toast-viewport");
   return viewport ? viewport.add(options) : null;
 }
 
-if (!customElements.get("ui-toast")) customElements.define("ui-toast", UIToast);
-if (!customElements.get("ui-toast-viewport"))
-  customElements.define("ui-toast-viewport", UIToastViewport);
+define("ui-toast", UIToast);
+define("ui-toast-viewport", UIToastViewport);
 
 declare global {
   interface HTMLElementTagNameMap {

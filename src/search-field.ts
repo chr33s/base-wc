@@ -11,8 +11,10 @@
  * `{ value }`. The `debounce` attribute sets the delay in ms (default 250; `0`
  * fires synchronously).
  */
+import { define } from "./define.ts";
 import { connectLightDom } from "./lifecycle.ts";
-import { fireNativeChange } from "./native.ts";
+import { adoptedControl, fireNativeChange } from "./native.ts";
+import { ensureButton } from "./parts.ts";
 
 export interface SearchDetail {
   readonly value: string;
@@ -24,7 +26,7 @@ export class UISearchField extends HTMLElement {
   #clear: HTMLElement | null = null;
   #timer = 0;
 
-  get value(): string {
+  get value() {
     return this.#input?.value ?? "";
   }
   set value(next: string) {
@@ -33,7 +35,7 @@ export class UISearchField extends HTMLElement {
     this.#reflect();
   }
 
-  #debounce(): number {
+  #debounce() {
     const raw = Number(this.getAttribute("debounce"));
     return Number.isFinite(raw) && raw >= 0 ? raw : 250;
   }
@@ -47,29 +49,26 @@ export class UISearchField extends HTMLElement {
   }
 
   #wire() {
+    // Adoption-scoped: an input belonging to a *nested* component inside our
+    // light DOM must never be wired as ours.
     const input =
-      this.querySelector<HTMLInputElement>('input[type="search"]') ??
-      this.querySelector<HTMLInputElement>("input");
+      adoptedControl<HTMLInputElement>(this, 'input[type="search"]') ??
+      adoptedControl<HTMLInputElement>(this, "input");
     if (!input) return;
     this.#wired = true;
     this.#input = input;
     if (!input.type) input.type = "search";
 
-    this.#clear = this.querySelector<HTMLElement>("[data-search-clear]") ?? this.#buildClear();
+    this.#clear = ensureButton(this, {
+      marker: "data-search-clear",
+      label: "Clear search",
+      text: "✕",
+      insert: (btn) => input.after(btn),
+    });
     this.#clear.addEventListener("click", this.#onClear);
     input.addEventListener("input", this.#onInput);
     input.addEventListener("keydown", this.#onKeydown);
     this.#reflect();
-  }
-
-  #buildClear() {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.setAttribute("data-search-clear", "");
-    btn.setAttribute("aria-label", "Clear search");
-    btn.textContent = "✕";
-    this.#input.after(btn);
-    return btn;
   }
 
   #reflect() {
@@ -119,7 +118,7 @@ export class UISearchField extends HTMLElement {
   }
 }
 
-if (!customElements.get("ui-search-field")) customElements.define("ui-search-field", UISearchField);
+define("ui-search-field", UISearchField);
 
 declare global {
   interface HTMLElementTagNameMap {
