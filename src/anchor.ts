@@ -145,11 +145,14 @@ export function anchor(
       const leftRoom = r.left - vLeft - offset - padding;
       const rightRoom = vLeft + vw - r.right - offset - padding;
       // `left` prefers the left side (RTL submenu) and flips right; `right`
-      // prefers the right side and flips left. No height constraint (list owns it).
+      // prefers the right side and flips left. Each side keeps its preference
+      // while it fits, and otherwise goes wherever there is more room — the two
+      // conditions are mirrors, both comparing the same offset/padding-adjusted
+      // rooms. No height constraint (the list owns it).
       const goLeft =
         placement === "left"
           ? fw <= leftRoom || leftRoom >= rightRoom
-          : !(fw <= rightRoom || rightRoom >= r.left - vLeft);
+          : !(fw <= rightRoom || rightRoom >= leftRoom);
       const left = goLeft ? r.left - offset - fw : r.right + offset;
       const top = Math.min(Math.max(r.top, vTop + padding), vTop + vh - fh - padding);
       const finalLeft = Math.max(left, vLeft + padding);

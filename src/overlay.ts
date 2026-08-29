@@ -33,6 +33,13 @@ import { nextId } from "./id.ts";
 import { lockScroll } from "./scroll-lock.ts";
 import { runExit, setOpenState } from "./transitions.ts";
 
+/**
+ * Read an option that may be given as a value or as a per-`show()` thunk.
+ * `AnchorOptions` is never callable, so the `typeof` narrow is unambiguous.
+ */
+const resolve = <T>(value: T | (() => T)): T =>
+  typeof value === "function" ? (value as () => T)() : value;
+
 export interface OverlayTriggerOptions {
   /** The trigger element (`null` tolerated — e.g. a context-menu-driven menu). */
   element: HTMLElement | null;
@@ -138,8 +145,7 @@ export function overlay(popup: HTMLElement, options: OverlayOptions = {}) {
   // "everything resolves to the last one" collision. Skipped for always-JS
   // popups (side-anchored submenus, point anchors) and non-element references.
   if (options.anchor?.pair) {
-    const always =
-      typeof options.anchor.always === "function" ? options.anchor.always() : options.anchor.always;
+    const always = resolve(options.anchor.always);
     const ref = options.anchor.ref();
     if (!always && ref instanceof HTMLElement) pairAnchor(ref, popup, options.anchor.pair);
   }
@@ -159,21 +165,9 @@ export function overlay(popup: HTMLElement, options: OverlayOptions = {}) {
         /* not supported / already shown */
       }
       trigger?.setAttribute("aria-expanded", "true");
-      if (options.anchor) {
-        const always =
-          typeof options.anchor.always === "function"
-            ? options.anchor.always()
-            : options.anchor.always;
-        if (always || !SUPPORTS_ANCHOR) {
-          const ref = options.anchor.ref();
-          if (ref) {
-            const opts =
-              typeof options.anchor.options === "function"
-                ? options.anchor.options()
-                : options.anchor.options;
-            stopPosition = anchor(ref, popup, opts);
-          }
-        }
+      if (options.anchor && (resolve(options.anchor.always) || !SUPPORTS_ANCHOR)) {
+        const ref = options.anchor.ref();
+        if (ref) stopPosition = anchor(ref, popup, resolve(options.anchor.options));
       }
       if (options.modal) {
         unlockScroll = lockScroll();

@@ -3,14 +3,13 @@
  * `ui-color-field` (and any future field that opens an enhanced widget in an
  * anchored popover over an adopted native input). One copy owns: trigger
  * adoption-or-generation (via {@link ensureButton}, inserted after the input),
- * the `aria-haspopup` / `aria-expanded` / `aria-controls` wiring, the CSS
- * anchor pairing ({@link pairAnchor}) with the {@link overlay} JS fallback,
+ * the {@link overlay} it hands the trigger ceremony (`aria-haspopup`, the
+ * generated popup id behind `aria-controls`, an `aria-expanded` kept in sync)
+ * and the anchoring — CSS pairing where supported, JS fallback otherwise —
  * light-dismiss, and the open/close/focus dance. The component keeps what is
  * genuinely its own: building the widget, syncing it from the input, and
  * handling picks (write-back, `fireNativeChange`, whether a pick closes).
  */
-import { pairAnchor } from "./anchor.ts";
-import { nextId } from "./id.ts";
 import { retireNative } from "./native.ts";
 import { type Overlay, overlay } from "./overlay.ts";
 import { ensureButton } from "./parts.ts";
@@ -55,15 +54,19 @@ export function popoverField(host: HTMLElement, config: PopoverFieldConfig) {
   host.append(popup);
   if (config.retireInput) retireNative(input);
 
-  if (!popup.id) popup.id = nextId(`ui-${config.prefix}-popup`);
-  trigger.setAttribute("aria-haspopup", "dialog");
-  trigger.setAttribute("aria-expanded", "false");
-  trigger.setAttribute("aria-controls", popup.id);
-
-  pairAnchor(trigger, popup, config.prefix);
-  let isOpen = false;
+  // `ov.open` is the single source of truth for open state — this controller
+  // never shadows it with a flag of its own.
   const ov: Overlay = overlay(popup, {
-    anchor: { ref: () => trigger, options: { offset: 6, padding: 8 } },
+    anchor: {
+      ref: () => trigger,
+      options: { offset: 6, padding: 8 },
+      pair: config.prefix,
+    },
+    trigger: {
+      element: trigger,
+      haspopup: "dialog",
+      controls: `ui-${config.prefix}-popup`,
+    },
     dismiss: {
       within: () => [popup, trigger],
       onDismiss: () => close(false),
@@ -71,30 +74,26 @@ export function popoverField(host: HTMLElement, config: PopoverFieldConfig) {
   });
 
   const open = () => {
-    if (isOpen) return;
-    isOpen = true;
+    // Sync the widget from the input *before* showing, so the popup never
+    // paints a frame of stale state.
     config.onOpen();
-    trigger.setAttribute("aria-expanded", "true");
-    ov.show();
+    if (!ov.show()) return;
     config.initialFocus()?.focus();
   };
 
   const close = (restoreFocus: boolean) => {
-    if (!isOpen) return;
-    isOpen = false;
-    trigger.setAttribute("aria-expanded", "false");
-    ov.hide();
+    if (!ov.hide()) return;
     if (restoreFocus) trigger.focus();
   };
 
-  trigger.addEventListener("click", () => (isOpen ? close(true) : open()));
+  trigger.addEventListener("click", () => (ov.open ? close(true) : open()));
 
   return {
     trigger,
     popup,
     widget,
     get open() {
-      return isOpen;
+      return ov.open;
     },
     close,
   };

@@ -135,9 +135,14 @@ export class UIToast extends HTMLElement {
     this.#swiping = true;
     this.#swipeStartX = e.clientX;
     this.pause();
-    this.setPointerCapture?.(e.pointerId);
+    try {
+      this.setPointerCapture?.(e.pointerId);
+    } catch {
+      /* unsupported / synthetic event — the element listeners track it anyway */
+    }
     this.addEventListener("pointermove", this.#onSwipeMove);
     this.addEventListener("pointerup", this.#onSwipeEnd);
+    this.addEventListener("pointercancel", this.#onSwipeCancel);
   };
 
   #onSwipeMove = (e: PointerEvent) => {
@@ -152,11 +157,7 @@ export class UIToast extends HTMLElement {
   };
 
   #onSwipeEnd = (e: PointerEvent) => {
-    if (!this.#swiping) return;
-    this.#swiping = false;
-    this.removeAttribute("data-swiping");
-    this.removeEventListener("pointermove", this.#onSwipeMove);
-    this.removeEventListener("pointerup", this.#onSwipeEnd);
+    if (!this.#endSwipe()) return;
     const dx = e.clientX - this.#swipeStartX;
     if (Math.abs(dx) > SWIPE_THRESHOLD) {
       // Fling it the rest of the way out, then close.
@@ -164,11 +165,37 @@ export class UIToast extends HTMLElement {
       this.style.setProperty("--swipe-opacity", "0");
       this.close();
     } else {
-      this.style.removeProperty("--swipe-x");
-      this.style.removeProperty("--swipe-opacity");
-      this.resume();
+      this.#snapBack();
     }
   };
+
+  // A cancelled pointer replaces `pointerup` when the browser takes the gesture
+  // over — and `ui-toast` is styled `touch-action: pan-y`, so a vertical scroll
+  // started on a toast does exactly that. Without this the swipe never ends:
+  // the toast stays stuck at its last offset with `data-swiping` set and its
+  // auto-dismiss timer paused forever. There is no meaningful end position, so
+  // a cancel always snaps back rather than dismissing.
+  #onSwipeCancel = () => {
+    if (this.#endSwipe()) this.#snapBack();
+  };
+
+  /** Drop the swipe listeners and flags; returns whether a swipe was in flight. */
+  #endSwipe() {
+    if (!this.#swiping) return false;
+    this.#swiping = false;
+    this.removeAttribute("data-swiping");
+    this.removeEventListener("pointermove", this.#onSwipeMove);
+    this.removeEventListener("pointerup", this.#onSwipeEnd);
+    this.removeEventListener("pointercancel", this.#onSwipeCancel);
+    return true;
+  }
+
+  /** Return to the resting position and let the auto-dismiss timer run again. */
+  #snapBack() {
+    this.style.removeProperty("--swipe-x");
+    this.style.removeProperty("--swipe-opacity");
+    this.resume();
+  }
 
   /** Dismiss the toast, playing its exit animation before removal. */
   close() {

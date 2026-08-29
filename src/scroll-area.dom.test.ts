@@ -34,4 +34,41 @@ describe("ui-scroll-area", () => {
     expect(area.hasAttribute("data-overflow-y")).toBe(false);
     expect(bars[0].hasAttribute("hidden")).toBe(true); // hidden when nothing overflows
   });
+
+  // The thumb drag runs through the shared trackPointerDrag, so an interrupted
+  // touch (system gesture, scroll takeover) ends it like a release does —
+  // otherwise its window listeners accumulate for the life of the page.
+  it("releases the drag listeners on pointerup and on pointercancel", async () => {
+    const pointer = (type: string, clientY: number) =>
+      new PointerEvent(type, { bubbles: true, pointerId: 1, button: 0, clientY });
+    const add = window.addEventListener.bind(window);
+    const remove = window.removeEventListener.bind(window);
+    let live = 0;
+    window.addEventListener = ((type: string, ...rest: unknown[]) => {
+      if (type === "pointermove") live++;
+      return (add as (...a: unknown[]) => void)(type, ...rest);
+    }) as typeof window.addEventListener;
+    window.removeEventListener = ((type: string, ...rest: unknown[]) => {
+      if (type === "pointermove") live--;
+      return (remove as (...a: unknown[]) => void)(type, ...rest);
+    }) as typeof window.removeEventListener;
+
+    try {
+      await mount();
+      const thumb = document.querySelector<HTMLElement>("ui-scroll-thumb")!;
+
+      thumb.dispatchEvent(pointer("pointerdown", 0));
+      expect(live).toBe(1);
+      window.dispatchEvent(pointer("pointerup", 10));
+      expect(live).toBe(0);
+
+      thumb.dispatchEvent(pointer("pointerdown", 0));
+      expect(live).toBe(1);
+      window.dispatchEvent(pointer("pointercancel", 10));
+      expect(live).toBe(0);
+    } finally {
+      window.addEventListener = add;
+      window.removeEventListener = remove;
+    }
+  });
 });

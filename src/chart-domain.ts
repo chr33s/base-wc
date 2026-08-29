@@ -111,19 +111,48 @@ export interface AxisScaleOptions {
 }
 
 /**
- * Build the scale for one axis: a band/point scale over its column's
- * categories, or a continuous scale over the numeric extent of its own column
- * (`key`) or, lacking one, of every series that plots against it.
+ * The extent an axis reads off the data: from its own column (`key`) or,
+ * lacking one, merged across every series that plots against it.
  *
- * A data-derived continuous domain is rounded outward to a "nice" boundary
- * (the same algorithm the axis's ticks use) — a data point at the exact
- * extreme would otherwise land precisely on the plot's own pixel edge, where
- * its mark's stroke/radius, centered on that point, spills past the plot box.
- * A bound pinned by an explicit `min`/`max` is never rounded: the consumer
- * asked for exactly that range.
+ * A linear domain is rounded outward to a "nice" boundary (the same algorithm
+ * the axis's ticks use) — a data point at the exact extreme would otherwise
+ * land precisely on the plot's own pixel edge, where its mark's stroke/radius,
+ * centered on that point, spills past the plot box.
+ */
+function dataExtent({ axis, data, dim, series, stacks }: AxisScaleOptions) {
+  const extent = axis.key
+    ? numericExtent(data, axis.key)
+    : mergeExtent(...series.map((s) => seriesExtremum(s, data, dim, stacks.get(s))));
+  if (!extent || axis.scaleType !== "linear") return extent;
+  return niceLinearDomain(extent[0], extent[1], axis.tickCount ?? DEFAULT_TICK_COUNT);
+}
+
+/**
+ * The numeric domain for a continuous axis. A bound pinned by an explicit
+ * `min`/`max` wins over the data and is never rounded — the consumer asked for
+ * exactly that range — so a fully pinned axis skips the data scan entirely,
+ * and a half-pinned one keeps the data-derived edge on its open side.
+ */
+function resolveExtent(options: AxisScaleOptions): [number, number] {
+  const { min, max } = options.axis;
+  let extent: [number, number] | null =
+    min !== undefined && max !== undefined ? [min, max] : dataExtent(options);
+  if (min !== undefined) extent = [min, extent?.[1] ?? min];
+  if (max !== undefined) extent = [extent?.[0] ?? max, max];
+  if (!extent) return [0, 1];
+  // A single-valued domain has no span to map onto the range; widen it so the
+  // one value sits in the middle of the plot rather than at 0/0.
+  if (extent[0] === extent[1]) return [extent[0] - 1, extent[1] + 1];
+  return extent;
+}
+
+/**
+ * Build the scale for one axis: a band/point scale over its column's
+ * categories, or a continuous scale over the numeric extent {@link
+ * resolveExtent} settles on.
  */
 export function axisScale(options: AxisScaleOptions) {
-  const { axis, data, range, dim, series, stacks } = options;
+  const { axis, data, range } = options;
 
   if (axis.scaleType === "band" || axis.scaleType === "point") {
     const domain = axis.key ? categoricalDomain(data, axis.key) : [];
@@ -134,22 +163,5 @@ export function axisScale(options: AxisScaleOptions) {
       : pointScale(domain, range, { padding: BAND_PADDING.paddingOuter });
   }
 
-  let extent: [number, number] | null = null;
-  if (axis.min !== undefined && axis.max !== undefined) {
-    extent = [axis.min, axis.max];
-  } else {
-    extent = axis.key
-      ? numericExtent(data, axis.key)
-      : mergeExtent(...series.map((s) => seriesExtremum(s, data, dim, stacks.get(s))));
-    if (axis.scaleType === "linear" && extent) {
-      extent = niceLinearDomain(extent[0], extent[1], axis.tickCount ?? DEFAULT_TICK_COUNT);
-    }
-  }
-  if (axis.min !== undefined) extent = [axis.min, extent?.[1] ?? axis.min];
-  if (axis.max !== undefined) extent = [extent?.[0] ?? axis.max, axis.max];
-  if (!extent) extent = [0, 1];
-  // A single-valued domain has no span to map onto the range; widen it so the
-  // one value sits in the middle of the plot rather than at 0/0.
-  if (extent[0] === extent[1]) extent = [extent[0] - 1, extent[1] + 1];
-  return continuousScale(axis.scaleType, extent, range);
+  return continuousScale(axis.scaleType, resolveExtent(options), range);
 }

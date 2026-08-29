@@ -219,15 +219,14 @@ export class UIMenu extends HTMLElement {
   };
 
   /** The top-level `<ui-menu>` root (self when not nested in another menu). */
-  #outermostMenu() {
+  #outermostMenu(): UIMenu {
     let root = this.parentElement?.closest<UIMenu>("ui-menu");
     if (!root) return this;
-    for (
-      let parent = root.parentElement?.closest<UIMenu>("ui-menu");
-      parent;
-      parent = root.parentElement?.closest<UIMenu>("ui-menu")
-    ) {
+    // Walk up until no enclosing menu remains — a submenu nests arbitrarily deep.
+    let parent = root.parentElement?.closest<UIMenu>("ui-menu");
+    while (parent) {
       root = parent;
+      parent = root.parentElement?.closest<UIMenu>("ui-menu");
     }
     return root;
   }

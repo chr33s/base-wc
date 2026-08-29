@@ -286,9 +286,11 @@ describe("ui-select — adopts an authored native <select> (no-JS fallback)", ()
     expect(new FormData(form).get("fruit")).toBe("apple"); // submission reflects the choice
   });
 
-  it("fires `change` on the adopted <select> when the user picks (like a real select)", async () => {
+  it("fires `input` + `change` on the adopted <select> when the user picks (like a real select)", async () => {
     const { host, native } = await mount();
+    const onInput = vi.fn<() => void>();
     const onChange = vi.fn<() => void>();
+    native.addEventListener("input", onInput);
     native.addEventListener("change", onChange);
     const trigger = host.querySelector<HTMLButtonElement>("[data-select-trigger]")!;
     trigger.click();
@@ -296,6 +298,9 @@ describe("ui-select — adopts an authored native <select> (no-JS fallback)", ()
       (o) => o.getAttribute("value") === "apple",
     )!;
     apple.click();
+    // A real <select> fires both on a user selection; a listener bound to
+    // `input` on the adopted control must not be left out.
+    expect(onInput).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(native.value).toBe("apple");
   });

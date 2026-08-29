@@ -70,7 +70,6 @@ export function trapFocus(container: HTMLElement, options: FocusTrapOptions = {}
     }
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
-    if (first === undefined || last === undefined) return;
     const active = document.activeElement;
     if (active && !container.contains(active)) {
       e.preventDefault();

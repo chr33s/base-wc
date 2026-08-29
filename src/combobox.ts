@@ -90,6 +90,7 @@ export class UICombobox extends HTMLElement {
   #rowH = ROW_H; // measured from the first pooled row on open; ROW_H until then
   #all: ComboboxItem[] = []; // full data set (the store)
   #normalizedLabels: string[] = []; // normalize(#all[i].label), cached for filtering
+  #byValue = new Map<string, ComboboxItem>(); // value → item, cached for lookups
   #filtered: ComboboxItem[] = []; // current filter result
   #controller: AriaCombobox | null = null;
   // Shared listbox keyboard engine over the virtual rows. POLICY: the combobox
@@ -143,7 +144,7 @@ export class UICombobox extends HTMLElement {
       this.#renderChips();
     } else {
       const v = Array.isArray(next) ? (next[0] ?? null) : next;
-      const item = v == null ? null : (this.#all.find((it) => it.value === v) ?? null);
+      const item = v == null ? null : (this.#byValue.get(v) ?? null);
       this.#selectedValue = item?.value ?? null;
       if (this.#wired) this.#input.value = this.#selectedLabel;
     }
@@ -155,7 +156,7 @@ export class UICombobox extends HTMLElement {
   }
 
   #labelFor(value: string) {
-    return this.#all.find((it) => it.value === value)?.label ?? value;
+    return this.#byValue.get(value)?.label ?? value;
   }
   // Single source of truth: the committed single-select label is always derived
   // from #selectedValue, so it can't drift from the store.
@@ -169,8 +170,12 @@ export class UICombobox extends HTMLElement {
   /** The store. Set as a property — there may be tens of thousands of items. */
   set items(arr: ComboboxItem[]) {
     this.#all = Array.isArray(arr) ? arr : [];
-    // Normalize once per item set, not once per item per keystroke.
+    // Both derived indexes are built once per item set, not once per read: the
+    // normalized labels the filter scans (rather than normalizing every item on
+    // every keystroke), and the value → item map every label lookup goes
+    // through (rather than a linear scan of a store documented to hold 10,000+).
     this.#normalizedLabels = this.#all.map((it) => normalize(it.label));
+    this.#byValue = new Map(this.#all.map((it) => [it.value, it]));
     if (this.#wired) this.#applyFilter("");
   }
 

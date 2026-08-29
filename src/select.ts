@@ -33,7 +33,7 @@ import { type FormControl, formControl } from "./form-control.ts";
 import { connectLightDom } from "./lifecycle.ts";
 import { labelFrom, nextId } from "./id.ts";
 import { listNav, type ListNav } from "./list-nav.ts";
-import { adoptedControl, retireNative } from "./native.ts";
+import { adoptedControl, fireNativeChange, retireNative } from "./native.ts";
 import { type Overlay, overlay } from "./overlay.ts";
 
 /** Detail of the `change` event dispatched when the selection changes. */
@@ -222,36 +222,45 @@ export class UISelect extends HTMLElement {
       label.htmlFor = trigger.id;
     }
 
-    const popup = document.createElement("ui-select-popup");
-    const buildOption = (opt: HTMLOptionElement) => {
-      const el = document.createElement("ui-select-option");
-      el.setAttribute("value", opt.value);
-      if (opt.disabled) el.setAttribute("disabled", "");
-      // Seed from the native's current selection so the enhanced widget shows —
-      // and submits — exactly what the native `<select>` would with no JS.
-      if (opt.selected) el.setAttribute("selected", "");
-      el.textContent = opt.textContent?.trim() ?? "";
-      return el;
-    };
-    for (const child of Array.from(select.children)) {
-      if (child instanceof HTMLOptGroupElement) {
-        const group = document.createElement("ui-select-group");
-        const label = document.createElement("ui-select-group-label");
-        label.textContent = child.label;
-        group.append(label);
-        for (const opt of Array.from(child.children)) {
-          if (opt instanceof HTMLOptionElement) group.append(buildOption(opt));
-        }
-        popup.append(group);
-      } else if (child instanceof HTMLOptionElement) {
-        popup.append(buildOption(child));
-      }
-    }
-
     // Trigger + popup after the native select; then retire it (hidden, out of the
     // a11y tree + tab order, still submitting).
-    this.append(trigger, popup);
+    this.append(trigger, this.#buildPopup(select));
     retireNative(select);
+  }
+
+  /** Mirror a native `<select>`'s option tree as `<ui-select-*>` markup. */
+  #buildPopup(select: HTMLSelectElement) {
+    const popup = document.createElement("ui-select-popup");
+    for (const child of Array.from(select.children)) {
+      if (child instanceof HTMLOptionElement) {
+        popup.append(this.#buildOption(child));
+      } else if (child instanceof HTMLOptGroupElement) {
+        popup.append(this.#buildGroup(child));
+      }
+    }
+    return popup;
+  }
+
+  #buildGroup(optgroup: HTMLOptGroupElement) {
+    const group = document.createElement("ui-select-group");
+    const label = document.createElement("ui-select-group-label");
+    label.textContent = optgroup.label;
+    group.append(label);
+    for (const opt of Array.from(optgroup.children)) {
+      if (opt instanceof HTMLOptionElement) group.append(this.#buildOption(opt));
+    }
+    return group;
+  }
+
+  #buildOption(opt: HTMLOptionElement) {
+    const el = document.createElement("ui-select-option");
+    el.setAttribute("value", opt.value);
+    if (opt.disabled) el.setAttribute("disabled", "");
+    // Seed from the native's current selection so the enhanced widget shows —
+    // and submits — exactly what the native `<select>` would with no JS.
+    if (opt.selected) el.setAttribute("selected", "");
+    el.textContent = opt.textContent?.trim() ?? "";
+    return el;
   }
 
   /** Reflect the current selection onto the adopted native `<select>`. */
@@ -377,10 +386,10 @@ export class UISelect extends HTMLElement {
       this.#applySelection(new Set([v]));
       this.#close();
     }
-    // Mirror a real <select>: a user selection fires `change` on the native
-    // control (programmatic `.value =` does not — see the value setter), so
-    // listeners bound to the adopted <select> are notified.
-    this.#native?.dispatchEvent(new Event("change", { bubbles: true }));
+    // Mirror a real <select>: a user selection fires `input` *and* `change` on
+    // the native control (programmatic `.value =` fires neither — see the value
+    // setter), so listeners bound to the adopted <select> are notified.
+    if (this.#native) fireNativeChange(this.#native);
     this.dispatchEvent(
       new CustomEvent<SelectChangeDetail>("change", {
         bubbles: true,

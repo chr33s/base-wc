@@ -174,6 +174,11 @@ export class UITable extends HTMLElement {
   }
 
   #wire() {
+    // Only wire once the authored <table> exists, so a wiring pass that beats
+    // the parser — or a renderer that appends the table after upgrade — sees
+    // connectLightDom retry on the next light-DOM mutation instead of silently
+    // claiming a table-less host that nothing would ever enhance.
+    if (!this.querySelector("table")) return;
     this.#wired = true;
     this.refresh();
     this.#mutation = new MutationObserver(() => this.refresh());
@@ -363,18 +368,21 @@ export class UITable extends HTMLElement {
 
     const direction: UITableSortDirection =
       header.getAttribute("aria-sort") === "ascending" ? "descending" : "ascending";
-    const format = this.#headerFormat(header);
-    const cellText = (row: HTMLTableRowElement) =>
-      this.#cells(row)[index]?.textContent?.trim() ?? "";
-    const rows = Array.from(tbody.querySelectorAll<HTMLTableRowElement>("tr")).sort((a, b) => {
-      const av = cellText(a);
-      const bv = cellText(b);
-      const compared =
-        format === "numeric" || format === "currency"
-          ? numberValue(av) - numberValue(bv)
-          : av.localeCompare(bv, undefined, { numeric: true, sensitivity: "base" });
-      return direction === "ascending" ? compared : -compared;
+    const numeric = this.#headerFormat(header) !== "base";
+    // Derive each row's sort key once. Reading it inside the comparator instead
+    // would re-filter the row's children twice per comparison — O(n log n) array
+    // builds — and re-derive the collation options on every text compare.
+    const collator = numeric
+      ? null
+      : new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+    const keyed = Array.from(tbody.querySelectorAll<HTMLTableRowElement>("tr"), (row) => {
+      const text = this.#cells(row)[index]?.textContent?.trim() ?? "";
+      return { row, text, number: numeric ? numberValue(text) : 0 };
     });
+    const sign = direction === "ascending" ? 1 : -1;
+    keyed.sort(
+      (a, b) => sign * (collator ? collator.compare(a.text, b.text) : a.number - b.number),
+    );
 
     this.#withObserverPaused(() => {
       for (const item of headers) {
@@ -382,7 +390,7 @@ export class UITable extends HTMLElement {
         else item.removeAttribute("aria-sort");
       }
       header.setAttribute("aria-sort", direction);
-      for (const row of rows) tbody.appendChild(row);
+      for (const { row } of keyed) tbody.appendChild(row);
     });
 
     this.dispatchEvent(

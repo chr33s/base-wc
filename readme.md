@@ -3,6 +3,53 @@
 Base UI, ported to **dependency-free** custom elements. Framework-agnostic:
 any server-rendered or client runtime can consume them.
 
+## Install
+
+```sh
+npm install @chr33s/base-wc
+```
+
+Importing a component's **class** registers its element — there is no separate
+`define()` call:
+
+```html
+<ui-select name="fruit">
+  <select>
+    <option value="apple">Apple</option>
+    <option value="banana" selected>Banana</option>
+  </select>
+</ui-select>
+```
+
+```ts
+import { UISelect } from "@chr33s/base-wc"; // registers <ui-select>
+```
+
+With no JS that `<select>` is already a working form control; on upgrade the
+component enhances it and the native element keeps owning the form value. To
+register everything up front instead — from an app shell that renders `ui-*` tags
+without importing their classes:
+
+```ts
+import "@chr33s/base-wc/elements"; // register every custom element
+```
+
+Components ship unstyled either way — `@chr33s/base-wc/styles.css` is a demo
+skin, not a theme. See [Entry points & bundle size](#entry-points--bundle-size)
+for what each entry point costs.
+
+[TK: minimum supported browsers — the components require the Popover API and
+`ElementInternals`; CSS anchor positioning has a JS fallback.]
+
+A runnable **Storybook** of every component lives alongside the sources — the
+`*.stories.ts` files, driven by the config in [`.storybook/`](./.storybook/) and
+themed by [`src/styles.css`](./src/styles.css), which composes the focused
+modules in [`src/styles/`](./src/styles/). Run it with
+`npm install && npm run dev`, or build the static site with
+`npm run build:storybook` (`@storybook/web-components-vite` consumes the
+TypeScript sources directly). The Storybook tooling is a `devDependency` and
+never ships with the components.
+
 ## Design invariants
 
 Every component in this package holds to the same contract (the Base UI port
@@ -215,11 +262,15 @@ readable. The enhancer owns only behaviour and `data-*` hooks:
 
 ### `ui-chart` contract
 
-A chart family ported from [`@mui/x-charts`](https://github.com/mui/mui-x/tree/master/packages/x-charts)
-(v9.12.0, MIT). Charts render **SVG**, not a shipped visual style: marks carry only
-structural attributes (`x`/`y`/`width`/`height`/`d`/`cx`/`cy`/`r`, plus the `fill="none"` a stroked
-line needs — structure, not paint), so an unstyled chart renders as unstyled black shapes, and
-`src/styles/charts.css` here is only a demo skin. The library never chooses a color.
+A third lineage beyond Base UI and Shopify App Home: a chart family ported from
+[`@mui/x-charts`](https://github.com/mui/mui-x/tree/master/packages/x-charts) (v9.12.0, MIT).
+Charts render **SVG** — the one place this package is not purely headless — but they sit on the
+same side of its contract as `ui-table`: the library owns **behaviour and geometry** (scales,
+stacking, pointer→datum inversion, ARIA, `data-*` state), the consumer owns **all paint**. Marks
+carry only structural attributes (`x`/`y`/`width`/`height`/`d`/`cx`/`cy`/`r`, plus the
+`fill="none"` a stroked line needs — structure, not paint), so an unstyled chart renders as
+unstyled black shapes, and `src/styles/charts.css` here is only a demo skin. The library never
+chooses a color.
 
 - Dataset: an authored `<table>` inside `<ui-chart>` (columns keyed by header text; `<time
 datetime>` cells parse as dates, `data-value` overrides a cell's display text) — this is the
@@ -241,14 +292,20 @@ key="…" scale="band|point|linear|log|sqrt|time">`, `<ui-chart-grid axis="x|y">
   tooltip row all agree, and stay put while other series are toggled. Stacking is opt-in per series
   (`stack="…"`); `<ui-chart stack-offset="none|diverging">` chooses how a stack accumulates, with
   `diverging` splitting mixed-sign values above and below the zero baseline.
-- Interaction: band-scale axes get invisible per-category hit rects
-  (`[data-part="band"]`, structurally `fill="transparent"` — required for pointer hit-testing, the
-  same exception as `fill="none"` on a stroke) for whole-column axis-trigger hover; on a continuous
-  axis, a series type that carries its own coordinates (scatter) resolves the nearest datum through
-  its own hit test, and otherwise the pointer's x is inverted through the scale. Hovering a mark
-  directly (it paints over its band) highlights that specific series+index. `ArrowLeft`/`ArrowRight`
-  walk the highlighted index once the chart is focused; `Escape` clears. `ui-chart-legend` toggles a series' visibility and highlights it on
-  hover; `ui-chart-tooltip` is a `popover="manual"` pointer-follower driven by the `highlight` event.
+- Interaction, by how the pointer resolves to a datum:
+  - **Band axis** — invisible per-category hit rects (`[data-part="band"]`) cover each category, so
+    hovering anywhere in the column triggers the whole column.
+  - **Continuous axis** — a series type that carries its own coordinates (scatter) resolves the
+    nearest datum through its own hit test; otherwise the pointer's x is inverted through the scale.
+  - **A mark directly** — it paints over its band, so hovering it highlights that specific
+    series+index.
+
+  `ArrowLeft`/`ArrowRight` walk the highlighted index once the chart is focused; `Escape` clears.
+  `ui-chart-legend` toggles a series' visibility and highlights it on hover; `ui-chart-tooltip` is
+  a `popover="manual"` pointer-follower driven by the `highlight` event. (The band hit rects are
+  `fill="transparent"` — structural, required for pointer hit-testing, the same exception as
+  `fill="none"` on a stroke.)
+
 - Events (bubble from `ui-chart`): `select` (`{series, seriesIndex, index, value}`, mark click) and
   `highlight` (`{series, seriesIndex, index}`, any highlight change — pointer, keyboard, legend).
   `ui-chart-legend` additionally emits its own `toggle` (`{series, hidden}`).
@@ -263,18 +320,10 @@ key="…" scale="band|point|linear|log|sqrt|time">`, `<ui-chart-grid axis="x|y">
   ships zero runtime dependencies, so nothing is vendored; both are pinned against fixtures captured
   from real d3 output (`chart-scale.dom.test.ts`, `chart-shape.dom.test.ts`).
 
-```ts
-import "@chr33s/base-wc/elements"; // register every custom element
-```
-
-A runnable **Storybook** of every component lives alongside them — the
-`*.stories.ts` files here, driven by the config in
-[`.storybook/`](./.storybook/) and themed by
-[`src/styles.css`](./src/styles.css), which composes the focused modules in
-[`src/styles/`](./src/styles/). Run it with `npm install && npm run dev`,
-or build the static site with `npm run build:storybook`
-(`@storybook/web-components-vite` consumes the TypeScript sources directly). The
-Storybook tooling is a `devDependency` and never ships with the components.
+**Known simplifications**, each noted in its module's own doc comment: d3-arc derives `padAngle`
+from radius and arc length, where `arcPath` uses a simple angular inset (visually equivalent);
+`cornerRadius` (rounded slice corners) is not implemented; `ui-chart-tooltip`'s pointer-follow
+positioning does not yet clamp to the viewport edge.
 
 ### Entry points & bundle size
 
@@ -347,14 +396,16 @@ and mounts into `index.html`, a blank host page.
 
 ## Port status
 
-**Complete.** Every Base UI component in the [Components](#components) table is
-ported, Menu through **Toast** and **Arrow**, on the shared infrastructure
-modules listed above; the two tables carry the full inventory.
+**Complete** against Base UI
+[`849a056`](https://github.com/mui/base-ui/tree/849a0561321fd4e409512b5a8a4134d928598aa0) — the
+ref pinned in `package.json`. Every Base UI component in the
+[Components](#components) table is ported, Menu through **Toast** and **Arrow**,
+on the shared infrastructure modules listed above; the two tables carry the full
+inventory.
 
 Beyond Base UI, a **charts** family (bar, line/area, pie, scatter, reference
 line, legend, tooltip, gauge) is ported from MUI X Charts — see
-[`### ui-chart contract`](#ui-chart-contract) above and [`## Charts`](#charts)
-below.
+[`### ui-chart contract`](#ui-chart-contract) above.
 
 ### Base UI parity — known deltas
 
@@ -394,21 +445,8 @@ library — styling and composition are delegated to consumer CSS
 (`src/styles.css` here is only a demo theme). Their absence is a boundary, not a
 backlog.
 
-## Charts
+## License
 
-A third lineage, beyond Base UI and Shopify App Home: `ui-chart` (+ `-axis`,
-`-grid`, `-bar`, `-line`, `-pie`, `-scatter`, `-reference-line`, `-legend`,
-`-tooltip`) and a standalone `ui-gauge`, ported from
-[`@mui/x-charts`](https://github.com/mui/mui-x/tree/master/packages/x-charts)
-(v9.12.0, MIT). Charts render SVG — the one place this package is not purely
-headless — but they sit on the same side of its contract as `ui-table`: the
-library owns **behaviour and geometry** (scales, stacking, pointer→datum
-inversion, ARIA, `data-*` state), the consumer owns **all paint**. The
-markup/event contract, scope, and deferred/out-of-scope lists live in
-[`### ui-chart contract`](#ui-chart-contract) above.
-
-**Known simplifications**, each noted in its module's own doc comment: d3-arc
-derives `padAngle` from radius and arc length, where `arcPath` uses a simple
-angular inset (visually equivalent); `cornerRadius` (rounded slice corners) is
-not implemented; `ui-chart-tooltip`'s pointer-follow positioning does not yet
-clamp to the viewport edge.
+[TK: license — `package.json` has no `license` field, and this readme is precise
+about the MIT boundaries of what it ports _from_ (Base UI, MUI X Charts, the
+d3-scale/d3-shape reimplementation). Name the license here and add the field.]

@@ -206,4 +206,48 @@ describe("ui-toast-viewport", () => {
       expect(a.style.getPropertyValue("--index")).toBe("1");
     });
   });
+
+  describe("swipe-to-dismiss", () => {
+    const pointer = (type: string, clientX: number) =>
+      new PointerEvent(type, { bubbles: true, pointerId: 1, button: 0, clientX });
+
+    it("dismisses on a flick past the threshold", async () => {
+      const { viewport } = await mount();
+      const t = viewport.add({ title: "A", duration: 0 });
+      t.dispatchEvent(pointer("pointerdown", 0));
+      t.dispatchEvent(pointer("pointermove", 160));
+      t.dispatchEvent(pointer("pointerup", 160));
+      expect(t.hasAttribute("data-open")).toBe(false);
+    });
+
+    it("snaps back and resumes the timer on a short swipe", async () => {
+      const { viewport } = await mount();
+      const t = viewport.add({ title: "A", duration: 1000 });
+      t.dispatchEvent(pointer("pointerdown", 0));
+      t.dispatchEvent(pointer("pointermove", 20));
+      t.dispatchEvent(pointer("pointerup", 20));
+      expect(t.hasAttribute("data-swiping")).toBe(false);
+      expect(t.style.getPropertyValue("--swipe-x")).toBe("");
+      vi.advanceTimersByTime(1000); // the auto-dismiss timer runs again
+      expect(t.hasAttribute("data-open")).toBe(false);
+    });
+
+    // `ui-toast` is styled `touch-action: pan-y`, so a vertical scroll started
+    // on a toast hands the gesture to the browser: `pointercancel` arrives and
+    // `pointerup` never does. The swipe must still end, or the toast is
+    // stranded mid-swipe with its auto-dismiss timer paused forever.
+    it("ends the swipe when the browser cancels the pointer", async () => {
+      const { viewport } = await mount();
+      const t = viewport.add({ title: "A", duration: 1000 });
+      t.dispatchEvent(pointer("pointerdown", 0));
+      t.dispatchEvent(pointer("pointermove", 40));
+      expect(t.hasAttribute("data-swiping")).toBe(true);
+
+      t.dispatchEvent(pointer("pointercancel", 40));
+      expect(t.hasAttribute("data-swiping")).toBe(false);
+      expect(t.style.getPropertyValue("--swipe-x")).toBe("");
+      vi.advanceTimersByTime(1000);
+      expect(t.hasAttribute("data-open")).toBe(false);
+    });
+  });
 });
