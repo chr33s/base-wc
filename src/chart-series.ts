@@ -37,7 +37,7 @@
  */
 import type { HighlightScope, SeriesRegistration } from "./chart-core.ts";
 import type { UIChart } from "./chart.ts";
-import { connectLightDom } from "./lifecycle.ts";
+import { connectOwned } from "./lifecycle.ts";
 
 /** The attributes {@link UIChartSeries} itself reads — spread into each subclass's `observedAttributes`. */
 export const SERIES_ATTRIBUTES = ["key", "label", "highlight", "fade", "hidden"] as const;
@@ -85,10 +85,11 @@ export abstract class UIChartSeries extends HTMLElement implements SeriesRegistr
   }
 
   connectedCallback() {
-    connectLightDom(
+    connectOwned(
       this,
+      "ui-chart",
       () => this.#unregister !== null,
-      () => this.#wire(),
+      (chart) => this.#wire(chart),
     );
   }
 
@@ -107,9 +108,7 @@ export abstract class UIChartSeries extends HTMLElement implements SeriesRegistr
     this.#chart?.requestRender();
   }
 
-  #wire() {
-    const chart = this.closest("ui-chart");
-    if (!chart) return;
+  #wire(chart: UIChart) {
     this.#chart = chart;
     this.#unregister = chart.registerSeries(this);
   }

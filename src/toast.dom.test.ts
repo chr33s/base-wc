@@ -135,6 +135,21 @@ describe("ui-toast-viewport", () => {
       );
     });
 
+    it("spaces the expanded stack by the default gap when none is authored", async () => {
+      const { viewport } = await mount();
+      viewport.add({ title: "A", duration: 0 });
+      viewport.add({ title: "B", duration: 0 });
+      const c = viewport.add({ title: "C", duration: 0 });
+      // Offsets accumulate each toast's height plus the gap; under happy-dom
+      // every height is 0, so the resting positions are pure multiples of it.
+      // An absent `gap` attribute must not read as `gap="0"`.
+      const offsets = [...viewport.querySelectorAll<HTMLElement>("ui-toast")]
+        .reverse()
+        .map((t) => t.style.getPropertyValue("--offset"));
+      expect(offsets).toEqual(["0px", "14px", "28px"]);
+      expect(c.style.getPropertyValue("--offset")).toBe("0px"); // front
+    });
+
     it("hides toasts past the visible limit while collapsed", async () => {
       document.body.innerHTML = `<ui-toast-viewport visible="2"></ui-toast-viewport>`;
       await Promise.resolve();

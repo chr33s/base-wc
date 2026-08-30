@@ -141,8 +141,19 @@ function resolveExtent(options: AxisScaleOptions): [number, number] {
   if (max !== undefined) extent = [extent?.[0] ?? max, max];
   if (!extent) return [0, 1];
   // A single-valued domain has no span to map onto the range; widen it so the
-  // one value sits in the middle of the plot rather than at 0/0.
-  if (extent[0] === extent[1]) return [extent[0] - 1, extent[1] + 1];
+  // one value sits in the plot rather than at 0/0 — but only on a side the
+  // consumer left open, since a pinned bound wins over the data: `min="0"`
+  // over an all-zero (or empty) dataset must not produce a domain starting
+  // below zero.
+  if (extent[0] === extent[1]) {
+    const [lo, hi] = extent;
+    if (min !== undefined && max === undefined) return [lo, hi + 1];
+    if (max !== undefined && min === undefined) return [lo - 1, hi];
+    // Neither side is open (both pinned to the same value, or neither pinned
+    // at all), so there is no bound to respect — widen both rather than hand
+    // back a zero-span scale that maps every value onto one pixel.
+    return [lo - 1, hi + 1];
+  }
   return extent;
 }
 

@@ -44,7 +44,7 @@ import { DEFAULT_TICK_COUNT } from "./chart-domain.ts";
 import { type Scale, isDiscreteScale } from "./chart-scale.ts";
 import type { UIChart } from "./chart.ts";
 import { define } from "./define.ts";
-import { connectLightDom } from "./lifecycle.ts";
+import { connectOwned } from "./lifecycle.ts";
 
 function formatTick(value: ChartValue) {
   if (value instanceof Date) return value.toLocaleDateString();
@@ -96,10 +96,11 @@ export class UIChartAxis extends HTMLElement implements AxisRegistration {
   }
 
   connectedCallback() {
-    connectLightDom(
+    connectOwned(
       this,
+      "ui-chart",
       () => this.#unregister !== null,
-      () => this.#wire(),
+      (chart) => this.#wire(chart),
     );
   }
 
@@ -154,9 +155,7 @@ export class UIChartAxis extends HTMLElement implements AxisRegistration {
     for (let i = ticks.length; i < existing.length; i++) existing[i]?.remove();
   }
 
-  #wire() {
-    const chart = this.closest("ui-chart");
-    if (!chart) return;
+  #wire(chart: UIChart) {
     this.#chart = chart;
     this.#unregister = chart.registerAxis(this);
   }
@@ -172,11 +171,7 @@ export class UIChartGrid extends HTMLElement {
   }
 
   connectedCallback() {
-    connectLightDom(
-      this,
-      () => this.#unregister !== null,
-      () => this.#wire(),
-    );
+    this.#connect();
   }
 
   disconnectedCallback() {
@@ -185,15 +180,23 @@ export class UIChartGrid extends HTMLElement {
   }
 
   attributeChangedCallback() {
+    // The dimension is the registration here (unlike an axis, which the chart
+    // reads back off the element), so a change has to re-register rather than
+    // only ask for a re-render.
     this.#unregister?.();
     this.#unregister = null;
-    this.#wire();
+    this.#connect();
   }
 
-  #wire() {
-    const chart = this.closest("ui-chart");
-    if (!chart) return;
-    this.#unregister = chart.registerGrid(this.axis);
+  #connect() {
+    connectOwned(
+      this,
+      "ui-chart",
+      () => this.#unregister !== null,
+      (chart) => {
+        this.#unregister = chart.registerGrid(this.axis);
+      },
+    );
   }
 }
 

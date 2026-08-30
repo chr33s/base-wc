@@ -63,7 +63,28 @@ describe("parseTable", () => {
     `);
     const rows = parseTable(table);
     expect(rows[0]!.Day).toBeInstanceOf(Date);
-    expect((rows[0]!.Day as Date).getTime()).toBe(new Date("2026-01-01").getTime());
+    // A bare `YYYY-MM-DD` is the calendar day the author wrote, read at *local*
+    // midnight — `new Date("2026-01-01")` would be UTC midnight, which reads
+    // back as 31 December anywhere west of UTC and sits a timezone offset away
+    // from the local-time ticks meant to label it.
+    const day = rows[0]!.Day as Date;
+    expect([day.getFullYear(), day.getMonth(), day.getDate()]).toEqual([2026, 0, 1]);
+    expect(day.getHours()).toBe(0);
+    expect(day.toLocaleDateString()).toBe(new Date(2026, 0, 1).toLocaleDateString());
+  });
+
+  it("keeps a datetime that carries its own time as the instant it names", () => {
+    const table = tableFrom(`
+      <table>
+        <thead><tr><th>Day</th><th>Count</th></tr></thead>
+        <tbody>
+          <tr><td><time datetime="2026-01-01T12:30:00Z">noon</time></td><td>3</td></tr>
+        </tbody>
+      </table>
+    `);
+    expect((parseTable(table)[0]!.Day as Date).getTime()).toBe(
+      new Date("2026-01-01T12:30:00Z").getTime(),
+    );
   });
 
   it("reads a null for an empty cell", () => {

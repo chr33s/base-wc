@@ -48,22 +48,25 @@ function fmt(n: number) {
   return String(round(n));
 }
 
-/** Split `points` into contiguous runs of non-null values. With `connectNulls`, gaps are skipped instead of breaking the line into separate segments. */
+/** A plotted (non-null) point, carrying its position in the original point list — which is what an area's per-point baseline is indexed by, so a gap never shifts the baseline out from under the points that follow it. */
+interface Vertex extends XY {
+  index: number;
+}
+
+/** Split `points` into contiguous runs of non-null values. With `connectNulls`, gaps are skipped instead of breaking the line into separate segments. Empty runs are never emitted. */
 function segments(points: readonly Point[], connectNulls: boolean) {
-  if (connectNulls) {
-    const run = points.filter((p): p is { x: number; y: number } => p.y !== null);
-    return run.length > 0 ? [run] : [];
-  }
-  const result: XY[][] = [];
-  let current: XY[] = [];
-  for (const p of points) {
+  const result: Vertex[][] = [];
+  let current: Vertex[] = [];
+  points.forEach((p, index) => {
     if (p.y === null) {
-      if (current.length > 0) result.push(current);
-      current = [];
-    } else {
-      current.push({ x: p.x, y: p.y });
+      if (!connectNulls && current.length > 0) {
+        result.push(current);
+        current = [];
+      }
+      return;
     }
-  }
+    current.push({ x: p.x, y: p.y, index });
+  });
   if (current.length > 0) result.push(current);
   return result;
 }
@@ -198,7 +201,6 @@ export function linePath(
   connectNulls = false,
 ) {
   return segments(points, connectNulls)
-    .filter((seg) => seg.length > 0)
     .map((seg) => renderCurve(seg, curve))
     .join("");
 }
@@ -206,9 +208,18 @@ export function linePath(
 /**
  * A filled area between `points` (the top edge, drawn with `curve`) and a
  * baseline `y0` (a constant, or one value per point — e.g. a stacked series'
- * lower edge). The baseline is always drawn as straight segments: matching
- * d3-shape's curved baseline is unnecessary for the flat/near-flat baselines
- * MIT-scope stacked/area charts use, and this keeps the generator simple.
+ * lower edge).
+ *
+ * The baseline is traced back through **every** point of the segment, in
+ * reverse, exactly as d3-shape's `area` does — not closed off with a single
+ * straight line between the two ends. A stacked area's lower edge *is* the
+ * upper edge of the series beneath it, so only a per-point baseline follows
+ * it; collapsing it to one line makes every stacked band but the first one
+ * the wrong shape. Each baseline value is looked up by the point's index in
+ * the original (pre-split) list, so a `null` gap earlier in the series does
+ * not shift the baseline under the points after it. The baseline itself is
+ * drawn with straight segments rather than `curve` — matching d3-shape's
+ * curved-baseline option is unnecessary here.
  */
 export function areaPath(
   points: readonly Point[],
@@ -218,20 +229,13 @@ export function areaPath(
 ) {
   const baseline = (i: number) => (Array.isArray(y0) ? (y0[i] ?? 0) : y0);
   return segments(points, connectNulls)
-    .filter((seg) => seg.length > 0)
     .map((seg) => {
-      const top = renderCurve(seg, curve);
-      const last = seg[seg.length - 1]!;
-      const first = seg[0]!;
-      // Baseline y for each point in this segment, indexed by its position in
-      // the original (pre-split) point list would require carrying indices
-      // through `segments()`; areas over a gappy dataset are rare enough in
-      // MIT-scope charts that per-segment (not global) indexing is an
-      // acceptable simplification — the constant-`y0` case (by far the common
-      // one) is unaffected either way.
-      const lastBase = Array.isArray(y0) ? baseline(seg.length - 1) : y0;
-      const firstBase = Array.isArray(y0) ? baseline(0) : y0;
-      return `${top}L${fmt(last.x)},${fmt(lastBase)}L${fmt(first.x)},${fmt(firstBase)}Z`;
+      let d = renderCurve(seg, curve);
+      for (let i = seg.length - 1; i >= 0; i--) {
+        const vertex = seg[i]!;
+        d += `L${fmt(vertex.x)},${fmt(baseline(vertex.index))}`;
+      }
+      return `${d}Z`;
     })
     .join("");
 }

@@ -70,6 +70,21 @@ describe("ui-search-field", () => {
     expect(outer.hasAttribute("data-empty")).toBe(false); // outer never wired
   });
 
+  it("debounces at the default 250ms when no debounce attribute is authored", async () => {
+    document.body.innerHTML = `<ui-search-field><input type="search" /></ui-search-field>`;
+    await flush();
+    const el = document.querySelector("ui-search-field")!;
+    const input = document.querySelector<HTMLInputElement>("input")!;
+    let count = 0;
+    el.addEventListener("search", () => count++);
+    input.value = "a";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    // An absent attribute is not `debounce="0"` — nothing fires synchronously.
+    expect(count).toBe(0);
+    await new Promise((r) => setTimeout(r, 40));
+    expect(count).toBe(0); // still inside the 250ms window
+  });
+
   it("debounces the search event when debounce > 0", async () => {
     document.body.innerHTML = `<ui-search-field debounce="30"><input type="search" /></ui-search-field>`;
     await flush();

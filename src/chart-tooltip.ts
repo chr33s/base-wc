@@ -38,7 +38,7 @@
 import type { ChartValue } from "./chart-core.ts";
 import type { UIChart, UIChartHighlightDetail } from "./chart.ts";
 import { define } from "./define.ts";
-import { connectLightDom } from "./lifecycle.ts";
+import { connectOwned } from "./lifecycle.ts";
 
 const TOKENS = ["{key}", "{label}", "{value}", "{index}"] as const;
 
@@ -68,10 +68,11 @@ export class UIChartTooltip extends HTMLElement {
   connectedCallback() {
     this.setAttribute("popover", "manual");
     this.setAttribute("role", "tooltip");
-    connectLightDom(
+    connectOwned(
       this,
+      "ui-chart",
       () => this.#wired,
-      () => this.#wire(),
+      (chart) => this.#wire(chart),
     );
   }
 
@@ -80,7 +81,7 @@ export class UIChartTooltip extends HTMLElement {
     this.#chart?.removeEventListener("pointermove", this.#onPointerMove);
     this.#hide();
     // Reset both so a reconnection re-wires: the listeners above live on the
-    // *chart*, not on this element, and `connectLightDom` would otherwise see
+    // *chart*, not on this element, and `connectOwned` would otherwise see
     // an already-wired tooltip and never re-attach them (`table.ts`'s
     // precedent — a tooltip that survives a DOM move but never shows again is
     // the bug this avoids).
@@ -88,9 +89,7 @@ export class UIChartTooltip extends HTMLElement {
     this.#chart = null;
   }
 
-  #wire() {
-    const chart = this.closest("ui-chart");
-    if (!chart) return;
+  #wire(chart: UIChart) {
     this.#wired = true;
     this.#chart = chart;
     this.style.position = "fixed";

@@ -218,6 +218,28 @@ describe("axisScale", () => {
     expect(hi).toBeGreaterThan(5);
   });
 
+  it("widens a degenerate domain only on the side the consumer left open", () => {
+    // A pinned bound wins over the data — widening past it would put the axis
+    // somewhere the consumer explicitly ruled out.
+    const minOnly = axisScale({
+      ...common,
+      axis: axis({ scaleType: "linear", min: 0 }),
+      data: [{ Revenue: 0 }],
+      range: [100, 0],
+      dim: "y",
+    });
+    expect(minOnly.domain()).toEqual([0, 1]);
+
+    const maxOnly = axisScale({
+      ...common,
+      axis: axis({ scaleType: "linear", max: 0 }),
+      data: [{ Revenue: 0 }],
+      range: [100, 0],
+      dim: "y",
+    });
+    expect(maxOnly.domain()).toEqual([-1, 0]);
+  });
+
   it("falls back to [0, 1] when nothing contributes any extent at all", () => {
     const scale = axisScale({
       ...common,

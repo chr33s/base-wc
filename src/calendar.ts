@@ -214,14 +214,23 @@ export class UICalendar extends HTMLElement {
   /** Rebuild the weekday header row + day cells for the focused month. */
   #render() {
     if (!this.#wired) return;
+    // `timeZone: "UTC"` on both formatters here: every date this component
+    // handles is a UTC instant (`Date.UTC` throughout, so the arithmetic is
+    // free of DST), and formatting one in the *viewer's* zone would read it
+    // back shifted — anywhere west of UTC, a UTC-midnight 1 January renders
+    // as the previous December, and the weekday column headers slide a day.
     this.#label.textContent = new Intl.DateTimeFormat(this.#locale(), {
       month: "long",
       year: "numeric",
+      timeZone: "UTC",
     }).format(new Date(Date.UTC(this.#focus.y, this.#focus.m, 1)));
 
     this.#grid.textContent = "";
     const fdow = this.#firstDayOfWeek();
-    const dayNames = new Intl.DateTimeFormat(this.#locale(), { weekday: "short" });
+    const dayNames = new Intl.DateTimeFormat(this.#locale(), {
+      weekday: "short",
+      timeZone: "UTC",
+    });
 
     const head = document.createElement("div");
     head.setAttribute("role", "row");

@@ -170,7 +170,7 @@ export {
   isGroupWarm,
   openGroup,
 } from "./intent.ts";
-export { connectLightDom } from "./lifecycle.ts";
+export { connectLightDom, connectOwned } from "./lifecycle.ts";
 export { type ListNav, listNav, type ListNavOptions } from "./list-nav.ts";
 export { clamp, type ClampSnapBounds, clampSnap } from "./math.ts";
 export { UIMeter } from "./meter.ts";

@@ -47,3 +47,47 @@ function stopWaiting(host: HTMLElement) {
   state?.observer?.disconnect();
   pending.delete(host);
 }
+
+/**
+ * Connect a light-DOM component that also needs an **owning container
+ * element** — an ancestor custom element it registers itself with, the way
+ * every `ui-chart` child registers with `ui-chart`.
+ *
+ * On top of {@link connectLightDom}'s "wait for the authored children" retry,
+ * this waits for the container to have been *upgraded*. Custom elements
+ * upgrade in definition order, and a container module necessarily evaluates
+ * its children's modules before it defines itself (`chart.ts` imports
+ * `chart-axis.ts`), so a child can be upgraded while its container is still an
+ * inert unknown element: `closest()` finds it, but none of the registration
+ * methods exist yet, and calling one throws out of the child's own lifecycle
+ * callback and leaves it permanently unwired. In that window `wire` is simply
+ * not called, and the attempt is repeated once the container's own definition
+ * lands.
+ */
+export function connectOwned<K extends keyof HTMLElementTagNameMap>(
+  host: HTMLElement,
+  ownerTag: K,
+  isWired: () => boolean,
+  wire: (owner: HTMLElementTagNameMap[K]) => void,
+) {
+  const connect = () => {
+    connectLightDom(host, isWired, () => {
+      const owner = host.closest(ownerTag);
+      if (!owner) return;
+      const ctor = customElements.get(ownerTag);
+      if (ctor && owner instanceof ctor) {
+        wire(owner);
+        return;
+      }
+      // Retried only while the definition is genuinely still missing —
+      // `whenDefined` resolves once and for all, so re-arming it against an
+      // already-defined container would spin.
+      if (!ctor) {
+        void customElements.whenDefined(ownerTag).then(() => {
+          if (host.isConnected) connect();
+        });
+      }
+    });
+  };
+  connect();
+}

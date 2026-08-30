@@ -48,7 +48,7 @@
 import type { SeriesRegistration } from "./chart-core.ts";
 import type { UIChart } from "./chart.ts";
 import { define } from "./define.ts";
-import { connectLightDom } from "./lifecycle.ts";
+import { connectOwned } from "./lifecycle.ts";
 
 export interface UIChartToggleDetail {
   readonly series: string;
@@ -91,10 +91,11 @@ export class UIChartLegend extends HTMLElement {
 
   connectedCallback() {
     this.setAttribute("role", "list");
-    connectLightDom(
+    connectOwned(
       this,
+      "ui-chart",
       () => this.#chart !== null,
-      () => this.#wire(),
+      (chart) => this.#wire(chart),
     );
   }
 
@@ -107,9 +108,7 @@ export class UIChartLegend extends HTMLElement {
     this.#chart = null;
   }
 
-  #wire() {
-    const chart = this.closest("ui-chart");
-    if (!chart) return;
+  #wire(chart: UIChart) {
     this.#chart = chart;
     this.addEventListener("click", this.#onClick);
     this.addEventListener("pointerover", this.#onPointerOver);

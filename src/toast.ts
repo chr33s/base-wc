@@ -216,9 +216,11 @@ export class UIToastViewport extends HTMLElement {
     const n = Number(this.getAttribute("visible"));
     return Number.isFinite(n) && n > 0 ? n : 3;
   }
-  /** Vertical gap between toasts when the stack is expanded, in px (default 14). */
+  /** Vertical gap between toasts when the stack is expanded, in px (default 14). An absent or empty attribute carries no value — which is not the same as `gap="0"`. */
   get #gap() {
-    const n = Number(this.getAttribute("gap"));
+    const raw = this.getAttribute("gap");
+    if (raw == null || raw.trim() === "") return 14;
+    const n = Number(raw);
     return Number.isFinite(n) ? n : 14;
   }
 

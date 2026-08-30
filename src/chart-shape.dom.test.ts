@@ -68,7 +68,30 @@ describe("areaPath", () => {
       { x: 50, y: 40 },
       { x: 100, y: 10 },
     ];
-    expect(areaPath(pts, 100, "linear")).toBe("M0,20L50,40L100,10L100,100L0,100Z");
+    // d3 traces the baseline back through every point, not just the two ends.
+    expect(areaPath(pts, 100, "linear")).toBe("M0,20L50,40L100,10L100,100L50,100L0,100Z");
+  });
+
+  it("follows a per-point baseline, as a stacked area's lower edge requires", () => {
+    const pts = [
+      { x: 0, y: 20 },
+      { x: 50, y: 30 },
+      { x: 100, y: 10 },
+    ];
+    // The lower edge is the series beneath this one — it has to be traced,
+    // not closed off with a straight line between its two ends.
+    expect(areaPath(pts, [60, 80, 70], "linear")).toBe("M0,20L50,30L100,10L100,70L50,80L0,60Z");
+  });
+
+  it("indexes the baseline by the original point position across a gap", () => {
+    const pts = [
+      { x: 0, y: 20 },
+      { x: 50, y: null },
+      { x: 100, y: 10 },
+    ];
+    // The second subpath is point 2, so it takes baseline[2] — not baseline[0],
+    // which is what per-segment indexing would have handed it.
+    expect(areaPath(pts, [60, 80, 70], "linear")).toBe("M0,20L0,60ZM100,10L100,70Z");
   });
 });
 

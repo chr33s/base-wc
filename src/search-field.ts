@@ -35,9 +35,12 @@ export class UISearchField extends HTMLElement {
     this.#reflect();
   }
 
+  /** Debounce delay in ms. An absent or empty attribute carries no value — which is not the same as `0` (fire synchronously) — so it falls back to the documented 250. */
   #debounce() {
-    const raw = Number(this.getAttribute("debounce"));
-    return Number.isFinite(raw) && raw >= 0 ? raw : 250;
+    const raw = this.getAttribute("debounce");
+    if (raw == null || raw.trim() === "") return 250;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : 250;
   }
 
   connectedCallback() {

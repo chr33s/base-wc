@@ -38,11 +38,12 @@ export type ChartRow = Record<string, ChartValue>;
 /**
  * Read a `<table>`'s rows into columnar {@link ChartRow} objects, keyed by
  * header text. A cell's value is a `Date` when it contains a `<time
- * datetime>`, a `number` when its text parses as one, otherwise its trimmed
- * text (or `null` when empty). A `data-value` attribute on the cell overrides
- * what its text/`<time>` would otherwise produce — for a display string that
- * differs from the value used for scaling (e.g. `data-value="1400"` inside a
- * cell reading "$1,400").
+ * datetime>` (a bare `YYYY-MM-DD` being read as local midnight — see
+ * {@link parseDate}), a `number` when its text parses as one, otherwise its
+ * trimmed text (or `null` when empty). A `data-value` attribute on the cell
+ * overrides what its text/`<time>` would otherwise produce — for a display
+ * string that differs from the value used for scaling (e.g.
+ * `data-value="1400"` inside a cell reading "$1,400").
  */
 export function parseTable(table: HTMLTableElement) {
   // `querySelectorAll`, not `.rows` (an `HTMLTableSectionElement` property some
@@ -72,12 +73,32 @@ export function parseTable(table: HTMLTableElement) {
   });
 }
 
+/** A bare calendar day, with no time and no zone — the `<time datetime>` form that `Date`'s own parser reads as UTC midnight. */
+const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * Parse a `<time datetime>` (or `data-value`) source into a `Date`. A bare
+ * `YYYY-MM-DD` becomes **local** midnight rather than the UTC midnight
+ * `new Date(string)` gives it: the rest of the chart family works in local
+ * time — `chart-scale.ts`'s calendar tick intervals floor to local
+ * days/months, and an axis tick formats through `toLocaleDateString` — so a
+ * UTC instant would sit a whole timezone offset away from the ticks meant to
+ * label it, and anywhere west of UTC would render `2026-01-01` as the 31st of
+ * December. A source that carries its own time (and so its own zone, explicit
+ * or local) is unambiguous and is parsed as written.
+ */
+function parseDate(source: string) {
+  const parts = DATE_ONLY.exec(source.trim());
+  if (!parts) return new Date(source);
+  return new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]));
+}
+
 function parseCell(cell: HTMLTableCellElement) {
   const override = cell.getAttribute("data-value");
   const time = cell.querySelector("time[datetime]");
   if (time) {
     const source = override ?? time.getAttribute("datetime") ?? "";
-    const date = new Date(source);
+    const date = parseDate(source);
     if (!Number.isNaN(date.getTime())) return date;
   }
   const text = (override ?? cell.textContent ?? "").trim();

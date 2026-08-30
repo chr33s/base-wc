@@ -38,6 +38,12 @@ export class UIContextMenu extends HTMLElement {
     this.#target.addEventListener("pointercancel", this.#cancelPress);
   }
 
+  disconnectedCallback() {
+    // Drop a long-press in flight: its timer would otherwise fire after the
+    // element left the document and open a menu nothing can dismiss.
+    this.#cancelPress();
+  }
+
   #onContextMenu = (e: MouseEvent) => {
     e.preventDefault();
     this.#menu?.openAt(e.clientX, e.clientY);
