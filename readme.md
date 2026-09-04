@@ -166,59 +166,67 @@ ui-select:not(:defined) > select {
 
 ## Shared infrastructure (`build once, reuse everywhere`)
 
-| Module             | Role                                                                                                                                           |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id.ts`            | Document-unique id generator for ARIA cross-references.                                                                                        |
-| `native.ts`        | `adoptedControl()`/`retireNative()`/`fireNativeChange()` — adopt an authored native control for no-JS fallback and propagate its value/change. |
-| `lifecycle.ts`     | `connectLightDom()` waits for required authored parts and preserves wiring across reconnects.                                                  |
-| `anchor.ts`        | `SUPPORTS_ANCHOR` + `anchor()` positioner (Floating UI stand-in).                                                                              |
-| `dismiss.ts`       | `onOutsidePress()` capture-phase light-dismiss.                                                                                                |
-| `overlay.ts`       | `overlay()` popup lifecycle: top layer + position + dismiss + exit.                                                                            |
-| `combobox-core.ts` | Shared editable-combobox ARIA, active-option, overlay, dismissal, and option-delegation state.                                                 |
-| `text.ts`          | `normalize()` diacritic-/case-insensitive filter key.                                                                                          |
-| `focus-trap.ts`    | `trapFocus()` focus cycle + restore; `getFocusable()`.                                                                                         |
-| `scroll-lock.ts`   | `lockScroll()` reference-counted background scroll freeze.                                                                                     |
-| `roving.ts`        | `roving()` generalized roving-tabindex composite navigation.                                                                                   |
-| `intent.ts`        | Hover-intent delay groups for tooltip/preview-card.                                                                                            |
-| `transitions.ts`   | `runExit()` defers hide until the CSS exit animation finishes.                                                                                 |
-| `direction.ts`     | `isRTL()` — flips horizontal arrow keys / side placement in RTL.                                                                               |
+| Module             | Role                                                                                                                                                                                                                        |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id.ts`            | Document-unique id generator for ARIA cross-references.                                                                                                                                                                     |
+| `native.ts`        | `adoptedControl()`/`retireNative()`/`fireNativeChange()`/`managedDisabled()` — adopt an authored native control for no-JS fallback, propagate its value/change, and disable it without stealing an author's own `disabled`. |
+| `lifecycle.ts`     | `connectLightDom()` waits for required authored parts and preserves wiring across reconnects; `LightDomElement` is the base that owns that lifecycle.                                                                       |
+| `anchor.ts`        | `SUPPORTS_ANCHOR` + `anchor()` positioner (Floating UI stand-in).                                                                                                                                                           |
+| `dismiss.ts`       | `onOutsidePress()` capture-phase light-dismiss.                                                                                                                                                                             |
+| `overlay.ts`       | `overlay()` popup lifecycle: top layer + position + dismiss + exit.                                                                                                                                                         |
+| `combobox-core.ts` | Shared editable-combobox ARIA, active-option, overlay, dismissal, and option-delegation state.                                                                                                                              |
+| `text.ts`          | `localeOf()` + `normalize()` locale-aware, diacritic-/case-insensitive filter key.                                                                                                                                          |
+| `focus-trap.ts`    | `trapFocus()` focus cycle + restore; `getFocusable()`.                                                                                                                                                                      |
+| `scroll-lock.ts`   | `lockScroll()` reference-counted background scroll freeze.                                                                                                                                                                  |
+| `roving.ts`        | `roving()` generalized roving-tabindex composite navigation; keeps exactly one tabbable item as items come and go. `RovingElement` owns the helper's lifetime.                                                              |
+| `intent.ts`        | Hover-intent delay groups for tooltip/preview-card; `onPointerMoved()` ignores a stationary Safari pointermove.                                                                                                             |
+| `transitions.ts`   | `runExit()` defers hide until the CSS exit animation finishes.                                                                                                                                                              |
+| `direction.ts`     | `isRTL()` — flips horizontal arrow keys / side placement in RTL.                                                                                                                                                            |
+| `form-control.ts`  | `formControl()` form association + constraint validation; `FormAssociatedElement` / `NativeCheckboxElement` bases.                                                                                                          |
+| `popup.ts`         | `UIPopupElement` / `UIModalPopupElement` — the top-layer popup shell (`popover=manual`, role, focusability).                                                                                                                |
+| `hover-card.ts`    | `HoverCardElement` — hover-intent trigger + anchored surface (`ui-tooltip`, `ui-preview-card`).                                                                                                                             |
+| `popover-field.ts` | `popoverField()` — trigger + anchored popover over an adopted native input (`ui-date-field`, `ui-color-field`).                                                                                                             |
+| `chart-child.ts`   | `ChartChildElement` — find the owning `ui-chart`, register, unregister, re-render on attribute change.                                                                                                                      |
+| `math.ts`          | `clamp()`, `clampSnap()`, and `numberAttribute()`/`toNumber()` — the one guarded numeric-attribute reader.                                                                                                                  |
+| `query.ts`         | `scopedQuery()`/`scopedFirst()` — light-DOM child queries that skip a nested same-tag instance's parts.                                                                                                                     |
+| `parts.ts`         | `ensureButton()` — adopt an authored action button, or generate a labelled one.                                                                                                                                             |
 
 ## Components
 
 | Element                                               | Base UI          | Notes                                                                                                                                                                                                                                                                             |
 | ----------------------------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ui-menu` (+ popup, item, checkbox/radio item, group) | Menu / Submenu   | Roving focus, typeahead, top-layer popup; `submenu` → nested side-anchored menu; `menuitemcheckbox`/`menuitemradio` items and labelled `role=group`s.                                                                                                                             |
-| `ui-menubar`                                          | Menubar          | Roving across sibling menus; arrow/hover crosses + opens the adjacent menu.                                                                                                                                                                                                       |
+| `ui-menubar`                                          | Menubar          | Roving across sibling menus; arrow/hover crosses + opens the adjacent menu; `orientation` (the open key moves to the cross axis).                                                                                                                                                 |
 | `ui-context-menu`                                     | Context Menu     | Menu opened at the pointer (`openAt` virtual anchor); right-click / touch long-press.                                                                                                                                                                                             |
 | `ui-navigation-menu` (+ list/item/content)            | Navigation Menu  | Hover-intent panels, one open at a time; morph size vars; RTL roving triggers.                                                                                                                                                                                                    |
-| `ui-combobox` (+ popup/viewport/spacer/empty, chips)  | Combobox         | Store-backed **virtualized** listbox; fixed row pool over 10,000+ items; form-associated; `multiple` → chips + `[data-combobox-clear]`.                                                                                                                                           |
+| `ui-combobox` (+ popup/viewport/spacer/empty, chips)  | Combobox         | Store-backed **virtualized** listbox; fixed row pool over 10,000+ items; form-associated; `multiple` → chips + `[data-combobox-clear]`; `readonly`; `columns` → `role=grid` with 2D arrows; `createItems()` for record collections.                                               |
 | `ui-switch`                                           | Switch           | Form-associated `role=switch` toggle.                                                                                                                                                                                                                                             |
-| `ui-separator`                                        | Separator        | `role=separator` / decorative.                                                                                                                                                                                                                                                    |
+| `ui-separator`                                        | Separator        | `role=separator` / decorative; demotes to `role=none` inside a `listbox`, whose children may only be options or groups.                                                                                                                                                           |
 | `ui-popover` (+ popup)                                | Popover          | Anchored **non-modal** popup; title/description labelling + `[data-popover-close]`.                                                                                                                                                                                               |
 | `ui-dialog` (+ popup, backdrop)                       | Dialog / Alert   | **Modal**: focus trap + scroll lock + `aria-modal`; `static`, or `alert` → `alertdialog`.                                                                                                                                                                                         |
 | `ui-drawer` (+ popup, backdrop)                       | Drawer           | Edge-anchored modal; swipe-to-dismiss + `[data-drawer-swipe]` swipe-to-open; `side`, `--drawer-offset`, `--drawer-keyboard-inset`.                                                                                                                                                |
-| `ui-scroll-area` (+ viewport/scrollbar/thumb)         | Scroll Area      | Overlay scrollbars; overflow detection, proportional thumb, drag-to-scroll.                                                                                                                                                                                                       |
+| `ui-scroll-area` (+ viewport/scrollbar/thumb)         | Scroll Area      | Overlay scrollbars; overflow detection, proportional thumb, drag-to-scroll, WebKit overscroll feedback; a scrollbar press never takes focus.                                                                                                                                      |
 | `ui-radio-group` (+ radio)                            | Radio Group      | Roving, selection-follows-focus, single form value.                                                                                                                                                                                                                               |
 | `ui-toggle` / `ui-toggle-group`                       | Toggle (Group)   | `aria-pressed` buttons; group does single/multiple roving selection.                                                                                                                                                                                                              |
 | `ui-checkbox` (+ group)                               | Checkbox         | Form-associated tri-state; group derives a "select all" master.                                                                                                                                                                                                                   |
-| `ui-select` (+ popup, option, group)                  | Select           | Trigger + listbox popup, `activedescendant` nav, typeahead, form value; labelled option groups + `data-selected` hook; `multiple` selection.                                                                                                                                      |
-| `ui-autocomplete` (+ popup/list/empty)                | Autocomplete     | Combobox core, `selectionMode: none` — form value is the input text.                                                                                                                                                                                                              |
+| `ui-select` (+ popup, option, group)                  | Select           | Trigger + listbox popup, `activedescendant` nav, typeahead, form value; labelled option groups + `data-selected` hook; `multiple` selection; `readonly`; `orientation`; press-drag-release selection.                                                                             |
+| `ui-autocomplete` (+ popup/list/empty)                | Autocomplete     | Combobox core, `selectionMode: none` — form value is the input text; `readonly`.                                                                                                                                                                                                  |
 | `ui-toolbar`                                          | Toolbar          | `role=toolbar`, one roving tab stop across mixed controls, orientation.                                                                                                                                                                                                           |
-| `ui-progress`                                         | Progress         | `role=progressbar`; determinate/indeterminate; `--progress` fill.                                                                                                                                                                                                                 |
-| `ui-meter`                                            | Meter            | `role=meter`; low/high/optimum → `optimal`/`suboptimal`/`poor`.                                                                                                                                                                                                                   |
+| `ui-progress`                                         | Progress         | `role=progressbar`; determinate/indeterminate; `--progress` fill; `format` → `aria-valuetext`.                                                                                                                                                                                    |
+| `ui-meter`                                            | Meter            | `role=meter`; low/high/optimum → `optimal`/`suboptimal`/`poor`; `format` → `aria-valuetext`.                                                                                                                                                                                      |
 | `ui-avatar`                                           | Avatar           | Image load/error → fallback state machine (`data-state`).                                                                                                                                                                                                                         |
 | `ui-tooltip` (+ content)                              | Tooltip          | Hover/focus intent + delay groups; `role=tooltip`, `aria-describedby`.                                                                                                                                                                                                            |
 | `ui-preview-card` (+ content)                         | Preview Card     | Hover-card; interactive content stays open when the pointer moves in.                                                                                                                                                                                                             |
 | `ui-number-field`                                     | Number Field     | `role=spinbutton`, steppers + keys, clamp/snap, form value; `[data-number-scrub]` drag-to-change (Pointer Lock).                                                                                                                                                                  |
 | `ui-slider` (+ track, thumb)                          | Slider           | `role=slider`, keyboard + pointer, orientation, `--slider` fraction, form value; multi-thumb **range** with `min-distance`.                                                                                                                                                       |
-| `ui-field`                                            | Field            | Label/description/error IDREF wiring + validity in light DOM.                                                                                                                                                                                                                     |
+| `ui-field`                                            | Field            | Label/description/error IDREF wiring + validity in light DOM; a `validate` rule (sync or async) published through `setCustomValidity`; `validation-mode`/`validation-debounce`; `data-touched`/`dirty`/`filled`/`focused`/`valid`/`invalid`.                                      |
 | `ui-fieldset`                                         | Fieldset         | `role=group` labelled legend; disabled propagation.                                                                                                                                                                                                                               |
-| `ui-form`                                             | Form             | Submit-time validation over its fields; focus first invalid, error summary.                                                                                                                                                                                                       |
+| `ui-form`                                             | Form             | Submit-time validation over its fields (one pass, so an implicit submit validates once); focus first invalid, error summary.                                                                                                                                                      |
 | `ui-otp-field`                                        | OTP Field        | Multi-cell code input; caret movement, paste distribution, masking, form value.                                                                                                                                                                                                   |
 | `ui-collapsible`                                      | Collapsible      | Single disclosure; `aria-expanded`, `data-state` for height animation.                                                                                                                                                                                                            |
 | `ui-accordion` (+ item)                               | Accordion        | Single/multiple sections; APG header arrow-nav; region cross-refs.                                                                                                                                                                                                                |
-| `ui-tabs` (+ tab-list)                                | Tabs             | `role=tablist` roving; auto/manual activation; panel cross-refs; orientation.                                                                                                                                                                                                     |
-| `ui-toast` (+ viewport)                               | Toast            | Top-layer live region + manager (`add`/`dismiss`/`clear`, `toast()`); **Sonner-style stack** (peek + hover-expand, `visible` limit, swipe-to-dismiss), auto-dismiss w/ hover-pause, action/close, `role=status`/`alert`.                                                          |
+| `ui-tabs` (+ tab-list, indicator)                     | Tabs             | `role=tablist` roving; auto/manual activation; panel cross-refs; orientation; `ui-tab-indicator` publishes `--active-tab-*` + `data-activation-direction`.                                                                                                                        |
+| `ui-toast` (+ viewport)                               | Toast            | Top-layer live region + manager (`add`/`update`/`dismiss`/`clear`, `toast()`/`updateToast()`); **Sonner-style stack** (peek + hover-expand, `visible` limit, swipe-to-dismiss), auto-dismiss w/ hover-pause, action/close, `role=status`/`alert`.                                 |
 | `ui-calendar` (+ popup)                               | — (beyond)       | Month `role=grid`; 2D roving nav, min/max/disabled days, form value; also the popover content for `ui-date-field`.                                                                                                                                                                |
 | `ui-date-field`                                       | — (beyond)       | Native-first `<input type=date>` enhancer: trigger opens a `ui-calendar` popover, writes the ISO pick back to the input.                                                                                                                                                          |
 | `ui-color-picker` (+ popup)                           | — (beyond)       | Saturation/brightness plane (`role=slider`) + hue range + hex input; form value (`#rrggbb`).                                                                                                                                                                                      |
@@ -397,7 +405,7 @@ and mounts into `index.html`, a blank host page.
 ## Port status
 
 **Complete** against Base UI
-[`849a056`](https://github.com/mui/base-ui/tree/849a0561321fd4e409512b5a8a4134d928598aa0) — the
+[`47b4052`](https://github.com/mui/base-ui/tree/47b40521eab921c2756bf9bdb0b0f07fbfdb8c8c) — the
 ref pinned in `package.json`. Every Base UI component in the
 [Components](#components) table is ported, Menu through **Toast** and **Arrow**,
 on the shared infrastructure modules listed above; the two tables carry the full
@@ -409,12 +417,39 @@ line, legend, tooltip, gauge) is ported from MUI X Charts — see
 
 ### Base UI parity — known deltas
 
-Intentional architectural differences remain: `Portal` + `Positioner` collapse
-into the single light-DOM `*-popup` element (Popover-API top layer +
-`anchor.ts`), and `DirectionProvider` is replaced by `direction.ts`'s `isRTL()`.
-Every Base UI _feature_ gap is now closed — including the Drawer's swipe-to-open
-edge zone (`[data-drawer-swipe]`) and virtual-keyboard avoidance
-(`--drawer-keyboard-inset`, from the visual viewport).
+Intentional architectural differences remain, and there are three:
+
+- **`Portal` + `Positioner` collapse** into the single light-DOM `*-popup`
+  element (Popover-API top layer + `anchor.ts`).
+- **`DirectionProvider`** is replaced by `direction.ts`'s `isRTL()`, which reads
+  the authored `dir` rather than a context an ancestor has to provide.
+- **`Combobox.Group` / `Combobox.GroupLabel` are not ported.** A group needs a
+  real `role="group"` (or, in a grid, `rowgroup`) container wrapping its items,
+  and `ui-combobox` renders every row from a **fixed recycled pool** whose
+  elements are reused across the whole store — there is no per-group container
+  to put the role on, and adding one would mean giving up the constant row count
+  that lets the control hold 10,000+ items. Grouping is available on
+  `ui-select`, whose options are authored elements. This is the same trade as
+  the Portal/Positioner collapse: the port's structure differs, deliberately.
+
+Every other Base UI _feature_ gap is closed — including the Drawer's
+swipe-to-open edge zone (`[data-drawer-swipe]`) and virtual-keyboard avoidance
+(`--drawer-keyboard-inset`, from the visual viewport), the Tabs indicator, the
+Field's async `validate` rule, `readonly` across the combobox family, Combobox
+grid mode, and press-drag-release selection.
+
+### Change reasons
+
+Every `open` / `close` event from the shared overlay — dialog, drawer, popover,
+menu, menubar, context menu, tooltip, preview card, select, combobox,
+autocomplete — carries a `detail.reason`, as do the `change` events of the
+combobox family and `ui-select`. The vocabulary is the `ChangeReason` union in
+`reasons.ts`: `trigger-press`, `trigger-hover`, `input-press`,
+`list-navigation`, `item-press`, `clear-press`, `chip-remove-press`,
+`input-change`, `input-clear`, `close-press`, `outside-press`, `escape-key`,
+`focus-out`, `swipe`, `cancel-open`, `sibling-open`, and `"none"` for a
+programmatic call with nothing more specific to say. Every member is one some
+component actually emits, so the union stays exhaustively switchable.
 
 ## Beyond Base UI (Shopify App Home parity)
 

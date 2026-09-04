@@ -113,10 +113,12 @@ export function isNumberValue(value: ChartValue | undefined): value is number {
   return Number.isNaN(value) || value === Number(value);
 }
 
-/** Read an optional numeric attribute: the parsed number, or `undefined` when the attribute is absent — an unauthored bound or tick count means "derive it", which is not the same as `0`. */
-export function numberAttribute(element: HTMLElement, name: string) {
-  return element.hasAttribute(name) ? Number(element.getAttribute(name)) : undefined;
-}
+/**
+ * Read an optional numeric attribute — an unauthored bound or tick count means
+ * "derive it", which is not the same as `0`. Re-exported from `math.ts` (the
+ * one copy library-wide) so chart consumers keep importing it from here.
+ */
+export { numberAttribute } from "./math.ts";
 
 /** Coerce a cell value to the number a continuous scale needs (`Date` → epoch ms). `null`/unparsable → `NaN`. */
 export function toNumeric(value: ChartValue) {

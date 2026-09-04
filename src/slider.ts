@@ -23,38 +23,34 @@
  * equivalent, so it stays the standalone control described above.
  */
 import { define } from "./define.ts";
-import { type FormControl, formControl } from "./form-control.ts";
-import { connectLightDom } from "./lifecycle.ts";
-import { clampSnap } from "./math.ts";
+import { FormAssociatedElement, type FormControlOptions } from "./form-control.ts";
+import { clamp, clampSnap, numberAttribute, toNumber } from "./math.ts";
 import { adoptedControl } from "./native.ts";
 import { trackPointerDrag } from "./pointer-drag.ts";
 
-export class UISlider extends HTMLElement {
-  static formAssociated = true;
-
-  #formControl: FormControl = formControl(this, {
-    adopted: () => this.#native != null,
-    value: () => String(this.#values[0] ?? this.min), // a slider always has a value
-    onReset: () => this.#onFormReset(),
-    onFormDisabled: (disabled) => {
-      this.#formDisabled = disabled;
-      this.#thumbs.forEach((thumb) => (thumb.tabIndex = this.disabled ? -1 : 0));
-    },
-  });
+export class UISlider extends FormAssociatedElement {
+  protected override formControlOptions(): FormControlOptions {
+    return {
+      adopted: () => this.#native != null,
+      value: () => String(this.#values[0] ?? this.min), // a slider always has a value
+      onReset: () => this.#onFormReset(),
+    };
+  }
+  protected override onFormDisabled() {
+    this.#thumbs.forEach((thumb) => (thumb.tabIndex = this.disabled ? -1 : 0));
+  }
   #track!: HTMLElement;
   #thumbs: HTMLElement[] = [];
   #values: number[] = [];
   /** The adopted native `<input type="range">` (native-first), or `null`. */
   #native: HTMLInputElement | null = null;
-  #wired = false;
-  #formDisabled = false;
   #dragIndex = -1;
   #disposeDrag: (() => void) | null = null;
 
-  get form() {
-    return this.#native ? this.#native.form : this.#formControl.form;
+  override get form() {
+    return this.#native ? this.#native.form : this.formControl.form;
   }
-  get name() {
+  override get name() {
     return this.#native ? this.#native.name : this.getAttribute("name");
   }
   /** Whether this is a multi-thumb range slider (never in native mode). */
@@ -74,13 +70,15 @@ export class UISlider extends HTMLElement {
     }
     this.#applyValues(Array.isArray(next) ? next : [next], false);
   }
+  /**
+   * A bound read from the adopted native range's property, or from the host's
+   * own attribute. Both go through the shared parse rule, which keeps a
+   * legitimate 0 (e.g. `max="0"` on a negative range) and falls back on a NaN.
+   */
   #bound(attr: "min" | "max" | "step", fallback: number) {
-    const raw = this.#native ? this.#native[attr] : this.getAttribute(attr);
-    if (raw == null || raw === "") return fallback;
-    const n = Number(raw);
-    // Keep a legitimate 0 (e.g. `max="0"` on a negative range); only a NaN
-    // falls back.
-    return Number.isFinite(n) ? n : fallback;
+    return this.#native
+      ? toNumber(this.#native[attr], fallback)
+      : numberAttribute(this, attr, fallback);
   }
   get min() {
     return this.#bound("min", 0);
@@ -93,47 +91,18 @@ export class UISlider extends HTMLElement {
   }
   /** Minimum gap kept between adjacent thumbs (range). */
   get minDistance() {
-    return Number(this.getAttribute("min-distance") ?? 0);
+    return numberAttribute(this, "min-distance", 0);
   }
   get orientation() {
     return this.getAttribute("orientation") === "vertical" ? "vertical" : "horizontal";
   }
-  get disabled() {
-    return this.hasAttribute("disabled") || this.#formDisabled;
-  }
-  get validity() {
-    return this.#formControl.validity;
-  }
-  get validationMessage() {
-    return this.#formControl.validationMessage;
-  }
-  checkValidity() {
-    return this.#formControl.checkValidity();
-  }
-  reportValidity() {
-    return this.#formControl.reportValidity();
-  }
-  formResetCallback() {
-    this.#formControl.handleReset();
-  }
-  formDisabledCallback(disabled: boolean) {
-    this.#formControl.handleDisabled(disabled);
-  }
 
-  connectedCallback() {
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
-  }
-
-  #wire() {
+  protected override wire() {
     // Native-first: a `type="range"` input is the control (thumb / keyboard /
     // drag / submission are native); we only publish the fill fractions.
     this.#native = adoptedControl<HTMLInputElement>(this, 'input[type="range"]');
     if (this.#native) {
-      this.#wired = true;
+      this.wired = true;
       this.#native.addEventListener("input", this.#reflectNative);
       this.#reflectNative();
       return;
@@ -170,7 +139,7 @@ export class UISlider extends HTMLElement {
       },
     });
 
-    this.#wired = true;
+    this.wired = true;
     this.#applyValues(this.#initialValues(), false);
   }
 
@@ -183,11 +152,11 @@ export class UISlider extends HTMLElement {
     const raw = this.getAttribute("value");
     return raw != null && raw !== ""
       ? raw.split(",").map((s) => Number(s.trim()))
-      : this.#thumbs.map((t) => Number(t.getAttribute("value") ?? this.min));
+      : this.#thumbs.map((t) => numberAttribute(t, "value", this.min));
   }
 
   #onFormReset() {
-    if (!this.#wired) return;
+    if (!this.wired) return;
     if (this.#native) {
       // The browser restores the native range's own default value during the
       // same reset pass; republish the fill fraction once it has.
@@ -217,7 +186,7 @@ export class UISlider extends HTMLElement {
 
   /** Bulk-set every thumb value: snap, order ascending, keep min-distance. */
   #applyValues(next: number[], emit: boolean) {
-    if (!this.#wired) return;
+    if (!this.wired) return;
     const n = this.#thumbs.length;
     const vals = this.#values.slice();
     for (let i = 0; i < n; i++) {
@@ -238,7 +207,7 @@ export class UISlider extends HTMLElement {
     const lo = index > 0 ? this.#values[index - 1] + this.minDistance : this.min;
     const hi =
       index < this.#values.length - 1 ? this.#values[index + 1] - this.minDistance : this.max;
-    const v = Math.max(lo, Math.min(this.#clampSnap(n), Math.max(lo, hi)));
+    const v = clamp(this.#clampSnap(n), lo, Math.max(lo, hi));
     const vals = this.#values.slice();
     vals[index] = v;
     this.#writeValues(vals, emit);
@@ -274,9 +243,9 @@ export class UISlider extends HTMLElement {
     if (this.range && this.name) {
       const data = new FormData();
       for (const v of this.#values) data.append(this.name, String(v));
-      this.#formControl.setValue(data);
+      this.formControl.setValue(data);
     } else {
-      this.#formControl.setValue(String(this.#values[0] ?? this.min));
+      this.formControl.setValue(String(this.#values[0] ?? this.min));
     }
   }
 

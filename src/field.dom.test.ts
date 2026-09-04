@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import "./elements.ts";
 
 async function mount(controlAttrs = "required") {
@@ -57,10 +57,10 @@ describe("ui-field", () => {
 
   it("validate() returns validity and forces the error display", async () => {
     const { field, control, error } = await mount();
-    expect(field.validate()).toBe(false);
+    expect(field.reportValidity()).toBe(false);
     expect(error.hidden).toBe(false);
     control.value = "a@b.com";
-    expect(field.validate()).toBe(true);
+    expect(field.reportValidity()).toBe(true);
     expect(error.hidden).toBe(true);
   });
 
@@ -76,14 +76,172 @@ describe("ui-field", () => {
     const otp = document.querySelector("ui-otp-field")!;
     const error = document.querySelector<HTMLElement>("[data-field-error]")!;
 
-    expect(field.validate()).toBe(false); // empty + required → valueMissing
+    expect(field.reportValidity()).toBe(false); // empty + required → valueMissing
     expect(error.hidden).toBe(false);
     expect(error.textContent).toBe("Please fill out this field."); // real validationMessage
     expect(otp.getAttribute("aria-invalid")).toBe("true");
 
     otp.value = "1234";
-    expect(field.validate()).toBe(true);
+    expect(field.reportValidity()).toBe(true);
     expect(error.hidden).toBe(true);
     expect(otp.hasAttribute("aria-invalid")).toBe(false);
+  });
+});
+
+describe("ui-field state attributes", () => {
+  it("mirrors touched / focused / filled / dirty onto the host", async () => {
+    const { field, control } = await mount("");
+    expect(field.hasAttribute("data-filled")).toBe(false);
+    expect(field.hasAttribute("data-dirty")).toBe(false);
+
+    control.dispatchEvent(new Event("focus"));
+    expect(field.hasAttribute("data-focused")).toBe(true);
+
+    control.value = "a@b.com";
+    control.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(field.hasAttribute("data-filled")).toBe(true);
+    expect(field.hasAttribute("data-dirty")).toBe(true);
+
+    control.dispatchEvent(new Event("blur"));
+    expect(field.hasAttribute("data-focused")).toBe(false);
+    expect(field.hasAttribute("data-touched")).toBe(true);
+  });
+
+  it("judges dirty against the value it was wired with", async () => {
+    document.body.innerHTML = `
+      <ui-field><input data-field-control value="preset" /></ui-field>`;
+    await Promise.resolve();
+    const field = document.querySelector("ui-field")!;
+    // Populated from markup is not the user having changed anything.
+    expect(field.hasAttribute("data-dirty")).toBe(false);
+  });
+});
+
+describe("ui-field custom validation", () => {
+  it("publishes a synchronous rule through the control's own validity", async () => {
+    const { field, control, error } = await mount("");
+    field.validate = (value) => (value.endsWith("@work.com") ? null : "Use your work address.");
+    control.value = "a@home.com";
+
+    expect(field.reportValidity()).toBe(false);
+    // Routed through setCustomValidity, so a real form submit sees it too.
+    expect(control.validity.customError).toBe(true);
+    expect(control.validationMessage).toBe("Use your work address.");
+    expect(error.hidden).toBe(false);
+    expect(error.textContent).toBe("Use your work address.");
+    expect(field.hasAttribute("data-invalid")).toBe(true);
+  });
+
+  it("reports only the first of several messages", async () => {
+    const { field, control } = await mount("");
+    field.validate = () => ["Too short.", "No digits."];
+    control.value = "a@b.com";
+    field.reportValidity();
+    expect(control.validationMessage).toBe("Too short.");
+  });
+
+  it("lets a native constraint outrank the custom rule", async () => {
+    const { field, control } = await mount("required");
+    const rule = vi.fn(() => "custom");
+    field.validate = rule;
+    control.value = ""; // valueMissing
+
+    expect(field.reportValidity()).toBe(false);
+    expect(control.validity.valueMissing).toBe(true);
+    // Nothing an async check could add while a real failure is already known.
+    expect(rule).not.toHaveBeenCalled();
+  });
+
+  it("clears a stale custom error so required can report again", async () => {
+    const { field, control } = await mount("required");
+    field.validate = (value) => (value === "bad@x.com" ? "Not that one." : null);
+    control.value = "bad@x.com";
+    field.reportValidity();
+    expect(control.validity.customError).toBe(true);
+
+    // Emptying the field must surface valueMissing, not the old custom error —
+    // a lingering customError would keep the control invalid for the wrong reason.
+    control.value = "";
+    field.reportValidity();
+    expect(control.validity.customError).toBe(false);
+    expect(control.validity.valueMissing).toBe(true);
+  });
+
+  it("publishes neither valid nor invalid while an async check is in flight", async () => {
+    const { field, control } = await mount("");
+    let settle: (message: string | null) => void = () => {};
+    field.validate = () => new Promise<string | null>((resolve) => (settle = resolve));
+    control.value = "someone@x.com";
+
+    field.reportValidity();
+    expect(field.validating).toBe(true);
+    expect(field.hasAttribute("data-valid")).toBe(false);
+    expect(field.hasAttribute("data-invalid")).toBe(false);
+    expect(control.hasAttribute("aria-invalid")).toBe(false);
+
+    settle("Already taken.");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(field.validating).toBe(false);
+    expect(field.hasAttribute("data-invalid")).toBe(true);
+    expect(control.validationMessage).toBe("Already taken.");
+  });
+
+  it("discards a slow result for a value the user has moved past", async () => {
+    const { field, control } = await mount("");
+    const pending: ((message: string | null) => void)[] = [];
+    field.validate = () => new Promise<string | null>((resolve) => pending.push(resolve));
+
+    control.value = "first@x.com";
+    field.reportValidity();
+    control.value = "second@x.com";
+    field.reportValidity();
+
+    pending[1](null); // the newer check clears
+    pending[0]("stale error"); // the older one answers late
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(control.validity.customError).toBe(false);
+  });
+
+  it("leaves the field clear when the check itself fails", async () => {
+    const { field, control } = await mount("");
+    field.validate = () => Promise.reject(new Error("network"));
+    control.value = "a@b.com";
+
+    field.reportValidity();
+    await Promise.resolve();
+    await Promise.resolve();
+    // A failed request is not an assertion that the value is bad.
+    expect(field.validating).toBe(false);
+    expect(control.validity.customError).toBe(false);
+  });
+
+  it("runs on blur in blur mode", async () => {
+    const { field, control } = await mount("");
+    field.setAttribute("validation-mode", "blur");
+    field.validate = () => "nope";
+    control.value = "a@b.com";
+
+    control.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(control.validity.customError).toBe(false); // not yet
+
+    control.dispatchEvent(new Event("blur"));
+    expect(control.validity.customError).toBe(true);
+  });
+
+  it("runs on every change in change mode", async () => {
+    const { field, control } = await mount("");
+    field.setAttribute("validation-mode", "change");
+    field.validate = (value) => (value === "ok@x.com" ? null : "nope");
+
+    control.value = "no@x.com";
+    control.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(control.validity.customError).toBe(true);
+
+    control.value = "ok@x.com";
+    control.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(control.validity.customError).toBe(false);
   });
 });

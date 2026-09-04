@@ -26,19 +26,66 @@
  * into a `<ui-combobox-chips>` container, a `[data-combobox-clear]` control
  * empties the selection, `value` becomes a `string[]`, and every value submits
  * under `name`.
+ *
+ * `columns` turns the popup into a `role="grid"` whose rows the arrows walk in
+ * two dimensions; `readonly` locks the value while leaving the popup browsable;
+ * and {@link createItems} maps application records into the store while keeping
+ * each one attached for the `change` event to hand back.
  */
 import { AriaCombobox } from "./combobox-core.ts";
 import { define } from "./define.ts";
-import { type FormControl, formControl } from "./form-control.ts";
+import { isRTL } from "./direction.ts";
+import { UIPopupElement } from "./popup.ts";
+import { FormAssociatedElement, type FormControlOptions } from "./form-control.ts";
 import { nextId } from "./id.ts";
-import { connectLightDom } from "./lifecycle.ts";
+import { managedDisabled } from "./native.ts";
+import { onPointerMoved } from "./intent.ts";
 import { listNav, type ListNav } from "./list-nav.ts";
-import { normalize } from "./text.ts";
+import { clamp, numberAttribute } from "./math.ts";
+import type { ChangeReason } from "./reasons.ts";
+import { localeOf, normalize } from "./text.ts";
 
 /** A single combobox option. Supplied via the `items` property, not markup. */
-export interface ComboboxItem {
+export interface ComboboxItem<T = unknown> {
   readonly value: string;
   readonly label: string;
+  /**
+   * The application record this option was derived from, when the collection
+   * was built by {@link createItems}. Carried through to the `change` event so
+   * a listener gets the whole record back, not just the id it stored.
+   */
+  readonly item?: T;
+}
+
+/**
+ * Build an option collection from arbitrary application records.
+ *
+ * The store holds `{ value, label }` because that is what filtering, the form
+ * value, the trigger text and typeahead all need *before* any row is rendered.
+ * Applications rarely hold their data in that shape — they have records and
+ * store a primitive id — and deriving the pair per row is too late. This maps
+ * the two out once, keeping each record attached so the `change` event can hand
+ * it straight back.
+ *
+ * ```ts
+ * combobox.items = createItems(users, {
+ *   getValue: (user) => user.id,
+ *   getLabel: (user) => user.name,
+ * });
+ * ```
+ */
+export function createItems<T>(
+  records: Iterable<T>,
+  options: {
+    getValue: (record: T) => string | number;
+    getLabel: (record: T) => string;
+  },
+): ComboboxItem<T>[] {
+  return Array.from(records, (record) => ({
+    value: String(options.getValue(record)),
+    label: options.getLabel(record),
+    item: record,
+  }));
 }
 
 /** Detail of the `filterchange` event: live counts after each filter pass. */
@@ -58,6 +105,10 @@ export interface ComboboxChangeDetail {
   readonly label: string;
   /** All currently-selected values (single → `[value]` or `[]`). */
   readonly values: string[];
+  /** What caused the change — a press on a row, a chip's remove, the clear. */
+  readonly reason: ChangeReason;
+  /** The record behind the option, when the store was built by {@link createItems}. */
+  readonly item?: unknown;
 }
 
 // Nominal row height, used until a pooled row has real layout to measure
@@ -65,15 +116,18 @@ export interface ComboboxChangeDetail {
 const ROW_H = 36;
 const OVERSCAN = 4; // rows rendered beyond each edge of the viewport
 
-export class UICombobox extends HTMLElement {
-  static formAssociated = true;
-
-  #formControl: FormControl = formControl(this, {
-    // Any committed selection satisfies `required` (multi → first value).
-    value: () => (this.multiple ? ([...this.#selected.keys()][0] ?? null) : this.#selectedValue),
-    onReset: () => this.#onFormReset(),
-    onFormDisabled: (disabled) => this.#applyFormDisabled(disabled),
-  });
+export class UICombobox extends FormAssociatedElement {
+  protected override formControlOptions(): FormControlOptions {
+    return {
+      // Any committed selection satisfies `required` (multi → first value).
+      value: () => (this.multiple ? ([...this.#selected.keys()][0] ?? null) : this.#selectedValue),
+      onReset: () => this.#onFormReset(),
+    };
+  }
+  protected override onFormDisabled(disabled: boolean) {
+    this.toggleAttribute("data-disabled", disabled);
+    this.#setInputDisabled?.(disabled);
+  }
   #uid = nextId("cb");
 
   #input!: HTMLInputElement;
@@ -82,11 +136,12 @@ export class UICombobox extends HTMLElement {
   #empty: HTMLElement | null = null;
   #chips: HTMLElement | null = null;
   #clear: HTMLElement | null = null;
-  #wired = false;
-  /** Whether *we* disabled the inner input (so we may re-enable it later). */
-  #managedDisabled = false;
+  /** Set the inner input's `disabled`, re-enabling only what we disabled. */
+  #setInputDisabled: ((disabled: boolean) => void) | null = null;
 
-  #rows: HTMLDivElement[] = []; // recycled row pool — the ONLY option elements
+  #rows: HTMLDivElement[] = []; // recycled pool — options (list) or rows (grid)
+  /** Per pooled row, its cells. Empty outside grid mode, where a row *is* the cell. */
+  #cells: HTMLDivElement[][] = [];
   #rowH = ROW_H; // measured from the first pooled row on open; ROW_H until then
   #all: ComboboxItem[] = []; // full data set (the store)
   #normalizedLabels: string[] = []; // normalize(#all[i].label), cached for filtering
@@ -106,33 +161,40 @@ export class UICombobox extends HTMLElement {
   #selectedValue: string | null = null; // single-select
   #selected = new Map<string, string>(); // multi-select: value → label, in order
 
-  get form() {
-    return this.#formControl.form;
+  static observedAttributes = ["readonly", "columns"];
+  attributeChangedCallback(name: string) {
+    if (name === "columns") this.#rebuildPool();
+    else this.#syncReadOnly();
   }
-  get name() {
-    return this.getAttribute("name");
+
+  /**
+   * Cells per row. `1` (the default) is an ordinary one-column listbox; more
+   * turns the popup into a `role="grid"` whose rows the arrow keys walk in two
+   * dimensions — the shape an emoji or swatch picker wants. Virtualization is
+   * unchanged: the pool now recycles *rows*, so a 10,000-item grid still holds a
+   * constant number of elements.
+   */
+  get columns() {
+    return Math.max(1, Math.trunc(numberAttribute(this, "columns", 1)));
   }
-  get validity() {
-    return this.#formControl.validity;
+  get #grid() {
+    return this.columns > 1;
   }
-  get validationMessage() {
-    return this.#formControl.validationMessage;
-  }
-  checkValidity() {
-    return this.#formControl.checkValidity();
-  }
-  reportValidity() {
-    return this.#formControl.reportValidity();
-  }
-  formResetCallback() {
-    this.#formControl.handleReset();
-  }
-  formDisabledCallback(disabled: boolean) {
-    this.#formControl.handleDisabled(disabled);
-  }
+
   /** Multi-select mode — options toggle without closing; `value` is an array. */
   get multiple() {
     return this.hasAttribute("multiple");
+  }
+  /**
+   * Locks the *value*, not the interaction. Per WAI-ARIA an `aria-readonly`
+   * widget is "not editable, but is otherwise operable": the popup still opens,
+   * arrows and the highlight still move, and only committing a choice — a row
+   * press, Enter, a chip's remove, the clear control — is refused. The input
+   * itself becomes `readonly`, so there is no filtering to do either. An author
+   * who wants the control inert wants `disabled`.
+   */
+  get readOnly() {
+    return this.hasAttribute("readonly");
   }
   get value() {
     return this.multiple ? [...this.#selected.keys()] : this.#selectedValue;
@@ -146,7 +208,7 @@ export class UICombobox extends HTMLElement {
       const v = Array.isArray(next) ? (next[0] ?? null) : next;
       const item = v == null ? null : (this.#byValue.get(v) ?? null);
       this.#selectedValue = item?.value ?? null;
-      if (this.#wired) this.#input.value = this.#selectedLabel;
+      if (this.wired) this.#input.value = this.#selectedLabel;
     }
     this.#syncFormValue();
     if (this.#controller?.open) this.#renderWindow();
@@ -174,27 +236,24 @@ export class UICombobox extends HTMLElement {
     // normalized labels the filter scans (rather than normalizing every item on
     // every keystroke), and the value → item map every label lookup goes
     // through (rather than a linear scan of a store documented to hold 10,000+).
-    this.#normalizedLabels = this.#all.map((it) => normalize(it.label));
+    const locale = localeOf(this);
+    this.#normalizedLabels = this.#all.map((it) => normalize(it.label, locale));
     this.#byValue = new Map(this.#all.map((it) => [it.value, it]));
-    if (this.#wired) this.#applyFilter("");
+    if (this.wired) this.#applyFilter("");
   }
 
   #optId(index: number) {
     return `${this.#uid}-opt-${index}`;
   }
 
-  connectedCallback() {
+  override connectedCallback() {
     // Defer wiring to a microtask so the light-DOM children (input, popup,
     // viewport, spacer) have finished parsing/upgrading — a custom element's
     // `connectedCallback` can run before its children are inserted.
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
+    super.connectedCallback();
   }
 
-  #wire() {
+  protected override wire() {
     const input =
       this.querySelector<HTMLInputElement>("[data-combobox-input]") ??
       this.querySelector<HTMLInputElement>("input");
@@ -204,15 +263,17 @@ export class UICombobox extends HTMLElement {
     if (!input || !popup || !viewport || !spacer) return; // markup incomplete
 
     this.#input = input;
+    this.#setInputDisabled = managedDisabled(input);
     this.#viewport = viewport;
     this.#spacer = spacer;
     this.#empty = this.querySelector<HTMLElement>("ui-combobox-empty");
     this.#chips = this.querySelector<HTMLElement>("ui-combobox-chips");
     this.#clear = this.querySelector<HTMLElement>("[data-combobox-clear]");
-    input.addEventListener("click", () => this.#openForBrowsing());
+    input.addEventListener("click", () => this.#openForBrowsing("input-press"));
 
     if (this.multiple) viewport.setAttribute("aria-multiselectable", "true");
     spacer.setAttribute("role", "presentation");
+    this.#applyGridSemantics();
     this.#ensurePool();
 
     // Chip removal (delegated — chips are recycled) and the clear control.
@@ -222,7 +283,10 @@ export class UICombobox extends HTMLElement {
 
     // Row interactions are delegated — rows are recycled, so we read data-index.
     viewport.addEventListener("scroll", this.#renderWindow, { passive: true });
-    viewport.addEventListener("pointermove", (e) => {
+    // Hover highlights the row under the pointer — but only when the pointer
+    // actually moved, or scrolling the list would yank the highlight away from
+    // the item the keyboard just navigated to (see {@link onPointerMoved}).
+    onPointerMoved(viewport, (e) => {
       const row = (e.target as Element).closest("[data-index]") as HTMLElement | null;
       if (row) this.#setActive(Number(row.dataset.index), { scroll: false });
     });
@@ -238,13 +302,15 @@ export class UICombobox extends HTMLElement {
       // The viewport owns its own scroll height, so don't constrain it.
       anchorOptions: { offset: 6, padding: 8, constrainHeight: false },
       onInput: this.#onInput,
-      onClose: () => this.#close({ revert: true }),
-      onArrowOpen: () => this.#openForBrowsing(),
-      onNavigate: (e) => this.#nav.handle(e),
+      onClose: (reason) => this.#close({ revert: true, reason }),
+      onArrowOpen: (reason) => this.#openForBrowsing(reason),
+      listboxRole: this.#grid ? "grid" : "listbox",
+      onNavigate: (e) => this.#navigate(e),
       onOptionCommit: (index) => this.#selectIndex(index),
     });
 
-    this.#wired = true;
+    this.#syncReadOnly();
+    this.wired = true;
     if (this.#all.length) this.#applyFilter("");
   }
 
@@ -263,22 +329,75 @@ export class UICombobox extends HTMLElement {
       ? Math.ceil(this.#viewport.clientHeight / this.#rowH)
       : 9;
     const needed = visible + OVERSCAN * 2;
+    const grid = this.#grid;
+    const columns = this.columns;
     for (let i = this.#rows.length; i < needed; i++) {
       const row = document.createElement("div");
       row.className = "cb-row";
-      row.setAttribute("role", "option");
+      // In a grid the pooled element is the row and its cells hold the options;
+      // in a list the pooled element *is* the option.
+      row.setAttribute("role", grid ? "row" : "option");
       row.hidden = true;
+      if (grid) {
+        const cells: HTMLDivElement[] = [];
+        for (let c = 0; c < columns; c++) {
+          const cell = document.createElement("div");
+          cell.className = "cb-cell";
+          // `option` is not an allowed child of `row`; a grid's selectable unit
+          // is the `gridcell`, which carries `aria-selected` just the same.
+          cell.setAttribute("role", "gridcell");
+          cell.hidden = true;
+          row.appendChild(cell);
+          cells.push(cell);
+        }
+        this.#cells.push(cells);
+      }
       this.#spacer.appendChild(row);
       this.#rows.push(row);
     }
   }
 
+  /**
+   * Discard and re-create the pool. Only `columns` needs this: it changes what
+   * each pooled element *is* — an option, or a row of cells — so the existing
+   * elements cannot be re-labelled in place.
+   */
+  #rebuildPool() {
+    if (!this.wired) return;
+    this.#spacer.textContent = "";
+    this.#rows = [];
+    this.#cells = [];
+    this.#applyGridSemantics();
+    this.#ensurePool();
+    this.#renderWindow();
+  }
+
+  /** Announce the popup's shape: a grid publishes its column and row counts. */
+  #applyGridSemantics() {
+    const viewport = this.#viewport;
+    viewport.setAttribute("role", this.#grid ? "grid" : "listbox");
+    this.#input.setAttribute("aria-haspopup", this.#grid ? "grid" : "listbox");
+    if (this.#grid) {
+      viewport.setAttribute("aria-colcount", String(this.columns));
+      viewport.setAttribute("aria-rowcount", String(this.#rowCount()));
+    } else {
+      viewport.removeAttribute("aria-colcount");
+      viewport.removeAttribute("aria-rowcount");
+    }
+  }
+
+  /** Rows the current filter result occupies — every item in list mode. */
+  #rowCount() {
+    return Math.ceil(this.#filtered.length / this.columns);
+  }
+
   // ---- store operations -------------------------------------------------
   #applyFilter(query: string) {
-    const q = normalize(query);
+    const q = normalize(query, localeOf(this));
     this.#filtered =
       q === "" ? this.#all : this.#all.filter((_, i) => this.#normalizedLabels[i].includes(q));
-    this.#spacer.style.height = `${this.#filtered.length * this.#rowH}px`; // full virtual height
+    this.#spacer.style.height = `${this.#rowCount() * this.#rowH}px`; // full virtual height
+    if (this.#grid) this.#viewport.setAttribute("aria-rowcount", String(this.#rowCount()));
     this.#viewport.scrollTop = 0;
     this.#empty?.toggleAttribute("hidden", this.#filtered.length > 0);
     this.#renderWindow();
@@ -290,30 +409,68 @@ export class UICombobox extends HTMLElement {
   /** Project the currently-scrolled slice of #filtered onto the fixed pool. */
   #renderWindow = () => {
     const total = this.#filtered.length;
+    const columns = this.columns;
+    const rowCount = this.#rowCount();
     const scrollTop = this.#viewport.scrollTop;
-    const maxFirst = Math.max(0, total - this.#rows.length);
-    const first = Math.max(0, Math.min(Math.floor(scrollTop / this.#rowH) - OVERSCAN, maxFirst));
+    const maxFirst = Math.max(0, rowCount - this.#rows.length);
+    const first = clamp(Math.floor(scrollTop / this.#rowH) - OVERSCAN, 0, maxFirst);
+    const active = this.#controller?.activeIndex ?? -1;
+
     for (let p = 0; p < this.#rows.length; p++) {
       const row = this.#rows[p];
-      const index = first + p;
-      if (index >= total) {
+      const rowIndex = first + p;
+      if (rowIndex >= rowCount) {
         row.hidden = true;
-        row.removeAttribute("id");
-        row.removeAttribute("data-index");
+        this.#clearSlot(row);
+        for (const cell of this.#cells[p] ?? []) {
+          cell.hidden = true;
+          this.#clearSlot(cell);
+        }
         continue;
       }
-      const item = this.#filtered[index];
       row.hidden = false;
-      row.style.transform = `translateY(${index * this.#rowH}px)`;
-      row.textContent = item.label;
-      row.id = this.#optId(index);
-      row.dataset.index = String(index);
-      row.setAttribute("aria-posinset", String(index + 1)); // virtualization a11y:
-      row.setAttribute("aria-setsize", String(total)); // "row 4,213 of 10,000"
-      row.setAttribute("aria-selected", String(this.#isSelected(item.value)));
-      row.toggleAttribute("data-highlighted", index === this.#controller?.activeIndex);
+      row.style.transform = `translateY(${rowIndex * this.#rowH}px)`;
+
+      if (!this.#grid) {
+        this.#fillSlot(row, rowIndex, total, active);
+        continue;
+      }
+      row.setAttribute("aria-rowindex", String(rowIndex + 1));
+      const cells = this.#cells[p] ?? [];
+      for (let c = 0; c < cells.length; c++) {
+        const cell = cells[c];
+        const index = rowIndex * columns + c;
+        if (index >= total) {
+          // The last row of a grid is usually short; its spare cells leave the
+          // accessibility tree rather than announcing themselves as empty ones.
+          cell.hidden = true;
+          this.#clearSlot(cell);
+          continue;
+        }
+        cell.hidden = false;
+        cell.setAttribute("aria-colindex", String(c + 1));
+        this.#fillSlot(cell, index, total, active);
+      }
     }
   };
+
+  /** Render item `index` into a pooled option or grid cell. */
+  #fillSlot(el: HTMLElement, index: number, total: number, active: number) {
+    const item = this.#filtered[index];
+    el.textContent = item.label;
+    el.id = this.#optId(index);
+    el.dataset.index = String(index);
+    el.setAttribute("aria-posinset", String(index + 1)); // virtualization a11y:
+    el.setAttribute("aria-setsize", String(total)); // "row 4,213 of 10,000"
+    el.setAttribute("aria-selected", String(this.#isSelected(item.value)));
+    el.toggleAttribute("data-highlighted", index === active);
+  }
+
+  /** Retire a pooled element so nothing addresses the item it used to hold. */
+  #clearSlot(el: HTMLElement) {
+    el.removeAttribute("id");
+    el.removeAttribute("data-index");
+  }
 
   // ---- active option (must be in the window to own an id) ---------------
   #setActive(index: number, { scroll = true }: { scroll?: boolean } = {}) {
@@ -322,10 +479,11 @@ export class UICombobox extends HTMLElement {
       this.#controller?.setActive(-1, null);
       return;
     }
-    index = Math.max(0, Math.min(index, total - 1));
+    index = clamp(index, 0, total - 1);
     this.#controller?.setActive(index, this.#optId(index));
     if (scroll) {
-      const top = index * this.#rowH;
+      // Scroll by row: in a grid several items share one scroll position.
+      const top = Math.floor(index / this.columns) * this.#rowH;
       const bottom = top + this.#rowH;
       const vh = this.#viewport.clientHeight;
       if (top < this.#viewport.scrollTop) this.#viewport.scrollTop = top;
@@ -334,29 +492,79 @@ export class UICombobox extends HTMLElement {
     this.#renderWindow(); // now the active row is in the pool…
   }
 
+  /**
+   * Keyboard navigation. In a grid the arrows are two-dimensional — horizontal
+   * moves one cell along the row, vertical one row down the column — and both
+   * wrap, matching the list's own loop policy. Everything else (Enter, paging,
+   * `Home`/`End`, typeahead) stays with the shared engine, which reads the flat
+   * index the grid is projected from.
+   */
+  #navigate(event: KeyboardEvent) {
+    if (this.#grid && this.#navigateGrid(event)) return;
+    this.#nav.handle(event);
+  }
+
+  #navigateGrid(event: KeyboardEvent) {
+    const total = this.#filtered.length;
+    if (total === 0) return false;
+    const columns = this.columns;
+    const rows = this.#rowCount();
+    const current = Math.max(0, this.#controller?.activeIndex ?? -1);
+    const row = Math.floor(current / columns);
+    const column = current % columns;
+    const rtl = isRTL(this);
+    const forward = rtl ? "ArrowLeft" : "ArrowRight";
+    const backward = rtl ? "ArrowRight" : "ArrowLeft";
+
+    let target: number;
+    if (event.key === forward || event.key === backward) {
+      const delta = event.key === forward ? 1 : -1;
+      // Wrap within the row, over however many cells this row actually has —
+      // the last row of a grid is usually short.
+      const width = Math.min(columns, total - row * columns);
+      target = row * columns + ((column + delta + width) % width);
+    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+      // Wrap within the column, skipping past a short last row rather than
+      // landing on a cell that holds nothing.
+      let next = row;
+      for (let step = 0; step < rows; step++) {
+        next = (next + delta + rows) % rows;
+        if (next * columns + column < total) break;
+      }
+      target = next * columns + column;
+    } else {
+      return false;
+    }
+
+    event.preventDefault();
+    this.#setActive(target);
+    return true;
+  }
+
   // ---- input ------------------------------------------------------------
   #onInput = () => {
-    this.#open();
+    this.#open("input-change");
     this.#applyFilter(this.#input.value);
     this.#setActive(0); // autoHighlight first match
   };
 
   // ---- open / close -----------------------------------------------------
-  #open() {
-    if (!this.#controller?.show()) return;
+  #open(reason: ChangeReason = "none") {
+    if (!this.#controller?.show(reason)) return;
     // The popup now has real layout — grow the row pool to fill its height and
     // measure the true row height (consumer CSS owns it; ROW_H is a fallback).
     this.#ensurePool();
     const measured = this.#rows[0]?.offsetHeight || ROW_H;
     if (measured !== this.#rowH) {
       this.#rowH = measured;
-      this.#spacer.style.height = `${this.#filtered.length * this.#rowH}px`;
+      this.#spacer.style.height = `${this.#rowCount() * this.#rowH}px`;
       this.#renderWindow();
     }
   }
 
-  #openForBrowsing() {
-    this.#open();
+  #openForBrowsing(reason: ChangeReason = "none") {
+    this.#open(reason);
     // Preserve an in-progress query: only reset to the full list when the input
     // is empty or still shows the committed selection's label. Filtering by
     // whatever is typed keeps the list in sync with the visible text.
@@ -371,8 +579,8 @@ export class UICombobox extends HTMLElement {
     this.#setActive(sel >= 0 ? sel : 0);
   }
 
-  #close({ revert = false }: { revert?: boolean } = {}) {
-    if (!this.#controller?.hide()) return;
+  #close({ revert = false, reason = "none" }: { revert?: boolean; reason?: ChangeReason } = {}) {
+    if (!this.#controller?.hide(reason)) return;
     // Restore the committed text; in multi-select the selection lives in chips,
     // so the input just clears.
     if (revert) this.#input.value = this.multiple ? "" : this.#selectedLabel;
@@ -381,7 +589,9 @@ export class UICombobox extends HTMLElement {
   // ---- selection --------------------------------------------------------
   #selectIndex(index: number) {
     const item = this.#filtered[index];
-    if (!item) return;
+    // `readonly` locks the value: browsing got the user here, committing is
+    // where it stops.
+    if (!item || this.readOnly) return;
     if (this.multiple) {
       // Toggle membership and keep the popup open for more picks; the input
       // clears so the next keystroke starts a fresh filter.
@@ -394,17 +604,17 @@ export class UICombobox extends HTMLElement {
       const at = this.#filtered.indexOf(item);
       this.#setActive(at >= 0 ? at : 0);
       this.#input.focus();
-      this.#emitChange(item.value, item.label);
+      this.#emitChange(item.value, item.label, "item-press", item.item);
       return;
     }
     this.#selectedValue = item.value;
     this.#input.value = item.label;
     this.#syncFormValue();
-    this.#close();
-    this.#emitChange(item.value, item.label);
+    this.#close({ reason: "item-press" });
+    this.#emitChange(item.value, item.label, "item-press", item.item);
   }
 
-  #emitChange(value: string, label: string) {
+  #emitChange(value: string, label: string, reason: ChangeReason, item?: unknown) {
     this.dispatchEvent(
       new CustomEvent<ComboboxChangeDetail>("change", {
         bubbles: true,
@@ -416,23 +626,44 @@ export class UICombobox extends HTMLElement {
             : this.#selectedValue
               ? [this.#selectedValue]
               : [],
+          reason,
+          item,
         },
       }),
     );
+  }
+
+  /**
+   * Mirror `readonly` onto the host, the input and the listbox. The input's own
+   * `readOnly` is what actually stops typing; the rest is the styling and
+   * assistive-tech half of the same state.
+   */
+  #syncReadOnly() {
+    const readOnly = this.readOnly;
+    this.toggleAttribute("data-readonly", readOnly);
+    // Reflected on the host from the first attribute change, but the inner
+    // parts only exist once `wire` has found them.
+    if (!this.#input) return;
+    this.#input.readOnly = readOnly;
+    for (const el of [this.#input, this.#viewport]) {
+      el.toggleAttribute("data-readonly", readOnly);
+      if (readOnly) el.setAttribute("aria-readonly", "true");
+      else el.removeAttribute("aria-readonly");
+    }
   }
 
   #syncFormValue() {
     if (this.multiple) {
       const name = this.name;
       if (!name) {
-        this.#formControl.setValue(null);
+        this.formControl.setValue(null);
         return;
       }
       const data = new FormData();
       for (const v of this.#selected.keys()) data.append(name, v);
-      this.#formControl.setValue(data);
+      this.formControl.setValue(data);
     } else {
-      this.#formControl.setValue(this.#selectedValue);
+      this.formControl.setValue(this.#selectedValue);
     }
   }
 
@@ -441,7 +672,7 @@ export class UICombobox extends HTMLElement {
   #onFormReset() {
     this.#selected.clear();
     this.#selectedValue = null;
-    if (this.#wired) {
+    if (this.wired) {
       this.#renderChips();
       this.#input.value = "";
       if (this.#controller?.open) this.#renderWindow();
@@ -454,19 +685,6 @@ export class UICombobox extends HTMLElement {
    * `disabled` attribute / disabled `<fieldset>` ancestor): re-enabling only
    * touches an input *we* disabled, never one the author disabled directly.
    */
-  #applyFormDisabled(disabled: boolean) {
-    this.toggleAttribute("data-disabled", disabled);
-    if (!this.#wired) return;
-    if (disabled) {
-      if (!this.#input.disabled) {
-        this.#input.disabled = true;
-        this.#managedDisabled = true;
-      }
-    } else if (this.#managedDisabled) {
-      this.#input.disabled = false;
-      this.#managedDisabled = false;
-    }
-  }
 
   // ---- chips (multi-select) ---------------------------------------------
   #renderChips() {
@@ -490,7 +708,7 @@ export class UICombobox extends HTMLElement {
 
   #onChipClick = (e: MouseEvent) => {
     const btn = (e.target as Element).closest("[data-combobox-chip-remove]");
-    if (!btn) return;
+    if (!btn || this.readOnly) return;
     const chip = btn.closest("ui-combobox-chip") as HTMLElement | null;
     const value = chip?.dataset.value;
     if (value == null || !this.#selected.has(value)) return;
@@ -500,10 +718,11 @@ export class UICombobox extends HTMLElement {
     this.#syncFormValue();
     if (this.#controller?.open) this.#renderWindow();
     this.#input.focus();
-    this.#emitChange(value, label);
+    this.#emitChange(value, label, "chip-remove-press");
   };
 
   #onClear = () => {
+    if (this.readOnly) return;
     if (this.multiple) {
       this.#selected.clear();
       this.#renderChips();
@@ -514,15 +733,11 @@ export class UICombobox extends HTMLElement {
     this.#syncFormValue();
     if (this.#controller?.open) this.#applyFilter("");
     this.#input.focus();
-    this.#emitChange("", "");
+    this.#emitChange("", "", "clear-press");
   };
 }
 
-export class UIComboboxPopup extends HTMLElement {
-  connectedCallback() {
-    this.setAttribute("popover", "manual");
-  }
-}
+export class UIComboboxPopup extends UIPopupElement {}
 export class UIComboboxViewport extends HTMLElement {}
 export class UIComboboxSpacer extends HTMLElement {}
 export class UIComboboxEmpty extends HTMLElement {}

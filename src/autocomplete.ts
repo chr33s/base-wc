@@ -15,32 +15,42 @@
  */
 import { AriaCombobox } from "./combobox-core.ts";
 import { define } from "./define.ts";
-import { type FormControl, formControl } from "./form-control.ts";
+import { UIPopupElement } from "./popup.ts";
+import { FormAssociatedElement, type FormControlOptions } from "./form-control.ts";
 import { nextId } from "./id.ts";
-import { connectLightDom } from "./lifecycle.ts";
+import { managedDisabled } from "./native.ts";
 import { listNav, type ListNav } from "./list-nav.ts";
-import { normalize } from "./text.ts";
+import type { ChangeReason } from "./reasons.ts";
+import { localeOf, normalize } from "./text.ts";
 
 /** Detail of the `change` event dispatched when the value is committed. */
 export interface AutocompleteChangeDetail {
   readonly value: string;
+  /** What caused the change — a press on a suggestion, or Enter on one. */
+  readonly reason: ChangeReason;
 }
 
-export class UIAutocomplete extends HTMLElement {
-  static formAssociated = true;
-
-  #formControl: FormControl = formControl(this, {
-    value: () => this.value, // the input text is the form value ("" = empty)
-    onReset: () => this.#onFormReset(),
-    onFormDisabled: (disabled) => this.#applyFormDisabled(disabled),
-  });
+export class UIAutocomplete extends FormAssociatedElement {
+  protected override formControlOptions(): FormControlOptions {
+    return {
+      value: () => this.value, // the input text is the form value ("" = empty)
+      onReset: () => this.#onFormReset(),
+    };
+  }
+  protected override onFormDisabled(disabled: boolean) {
+    this.toggleAttribute("data-disabled", disabled);
+    this.#setInputDisabled?.(disabled);
+  }
+  static observedAttributes = ["readonly"];
+  attributeChangedCallback() {
+    this.#syncReadOnly();
+  }
   #uid = nextId("ac");
   #input!: HTMLInputElement;
   #list!: HTMLElement;
   #empty: HTMLElement | null = null;
-  #wired = false;
-  /** Whether *we* disabled the inner input (so we may re-enable it later). */
-  #managedDisabled = false;
+  /** Set the inner input's `disabled`, re-enabling only what we disabled. */
+  #setInputDisabled: ((disabled: boolean) => void) | null = null;
   #items: string[] = [];
   #normalizedItems: string[] = [];
   #matches: string[] = [];
@@ -56,49 +66,28 @@ export class UIAutocomplete extends HTMLElement {
     homeEnd: false,
   });
 
-  get form() {
-    return this.#formControl.form;
-  }
-  get name() {
-    return this.getAttribute("name");
-  }
   get value() {
     return this.#input?.value ?? "";
   }
-  get validity() {
-    return this.#formControl.validity;
-  }
-  get validationMessage() {
-    return this.#formControl.validationMessage;
-  }
-  checkValidity() {
-    return this.#formControl.checkValidity();
-  }
-  reportValidity() {
-    return this.#formControl.reportValidity();
-  }
-  formResetCallback() {
-    this.#formControl.handleReset();
-  }
-  formDisabledCallback(disabled: boolean) {
-    this.#formControl.handleDisabled(disabled);
+  /**
+   * Locks the *value*, not the interaction: the suggestion popup still opens
+   * and can be browsed, but neither typing nor committing a suggestion changes
+   * the text. An author who wants the control inert wants `disabled`.
+   */
+  get readOnly() {
+    return this.hasAttribute("readonly");
   }
   set items(next: string[]) {
     this.#items = Array.isArray(next) ? next.slice() : [];
     // Normalize once per item set, not once per item per keystroke.
-    this.#normalizedItems = this.#items.map(normalize);
-    if (this.#wired && this.#controller?.open) this.#filter(this.#input.value);
+    // Wrapped, not passed by reference: `map` would hand the array index to
+    // `normalize` as its `locale`.
+    const locale = localeOf(this);
+    this.#normalizedItems = this.#items.map((item) => normalize(item, locale));
+    if (this.wired && this.#controller?.open) this.#filter(this.#input.value);
   }
 
-  connectedCallback() {
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
-  }
-
-  #wire() {
+  protected override wire() {
     const input =
       this.querySelector<HTMLInputElement>("[data-autocomplete-input]") ??
       this.querySelector<HTMLInputElement>("input");
@@ -107,6 +96,7 @@ export class UIAutocomplete extends HTMLElement {
     if (!input || !popup || !list) return;
 
     this.#input = input;
+    this.#setInputDisabled = managedDisabled(input);
     this.#list = list;
     this.#empty = this.querySelector<HTMLElement>("ui-autocomplete-empty");
     this.#controller = new AriaCombobox({
@@ -117,13 +107,15 @@ export class UIAutocomplete extends HTMLElement {
       host: this,
       anchorOptions: { offset: 6, padding: 8 },
       onInput: this.#onInput,
-      onClose: () => this.#close(),
+      onClose: (reason) => this.#close(reason),
+      onArrowOpen: (reason) => this.#openForBrowsing(reason),
       onNavigate: (e) => this.#nav.handle(e),
       onOptionCommit: (index) => this.#commit(index),
     });
 
-    this.#wired = true;
-    this.#formControl.setValue(input.value);
+    this.#syncReadOnly();
+    this.wired = true;
+    this.formControl.setValue(input.value);
   }
 
   disconnectedCallback() {
@@ -134,12 +126,12 @@ export class UIAutocomplete extends HTMLElement {
    * during the same reset pass; re-sync the submitted text and drop any open
    * suggestion state once it has. */
   #onFormReset() {
-    if (!this.#wired) return;
+    if (!this.wired) return;
     queueMicrotask(() => {
       this.#matches = [];
       this.#renderMatches();
       this.#close();
-      this.#formControl.setValue(this.#input.value);
+      this.formControl.setValue(this.#input.value);
     });
   }
 
@@ -148,22 +140,9 @@ export class UIAutocomplete extends HTMLElement {
    * `disabled` attribute / disabled `<fieldset>` ancestor): re-enabling only
    * touches an input *we* disabled, never one the author disabled directly.
    */
-  #applyFormDisabled(disabled: boolean) {
-    this.toggleAttribute("data-disabled", disabled);
-    if (!this.#wired) return;
-    if (disabled) {
-      if (!this.#input.disabled) {
-        this.#input.disabled = true;
-        this.#managedDisabled = true;
-      }
-    } else if (this.#managedDisabled) {
-      this.#input.disabled = false;
-      this.#managedDisabled = false;
-    }
-  }
 
   #filter(query: string) {
-    const q = normalize(query);
+    const q = normalize(query, localeOf(this));
     this.#matches =
       q === "" ? [] : this.#items.filter((_, i) => this.#normalizedItems[i].includes(q));
     this.#renderMatches();
@@ -197,47 +176,68 @@ export class UIAutocomplete extends HTMLElement {
   }
 
   #onInput = () => {
-    this.#formControl.setValue(this.#input.value);
+    this.formControl.setValue(this.#input.value);
     const q = this.#input.value;
     if (q === "") {
       this.#matches = [];
       this.#renderMatches();
-      this.#close();
+      this.#close("input-clear");
       return;
     }
     this.#filter(q);
-    this.#open();
+    this.#open("input-change");
     this.#setActive(this.#matches.length ? 0 : -1);
   };
 
-  #open() {
-    this.#controller?.show();
+  /**
+   * Open on an arrow key with the current text as the query, so a read-only
+   * autocomplete — which can never type one — can still browse its suggestions.
+   */
+  #openForBrowsing(reason: ChangeReason) {
+    this.#filter(this.#input.value);
+    this.#open(reason);
+    this.#setActive(this.#matches.length ? 0 : -1);
   }
 
-  #close() {
-    this.#controller?.hide();
+  #open(reason: ChangeReason = "none") {
+    this.#controller?.show(reason);
+  }
+
+  #close(reason: ChangeReason = "none") {
+    this.#controller?.hide(reason);
+  }
+
+  /** Mirror `readonly` onto the host, the input and the suggestion list. */
+  #syncReadOnly() {
+    const readOnly = this.readOnly;
+    this.toggleAttribute("data-readonly", readOnly);
+    if (!this.#input) return;
+    this.#input.readOnly = readOnly;
+    for (const el of [this.#input, this.#list]) {
+      el.toggleAttribute("data-readonly", readOnly);
+      if (readOnly) el.setAttribute("aria-readonly", "true");
+      else el.removeAttribute("aria-readonly");
+    }
   }
 
   #commit(index: number) {
     const label = this.#matches[index];
-    if (label == null) return;
+    // `readonly` locks the value: browsing got the user here, committing is
+    // where it stops.
+    if (label == null || this.readOnly) return;
     this.#input.value = label;
-    this.#formControl.setValue(label);
-    this.#close();
+    this.formControl.setValue(label);
+    this.#close("item-press");
     this.dispatchEvent(
       new CustomEvent<AutocompleteChangeDetail>("change", {
         bubbles: true,
-        detail: { value: label },
+        detail: { value: label, reason: "item-press" },
       }),
     );
   }
 }
 
-export class UIAutocompletePopup extends HTMLElement {
-  connectedCallback() {
-    this.setAttribute("popover", "manual");
-  }
-}
+export class UIAutocompletePopup extends UIPopupElement {}
 export class UIAutocompleteList extends HTMLElement {}
 export class UIAutocompleteEmpty extends HTMLElement {}
 

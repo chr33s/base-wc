@@ -15,6 +15,7 @@
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
     "noUncheckedSideEffectImports": true,
     "skipLibCheck": true,
     "types": ["vite-plus/client"]

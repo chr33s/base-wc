@@ -6,20 +6,37 @@
  * hook (`loading` / `complete` / `indeterminate`) drive the consumer's fill.
  */
 import { define } from "./define.ts";
-import { rangeNumber, syncRangeState } from "./range.ts";
+import { numberAttribute } from "./math.ts";
+import { localeOf } from "./text.ts";
+import { syncRangeState } from "./range.ts";
 
 export class UIProgress extends HTMLElement {
   static observedAttributes = ["value", "min", "max", "indeterminate"];
 
   get min() {
-    return rangeNumber(this, "min", 0);
+    return numberAttribute(this, "min", 0);
   }
   get max() {
-    return rangeNumber(this, "max", 100);
+    return numberAttribute(this, "max", 100);
   }
+  /**
+   * `Intl.NumberFormat` options for the announced value (`aria-valuetext`).
+   * Set as a property — an options object is not an attribute. Omit it and the
+   * value is announced as a percentage of its range.
+   */
+  get format(): Intl.NumberFormatOptions | null {
+    return this.#format;
+  }
+  set format(next: Intl.NumberFormatOptions | null) {
+    this.#format = next;
+    this.#sync();
+  }
+  #format: Intl.NumberFormatOptions | null = null;
+
   get value() {
-    const raw = this.getAttribute("value");
-    return raw == null || raw === "" ? null : Number(raw);
+    // `null` (not a fallback number) is meaningful here: no authored `value` is
+    // what makes the bar indeterminate.
+    return numberAttribute(this, "value") ?? null;
   }
   get indeterminate() {
     return this.hasAttribute("indeterminate") || this.value == null;
@@ -42,6 +59,9 @@ export class UIProgress extends HTMLElement {
       // indeterminate to assistive tech, so the shared helper (which always
       // reports a value) stays out of this branch.
       this.removeAttribute("aria-valuenow");
+      // Nothing to announce either: a value text without a value would assert a
+      // progress the bar is explicitly saying it does not know.
+      this.removeAttribute("aria-valuetext");
       this.setAttribute("data-state", "indeterminate");
       this.style.setProperty("--progress", "0");
       return;
@@ -51,6 +71,8 @@ export class UIProgress extends HTMLElement {
       max: this.max,
       value: this.value ?? this.min,
       property: "--progress",
+      format: this.#format,
+      locale: localeOf(this),
     });
     this.setAttribute("data-state", fraction >= 1 ? "complete" : "loading");
   }

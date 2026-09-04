@@ -24,12 +24,16 @@
  */
 import { rectAt, type VirtualElement } from "./anchor.ts";
 import { define } from "./define.ts";
+import { UIPopupElement } from "./popup.ts";
 import { isRTL } from "./direction.ts";
 import { labelFrom, nextId } from "./id.ts";
-import { hoverIntent, type HoverIntent } from "./intent.ts";
-import { connectLightDom } from "./lifecycle.ts";
+import { hoverIntent, type HoverIntent, onPointerMoved } from "./intent.ts";
+import { LightDomElement } from "./lifecycle.ts";
+import type { ChangeReason } from "./reasons.ts";
+import { isDisabled, type Orientation } from "./roving.ts";
 import { listNav, type ListNav } from "./list-nav.ts";
 import { type Overlay, overlay } from "./overlay.ts";
+import { localeOf } from "./text.ts";
 
 /** Detail of the `menu-select` event a `<ui-menu>` dispatches on activation. */
 export interface MenuSelectDetail {
@@ -51,13 +55,14 @@ const SELECT = "ui:menu-item-select";
 const ITEM_SELECTOR = "ui-menu-item, ui-menu-checkbox-item, ui-menu-radio-item";
 
 /** Root — owns focus policy, wires the trigger, coordinates items. */
-export class UIMenu extends HTMLElement {
+export class UIMenu extends LightDomElement {
+  static observedAttributes = ["disabled", "aria-disabled"];
+
   #trigger: HTMLElement | null = null;
   #popup: HTMLElement | null = null;
   #activeIndex = -1;
   #overlay: Overlay | null = null;
   #pointRef: VirtualElement | null = null;
-  #wired = false;
   // Submenu grace closing: a delay on pointerleave approximates diagonal
   // travel from the trigger into the submenu popup.
   #graceClose: HoverIntent = hoverIntent({
@@ -73,35 +78,47 @@ export class UIMenu extends HTMLElement {
     onActive: (i) => this.#setActive(i),
     loop: true, // POLICY: menus wrap past the ends
     onCommit: (i) => this.#items()[i]?.click(), // item dispatches the select
-    onCancel: () => this.#close(),
+    onCancel: () => this.#close({ reason: "escape-key" }),
     onTab: () => this.#close({ restoreFocus: false }),
+    orientation: () => this.orientation,
+    rtl: () => isRTL(this),
     label: (i) => this.#items()[i]?.textContent ?? "",
+    locale: () => localeOf(this),
   });
 
   /** Whether the popup is currently shown. */
   get open() {
     return this.#overlay?.open ?? false;
   }
+  /**
+   * The axis the arrow keys walk. `vertical` is the ARIA default for a menu, so
+   * only the horizontal case is announced — on the popup, which owns the `menu`
+   * role, rather than on this wrapper.
+   */
+  get orientation(): Orientation {
+    return this.getAttribute("orientation") === "horizontal" ? "horizontal" : "vertical";
+  }
   get #isSubmenu() {
     return this.hasAttribute("submenu");
   }
 
-  connectedCallback() {
+  override connectedCallback() {
     // Defer wiring to a microtask so the light-DOM children (trigger, popup,
     // items) have finished parsing/upgrading — a custom element's
     // `connectedCallback` can run before its children are inserted.
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
+    super.connectedCallback();
   }
 
-  #wire() {
+  protected override wire() {
     this.#trigger = this.querySelector<HTMLElement>("[data-menu-trigger]");
     this.#popup = this.querySelector<HTMLElement>("ui-menu-popup");
     if (!this.#popup) return;
-    this.#wired = true;
+    if (this.orientation === "horizontal") {
+      this.#popup.setAttribute("aria-orientation", "horizontal");
+    } else {
+      this.#popup.removeAttribute("aria-orientation");
+    }
+    this.wired = true;
 
     if (this.#trigger) {
       if (this.#isSubmenu) {
@@ -116,7 +133,12 @@ export class UIMenu extends HTMLElement {
       }
     }
     this.#popup.addEventListener("keydown", this.#onPopupKeydown);
-    this.#popup.addEventListener("pointermove", this.#onPointerMove, true);
+    // Capture phase so a submenu trigger's own listeners never pre-empt the
+    // root's highlight, and filtered to real movement: arrow-key scrolling in a
+    // long menu slides a new item under a resting cursor, and acting on that
+    // would drag the highlight back off whatever the keyboard just reached
+    // (see {@link onPointerMoved}).
+    onPointerMoved(this.#popup, this.#onPointerMove, { capture: true });
 
     this.addEventListener(SELECT, this.#onItemSelect as EventListener);
 
@@ -149,11 +171,19 @@ export class UIMenu extends HTMLElement {
       },
       dismiss: {
         within: () => [this.#popup, this.#trigger],
-        onDismiss: () => this.#close({ restoreFocus: false }),
+        onDismiss: () => this.#close({ restoreFocus: false, reason: "outside-press" }),
       },
       trigger: { element: this.#trigger, haspopup: "menu", controls: "ui-menu-popup" },
       events: this,
     });
+
+    this.#reflectDisabled();
+  }
+
+  attributeChangedCallback() {
+    if (!this.wired) return;
+    this.#reflectDisabled();
+    if (this.#rootDisabled) this.#close({ restoreFocus: false });
   }
 
   disconnectedCallback() {
@@ -161,23 +191,39 @@ export class UIMenu extends HTMLElement {
     this.#close({ restoreFocus: false });
   }
 
+  /**
+   * Reflect the root's disabled state: `data-disabled` on the root (consumer
+   * CSS), `aria-disabled` on the trigger, and a nudge to every descendant item
+   * (submenus included) so each re-derives its own state — an item reads its
+   * enclosing menus itself; the root only tells it when that changed.
+   */
+  #reflectDisabled() {
+    const disabled = this.#rootDisabled;
+    this.toggleAttribute("data-disabled", disabled);
+    if (this.#trigger && !this.#trigger.matches(ITEM_SELECTOR)) {
+      if (disabled) this.#trigger.setAttribute("aria-disabled", "true");
+      else this.#trigger.removeAttribute("aria-disabled");
+    }
+    for (const el of this.querySelectorAll<UIMenuItem>(ITEM_SELECTOR)) el._reflectDisabled();
+  }
+
   // ---- public API (for ui-menubar / ui-context-menu) -------------------
   /** Open the popup (no focus move). */
-  show() {
+  show(reason: ChangeReason = "none") {
     // Wire synchronously if called in the same task as connection, before the
     // deferred wiring microtask has run — otherwise the open silently no-ops.
-    if (!this.#wired) this.#wire();
-    this.#open();
+    if (!this.wired) this.wire();
+    this.#open(reason);
   }
   /** Close the popup without restoring focus (the caller owns focus). */
-  hide() {
-    this.#close({ restoreFocus: false });
+  hide(reason: ChangeReason = "none") {
+    this.#close({ restoreFocus: false, reason });
   }
   /** Open at a viewport point (context menu) and focus the first item. */
-  openAt(x: number, y: number) {
-    if (!this.#wired) this.#wire();
+  openAt(x: number, y: number, reason: ChangeReason = "none") {
+    if (!this.wired) this.wire();
     this.#pointRef = { getBoundingClientRect: () => rectAt(x, y) };
-    this.#open();
+    this.#open(reason);
     this.focusFirst();
   }
   focusFirst() {
@@ -196,9 +242,20 @@ export class UIMenu extends HTMLElement {
       (el) => el.closest("ui-menu-popup") === popup,
     );
   }
-  /** Navigable items in DOM order; disabled ones excluded. */
+  /** Whether the whole menu is disabled, so every item is too. */
+  get #rootDisabled() {
+    return isDisabled(this);
+  }
+
+  /**
+   * Navigable items in DOM order. An item is skipped when it is disabled
+   * itself — via either `disabled` or `aria-disabled`, since a non-form custom
+   * element can only be *announced* disabled and assistive tech reads the
+   * latter — or when the root is, which no per-item attribute reflects.
+   */
   #items() {
-    return this.#allItems().filter((el) => !el.hasAttribute("disabled"));
+    if (this.#rootDisabled) return [];
+    return this.#allItems().filter((el) => !isDisabled(el));
   }
 
   #onItemSelect = (e: CustomEvent<ItemSelectDetail>) => {
@@ -231,44 +288,69 @@ export class UIMenu extends HTMLElement {
     return root;
   }
 
-  #open() {
+  #open(reason: ChangeReason = "none") {
+    // A disabled menu never opens — the single chokepoint, so every entry
+    // (trigger click, arrow keys, hover on a submenu, `show()`, `openAt()`)
+    // is covered by this one guard.
+    if (this.#rootDisabled) return;
     // overlay() owns the top-layer show, trigger ARIA, positioning (per-open
     // placement), outside-press dismissal and the bubbling `open` event.
-    this.#overlay?.show();
+    this.#overlay?.show(reason);
   }
 
-  #openWithFocus(which: "first" | "last") {
-    this.#open();
+  #openWithFocus(which: "first" | "last", reason: ChangeReason = "none") {
+    this.#open(reason);
     if (which === "last") this.focusLast();
     else this.focusFirst();
   }
 
-  #close({ restoreFocus = true }: { restoreFocus?: boolean } = {}) {
+  #close({
+    restoreFocus = true,
+    reason = "none",
+  }: { restoreFocus?: boolean; reason?: ChangeReason } = {}) {
     if (!this.#overlay?.open) return;
     this.#activeIndex = -1;
     this.#clearActive();
-    // Close any open descendant submenus with us.
-    for (const sub of this.#popup?.querySelectorAll<UIMenu>("ui-menu[submenu]") ?? []) sub.hide();
-    this.#overlay.hide();
+    // Close any open descendant submenus with us — a parent closing is what
+    // took them with it, not anything the user did to them.
+    for (const sub of this.#popup?.querySelectorAll<UIMenu>("ui-menu[submenu]") ?? []) {
+      sub.hide("sibling-open");
+    }
+    this.#overlay.hide({ reason });
     this.#pointRef = null;
     if (restoreFocus) this.#trigger?.focus();
   }
 
   // ---- trigger interaction --------------------------------------------
   #onTriggerClick = () => {
-    if (this.open) this.#close();
-    else this.#openWithFocus("first");
+    if (this.open) this.#close({ reason: "trigger-press" });
+    else this.#openWithFocus("first", "trigger-press");
   };
+
+  /**
+   * The axis the trigger's open keys sit on. A menu inside a menubar opens
+   * across the bar, not along it: the bar owns its own axis for moving between
+   * menus, so a vertical bar has to open on Left/Right or the same key would
+   * both move and open.
+   */
+  get #openAxis(): Orientation {
+    const bar = this.parentElement?.closest("ui-menubar") as { orientation?: Orientation } | null;
+    return bar?.orientation === "vertical" ? "horizontal" : "vertical";
+  }
 
   #onTriggerKeydown = (e: KeyboardEvent) => {
     // Enter/Space already fire a native click on <button>; add the arrows.
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      this.#openWithFocus("first");
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      this.#openWithFocus("last");
-    }
+    const [first, last] =
+      this.#openAxis === "vertical"
+        ? (["ArrowDown", "ArrowUp"] as const)
+        : isRTL(this)
+          ? (["ArrowLeft", "ArrowRight"] as const)
+          : (["ArrowRight", "ArrowLeft"] as const);
+    if (e.key !== first && e.key !== last) return;
+    e.preventDefault();
+    // Consume it so an enclosing menubar doesn't also treat the key as its own.
+    e.stopPropagation();
+    this.#openWithFocus(e.key === first ? "first" : "last", "list-navigation");
   };
 
   // ---- submenu trigger interaction ------------------------------------
@@ -334,28 +416,61 @@ export class UIMenu extends HTMLElement {
 
   #onPointerMove = (e: PointerEvent) => {
     const item = (e.target as Element).closest?.(ITEM_SELECTOR) as UIMenuItem | null;
-    if (!item || item.hasAttribute("disabled")) return;
+    if (!item || isDisabled(item)) return;
     const idx = this.#items().indexOf(item);
     if (idx !== -1 && idx !== this.#activeIndex) this.#setActive(idx);
   };
 }
 
 /** Popup — `role=menu`, lives in the top layer via the Popover API. */
-export class UIMenuPopup extends HTMLElement {
-  connectedCallback() {
-    this.setAttribute("role", "menu");
-    this.setAttribute("popover", "manual"); // top layer, we control dismissal
-    this.tabIndex = -1;
-  }
+export class UIMenuPopup extends UIPopupElement {
+  static override role = "menu";
+  static override focusable = true;
 }
 
 /** Item — `role=menuitem`; registers with its root, reports selection. */
 export class UIMenuItem extends HTMLElement {
+  static observedAttributes = ["disabled"];
+
+  /** The author announced this item disabled via `aria-disabled` alone — that
+   * announcement is theirs; we only ever add `data-disabled` beside it. */
+  #authorAria = false;
+
   connectedCallback() {
     this.setAttribute("role", this._role());
     this.tabIndex = -1;
-    if (this.hasAttribute("disabled")) this.setAttribute("aria-disabled", "true");
+    this.#authorAria =
+      !this.hasAttribute("disabled") && this.getAttribute("aria-disabled") === "true";
+    this._reflectDisabled();
     this.addEventListener("click", this.#onClick);
+  }
+
+  attributeChangedCallback(name: string) {
+    if (name === "disabled") this._reflectDisabled();
+  }
+
+  /** Disabled by its own `disabled`, or because an enclosing menu is. */
+  get #disabled() {
+    return (
+      this.hasAttribute("disabled") ||
+      this.closest("ui-menu[disabled], ui-menu[aria-disabled='true']") != null
+    );
+  }
+
+  /** Reflect the effective disabled state to `aria-disabled` / `data-disabled`.
+   * The root calls this when its own state changes. */
+  /**
+   * Single-underscore, not `#`: the menu root and `UICheckedMenuItem` both
+   * reach this from outside the instance that owns it, which a private name
+   * makes impossible. The prefix marks it as internal to the module rather
+   * than part of the element's public surface.
+   */
+  _reflectDisabled() {
+    const disabled = this.#disabled;
+    this.toggleAttribute("data-disabled", disabled || this.#authorAria);
+    if (this.#authorAria) return;
+    if (disabled) this.setAttribute("aria-disabled", "true");
+    else this.removeAttribute("aria-disabled");
   }
 
   /** The item's ARIA role; overridden by checkbox / radio variants. */
@@ -387,7 +502,10 @@ export class UIMenuItem extends HTMLElement {
   }
 
   #onClick = (e: MouseEvent) => {
-    if (this.hasAttribute("disabled")) {
+    // `aria-disabled` covers both an item announced disabled by the author and
+    // one the root disabled wholesale — the root reflects its state down here
+    // rather than every item reaching back up for it.
+    if (isDisabled(this)) {
       e.preventDefault();
       e.stopPropagation();
       return;
@@ -402,7 +520,7 @@ export class UIMenuItem extends HTMLElement {
  * observes `checked`/`disabled` and reflects `aria-checked` + `data-checked`.
  * Subclasses supply only their role and activation behavior. */
 abstract class UICheckedMenuItem extends UIMenuItem {
-  static observedAttributes = ["checked", "disabled"];
+  static override observedAttributes = ["checked", "disabled"];
 
   get checked() {
     return this.hasAttribute("checked");
@@ -411,11 +529,12 @@ abstract class UICheckedMenuItem extends UIMenuItem {
     this.toggleAttribute("checked", next);
   }
 
-  connectedCallback() {
+  override connectedCallback() {
     super.connectedCallback();
     this._syncChecked();
   }
-  attributeChangedCallback() {
+  override attributeChangedCallback(name: string) {
+    super.attributeChangedCallback(name);
     this._syncChecked();
   }
 
@@ -510,10 +629,17 @@ export class UIMenuGroup extends HTMLElement {
   }
 }
 
-/** The label for a `<ui-menu-group>` (presentational — not a menu item). */
+/**
+ * The label for a `<ui-menu-group>` — hidden from the accessibility tree, not
+ * merely `role="presentation"`. The group already announces this text via its
+ * `aria-labelledby`, so an exposed node would have a screen reader read the
+ * heading twice; and inside a `role="menu"`, a bare presentational node still
+ * sits among the menu items. `aria-hidden` does not affect a name computed
+ * through `aria-labelledby`, so the group keeps its label.
+ */
 export class UIMenuGroupLabel extends HTMLElement {
   connectedCallback() {
-    this.setAttribute("role", "presentation");
+    this.setAttribute("aria-hidden", "true");
   }
 }
 

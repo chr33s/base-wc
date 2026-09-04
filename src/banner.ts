@@ -12,18 +12,16 @@
  */
 import { define } from "./define.ts";
 import { nextId } from "./id.ts";
-import { connectLightDom } from "./lifecycle.ts";
+import { LightDomElement } from "./lifecycle.ts";
 import { ensureButton } from "./parts.ts";
 import { runExit, setOpenState } from "./transitions.ts";
 
-export class UIBanner extends HTMLElement {
-  #wired = false;
-
+export class UIBanner extends LightDomElement {
   get dismissible() {
     return this.hasAttribute("dismissible");
   }
 
-  connectedCallback() {
+  override connectedCallback() {
     const assertive = this.dataset.type === "error" || this.dataset.type === "warning";
     if (!this.getAttribute("role")) this.setAttribute("role", assertive ? "alert" : "status");
     if (!this.hasAttribute("aria-live")) {
@@ -31,14 +29,10 @@ export class UIBanner extends HTMLElement {
     }
     this.setAttribute("data-open", "");
     setOpenState(this, true);
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
+    super.connectedCallback();
   }
 
-  #wire() {
+  protected override wire() {
     const title = this.querySelector("[data-banner-title]");
     if (title) {
       if (!title.id) title.id = nextId("ui-banner-title");
@@ -61,7 +55,7 @@ export class UIBanner extends HTMLElement {
     // Marked wired only after the parts pass. Every part is genuinely optional
     // (title/description are skipped, the dismiss button is generated), so a
     // completed pass is a completed wire — no retry needed.
-    this.#wired = true;
+    this.wired = true;
   }
 
   /** Dismiss the banner, playing its exit animation before removal. */

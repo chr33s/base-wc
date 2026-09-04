@@ -21,8 +21,9 @@
  * back and fires the native change.
  */
 import { define } from "./define.ts";
-import { type FormControl, formControl } from "./form-control.ts";
-import { connectLightDom } from "./lifecycle.ts";
+import { UIPopupElement } from "./popup.ts";
+import { FormAssociatedElement, type FormControlOptions } from "./form-control.ts";
+import { LightDomElement } from "./lifecycle.ts";
 import { clamp } from "./math.ts";
 import { adoptedControl, fireNativeChange } from "./native.ts";
 import { trackPointerDrag } from "./pointer-drag.ts";
@@ -88,23 +89,21 @@ export interface ColorChangeDetail {
   readonly value: string;
 }
 
-export class UIColorPicker extends HTMLElement {
-  static formAssociated = true;
+export class UIColorPicker extends FormAssociatedElement {
   static observedAttributes = ["value", "disabled"];
 
-  #formControl: FormControl = formControl(this, {
-    value: () => this.value, // always a full hex — never empty
-    onReset: () => {
-      if (!this.#wired) return;
-      this.#setHsv(rgbToHsv(...(parseHex(this.getAttribute("value")) ?? [0, 0, 0])), false);
-    },
-    onFormDisabled: (disabled) => {
-      this.#formDisabled = disabled;
-      if (this.#wired) this.#reflectDisabled();
-    },
-  });
-  #wired = false;
-  #formDisabled = false;
+  protected override formControlOptions(): FormControlOptions {
+    return {
+      value: () => this.value, // always a full hex — never empty
+      onReset: () => {
+        if (!this.wired) return;
+        this.#setHsv(rgbToHsv(...(parseHex(this.getAttribute("value")) ?? [0, 0, 0])), false);
+      },
+    };
+  }
+  protected override onFormDisabled() {
+    if (this.wired) this.#reflectDisabled();
+  }
   #hsv: HSV = { h: 0, s: 0, v: 0 };
   #area!: HTMLElement;
   #thumb!: HTMLElement;
@@ -112,15 +111,6 @@ export class UIColorPicker extends HTMLElement {
   #hex!: HTMLInputElement;
   #disposeDrag: (() => void) | null = null;
 
-  get form() {
-    return this.#formControl.form;
-  }
-  get name() {
-    return this.getAttribute("name");
-  }
-  get disabled() {
-    return this.hasAttribute("disabled") || this.#formDisabled;
-  }
   get value() {
     return hsvToHex(this.#hsv);
   }
@@ -128,45 +118,19 @@ export class UIColorPicker extends HTMLElement {
     const rgb = parseHex(next);
     if (rgb) this.#setHsv(rgbToHsv(...rgb), false);
   }
-  get validity() {
-    return this.#formControl.validity;
-  }
-  get validationMessage() {
-    return this.#formControl.validationMessage;
-  }
-  checkValidity() {
-    return this.#formControl.checkValidity();
-  }
-  reportValidity() {
-    return this.#formControl.reportValidity();
-  }
-  formResetCallback() {
-    this.#formControl.handleReset();
-  }
-  formDisabledCallback(disabled: boolean) {
-    this.#formControl.handleDisabled(disabled);
-  }
-
-  connectedCallback() {
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
-  }
 
   disconnectedCallback() {
     this.#disposeDrag?.();
   }
 
   attributeChangedCallback(name: string) {
-    if (!this.#wired) return;
+    if (!this.wired) return;
     if (name === "value") this.value = this.getAttribute("value") ?? "#000000";
     if (name === "disabled") this.#reflectDisabled();
   }
 
-  #wire() {
-    this.#wired = true;
+  protected override wire() {
+    this.wired = true;
     const rgb = parseHex(this.getAttribute("value")) ?? [0, 0, 0];
     this.#hsv = rgbToHsv(...rgb);
 
@@ -199,7 +163,7 @@ export class UIColorPicker extends HTMLElement {
     this.#hue.addEventListener("change", swallow);
     this.#hex.addEventListener("input", swallow);
 
-    this.#formControl.setValue(this.value);
+    this.formControl.setValue(this.value);
     this.#render();
   }
 
@@ -246,8 +210,8 @@ export class UIColorPicker extends HTMLElement {
 
   #setHsv(next: HSV, emit: boolean) {
     this.#hsv = { h: clamp(next.h, 0, 360), s: clamp(next.s, 0, 1), v: clamp(next.v, 0, 1) };
-    this.#formControl.setValue(this.value);
-    if (this.#wired) this.#render();
+    this.formControl.setValue(this.value);
+    if (this.wired) this.#render();
     if (emit) {
       this.dispatchEvent(
         new CustomEvent<ColorChangeDetail>("change", {
@@ -319,29 +283,16 @@ export class UIColorPicker extends HTMLElement {
 }
 
 /** The popover shell around a `<ui-color-picker>` (top layer). */
-export class UIColorPickerPopup extends HTMLElement {
-  connectedCallback() {
-    this.setAttribute("popover", "manual");
-  }
-}
+export class UIColorPickerPopup extends UIPopupElement {}
 
-export class UIColorField extends HTMLElement {
-  #wired = false;
+export class UIColorField extends LightDomElement {
   #input!: HTMLInputElement;
   #field: PopoverField | null = null;
 
-  connectedCallback() {
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
-  }
-
-  #wire() {
+  protected override wire() {
     const input = adoptedControl<HTMLInputElement>(this, 'input[type="color"]');
     if (!input) return;
-    this.#wired = true;
+    this.wired = true;
     this.#input = input;
 
     const picker = document.createElement("ui-color-picker") as UIColorPicker;

@@ -18,39 +18,27 @@
  * Use only where JS is guaranteed — it submits nothing with scripting off.
  */
 import { define } from "./define.ts";
-import { type FormControl, formControl } from "./form-control.ts";
-import { connectLightDom } from "./lifecycle.ts";
+import { FormAssociatedElement, type FormControlOptions } from "./form-control.ts";
+import { LightDomElement } from "./lifecycle.ts";
 import { nextId } from "./id.ts";
 import { adoptedControl } from "./native.ts";
 import { roving, type Roving } from "./roving.ts";
 
-export class UIRadioGroup extends HTMLElement {
-  static formAssociated = true;
-
-  #formControl: FormControl = formControl(this, {
-    adopted: () => this.#native,
-    value: () => this.value,
-    onReset: () => this.#onFormReset(),
-    onFormDisabled: (disabled) => {
-      this.#formDisabled = disabled;
-      this.toggleAttribute("data-disabled", disabled);
-    },
-  });
+export class UIRadioGroup extends FormAssociatedElement {
+  protected override formControlOptions(): FormControlOptions {
+    return {
+      adopted: () => this.#native,
+      value: () => this.value,
+      onReset: () => this.#onFormReset(),
+    };
+  }
+  protected override onFormDisabled(disabled: boolean) {
+    this.toggleAttribute("data-disabled", disabled);
+  }
   #roving: Roving | null = null;
   /** True when the radios wrap authored native `<input type="radio">`s. */
   #native = false;
-  #wired = false;
-  #formDisabled = false;
 
-  get form() {
-    return this.#formControl.form;
-  }
-  get name() {
-    return this.getAttribute("name");
-  }
-  get disabled() {
-    return this.hasAttribute("disabled") || this.#formDisabled;
-  }
   get value() {
     return this.#selected()?.value ?? null;
   }
@@ -68,50 +56,42 @@ export class UIRadioGroup extends HTMLElement {
       this.#select(match, false);
     }
   }
-  get validity() {
-    return this.#formControl.validity;
-  }
-  get validationMessage() {
-    return this.#formControl.validationMessage;
-  }
-  checkValidity() {
-    return this.#formControl.checkValidity();
-  }
-  reportValidity() {
-    return this.#formControl.reportValidity();
-  }
-  formResetCallback() {
-    this.#formControl.handleReset();
-  }
-  formDisabledCallback(disabled: boolean) {
-    this.#formControl.handleDisabled(disabled);
+
+  override connectedCallback() {
+    // A re-inserted group keeps its wiring (connectLightDom skips a wired host)
+    // but not its roving helper, which `disconnectedCallback` dropped; the new
+    // one adopts the tab stop still marked in the DOM. Native-adoption mode
+    // never had one — the browser's own radios do the roving.
+    if (this.wired && !this.#native) this.#attachRoving();
+    super.connectedCallback();
   }
 
-  connectedCallback() {
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
+  disconnectedCallback() {
+    this.#roving?.destroy();
+    this.#roving = null;
   }
 
-  #wire() {
-    this.#wired = true;
+  protected override wire() {
+    this.wired = true;
     this.#native = adoptedControl(this, 'input[type="radio"]') != null;
     if (this.#native) return this.#wireNative();
 
     this.setAttribute("role", "radiogroup");
     if (!this.id) this.id = nextId("ui-radio-group");
 
-    this.#roving = roving(this, {
+    this.#attachRoving();
+    this.addEventListener("click", this.#onClick);
+    this.#applyPreset();
+  }
+
+  #attachRoving() {
+    this.#roving ??= roving(this, {
       items: () => this.#radios(),
       orientation: "both",
       loop: true,
       onMove: (item) => this.#selectByUser(item as UIRadio),
       onActivate: (item) => this.#selectByUser(item as UIRadio),
     });
-    this.addEventListener("click", this.#onClick);
-    this.#applyPreset();
   }
 
   /**
@@ -140,13 +120,13 @@ export class UIRadioGroup extends HTMLElement {
         ? (radios.find((r) => r.value === preset) ?? null)
         : (radios.find((r) => r.hasAttribute("checked")) ?? null);
     this.#applyChecked(match);
-    this.#formControl.setValue(match?.value ?? null);
+    this.formControl.setValue(match?.value ?? null);
     const idx = match ? this.#radios().indexOf(match) : -1;
     this.#roving?.refresh(idx >= 0 ? idx : 0);
   }
 
   #onFormReset() {
-    if (!this.#wired) return;
+    if (!this.wired) return;
     if (this.#native) {
       // The browser restores each native radio's own default checkedness during
       // the same reset pass; refresh the `data-state` hooks once it has.
@@ -185,7 +165,7 @@ export class UIRadioGroup extends HTMLElement {
   #select(radio: UIRadio, emit: boolean) {
     if (radio.hasAttribute("disabled")) return;
     this.#applyChecked(radio);
-    this.#formControl.setValue(radio.value);
+    this.formControl.setValue(radio.value);
     const idx = this.#radios().indexOf(radio);
     if (idx >= 0) this.#roving?.refresh(idx);
     if (emit) {
@@ -205,12 +185,11 @@ export class UIRadioGroup extends HTMLElement {
   };
 }
 
-export class UIRadio extends HTMLElement {
+export class UIRadio extends LightDomElement {
   static observedAttributes = ["disabled"];
 
   /** The adopted native radio (native-first mode), or `null` (standalone). */
   #native: HTMLInputElement | null = null;
-  #wired = false;
 
   nativeInput() {
     // Memoize the found input (the group re-reads `checked` across all radios on
@@ -232,18 +211,14 @@ export class UIRadio extends HTMLElement {
     return this.nativeInput()?.disabled ?? this.hasAttribute("disabled");
   }
 
-  connectedCallback() {
+  override connectedCallback() {
     // Deferred like its siblings, so an authored native radio has parsed before
     // the standalone-vs-native decision is made.
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
+    super.connectedCallback();
   }
 
-  #wire() {
-    this.#wired = true;
+  protected override wire() {
+    this.wired = true;
     const native = this.nativeInput();
     if (native) {
       // Native-first: the input is the radio; only mirror its state for the pip.

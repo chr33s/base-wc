@@ -9,28 +9,19 @@
  * triggerless `<ui-menu>` (just its `<ui-menu-popup>` of items).
  */
 import { define } from "./define.ts";
-import { connectLightDom } from "./lifecycle.ts";
+import { LightDomElement } from "./lifecycle.ts";
 import type { UIMenu } from "./menu.ts";
 
-export class UIContextMenu extends HTMLElement {
-  #wired = false;
+export class UIContextMenu extends LightDomElement {
   #menu: UIMenu | null = null;
   #target: HTMLElement | null = null;
   #pressTimer = 0;
 
-  connectedCallback() {
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
-  }
-
-  #wire() {
+  protected override wire() {
     this.#menu = this.querySelector<UIMenu>("ui-menu");
     this.#target = this.querySelector<HTMLElement>("[data-context-target]") ?? this;
     if (!this.#menu) return;
-    this.#wired = true;
+    this.wired = true;
     this.#target.addEventListener("contextmenu", this.#onContextMenu);
     this.#target.addEventListener("pointerdown", this.#onPointerDown);
     this.#target.addEventListener("pointerup", this.#cancelPress);
@@ -46,14 +37,17 @@ export class UIContextMenu extends HTMLElement {
 
   #onContextMenu = (e: MouseEvent) => {
     e.preventDefault();
-    this.#menu?.openAt(e.clientX, e.clientY);
+    this.#menu?.openAt(e.clientX, e.clientY, "trigger-press");
   };
 
   // Touch long-press → open at the press point.
   #onPointerDown = (e: PointerEvent) => {
     if (e.pointerType !== "touch") return;
     const { clientX, clientY } = e;
-    this.#pressTimer = window.setTimeout(() => this.#menu?.openAt(clientX, clientY), 500);
+    this.#pressTimer = window.setTimeout(
+      () => this.#menu?.openAt(clientX, clientY, "trigger-press"),
+      500,
+    );
   };
   #cancelPress = () => clearTimeout(this.#pressTimer);
 }

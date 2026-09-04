@@ -18,8 +18,9 @@
  * a calendar in (see `date-field.ts`).
  */
 import { define } from "./define.ts";
-import { type FormControl, formControl } from "./form-control.ts";
-import { connectLightDom } from "./lifecycle.ts";
+import { UIPopupElement } from "./popup.ts";
+import { numberAttribute } from "./math.ts";
+import { FormAssociatedElement, type FormControlOptions } from "./form-control.ts";
 import { nextId } from "./id.ts";
 
 interface YMD {
@@ -67,22 +68,20 @@ export interface CalendarChangeDetail {
   readonly value: string | null;
 }
 
-export class UICalendar extends HTMLElement {
-  static formAssociated = true;
+export class UICalendar extends FormAssociatedElement {
   static observedAttributes = ["value", "min", "max", "disabled"];
 
-  #formControl: FormControl = formControl(this, {
-    value: () => this.value,
-    onReset: () => {
-      if (this.#wired) this.#select(parseISO(this.#default), false);
-    },
-    onFormDisabled: (disabled) => {
-      this.#formDisabled = disabled;
-      this.#render();
-    },
-  });
-  #wired = false;
-  #formDisabled = false;
+  protected override formControlOptions(): FormControlOptions {
+    return {
+      value: () => this.value,
+      onReset: () => {
+        if (this.wired) this.#select(parseISO(this.#default), false);
+      },
+    };
+  }
+  protected override onFormDisabled() {
+    this.#render();
+  }
   /** The wire-time `value` attribute — what `form.reset()` restores. */
   #default: string | null = null;
   #uid = nextId("calendar");
@@ -94,33 +93,6 @@ export class UICalendar extends HTMLElement {
   #wantFocus = false;
   #reflectingValue = false;
 
-  get form() {
-    return this.#formControl.form;
-  }
-  get name() {
-    return this.getAttribute("name");
-  }
-  get disabled() {
-    return this.hasAttribute("disabled") || this.#formDisabled;
-  }
-  get validity() {
-    return this.#formControl.validity;
-  }
-  get validationMessage() {
-    return this.#formControl.validationMessage;
-  }
-  checkValidity() {
-    return this.#formControl.checkValidity();
-  }
-  reportValidity() {
-    return this.#formControl.reportValidity();
-  }
-  formResetCallback() {
-    this.#formControl.handleReset();
-  }
-  formDisabledCallback(disabled: boolean) {
-    this.#formControl.handleDisabled(disabled);
-  }
   get value() {
     return this.#selected ? toISO(this.#selected) : null;
   }
@@ -138,19 +110,11 @@ export class UICalendar extends HTMLElement {
     return this.getAttribute("locale") ?? undefined;
   }
   #firstDayOfWeek() {
-    return (Number(this.getAttribute("first-day-of-week")) || 0) % 7;
-  }
-
-  connectedCallback() {
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
+    return numberAttribute(this, "first-day-of-week", 0) % 7;
   }
 
   attributeChangedCallback(name: string) {
-    if (!this.#wired || this.#reflectingValue) return;
+    if (!this.wired || this.#reflectingValue) return;
     if (name === "value") {
       this.#select(parseISO(this.getAttribute("value")), false, false);
       return;
@@ -158,12 +122,12 @@ export class UICalendar extends HTMLElement {
     this.#render();
   }
 
-  #wire() {
-    this.#wired = true;
+  protected override wire() {
+    this.wired = true;
     this.#default = this.getAttribute("value");
     this.#selected = parseISO(this.#default);
     this.#focus = this.#selected ?? this.#clampToRange(today());
-    this.#formControl.setValue(this.value);
+    this.formControl.setValue(this.value);
 
     const header = document.createElement("div");
     header.setAttribute("data-calendar-header", "");
@@ -213,7 +177,7 @@ export class UICalendar extends HTMLElement {
 
   /** Rebuild the weekday header row + day cells for the focused month. */
   #render() {
-    if (!this.#wired) return;
+    if (!this.wired) return;
     // `timeZone: "UTC"` on both formatters here: every date this component
     // handles is a UTC instant (`Date.UTC` throughout, so the arithmetic is
     // free of DST), and formatting one in the *viewer's* zone would read it
@@ -318,7 +282,7 @@ export class UICalendar extends HTMLElement {
     this.#selected = date;
     if (date) {
       this.#focus = date;
-      this.#formControl.setValue(toISO(date));
+      this.formControl.setValue(toISO(date));
       if (reflectValue && this.getAttribute("value") !== toISO(date)) {
         this.#reflectingValue = true;
         try {
@@ -328,7 +292,7 @@ export class UICalendar extends HTMLElement {
         }
       }
     } else {
-      this.#formControl.setValue(null);
+      this.formControl.setValue(null);
       if (reflectValue && this.hasAttribute("value")) {
         this.#reflectingValue = true;
         try {
@@ -338,7 +302,7 @@ export class UICalendar extends HTMLElement {
         }
       }
     }
-    if (this.#wired) this.#render();
+    if (this.wired) this.#render();
     if (emit) {
       this.dispatchEvent(
         new CustomEvent<CalendarChangeDetail>("change", {
@@ -400,11 +364,7 @@ export class UICalendar extends HTMLElement {
 }
 
 /** The popover shell around a `<ui-calendar>` (top layer, like other popups). */
-export class UICalendarPopup extends HTMLElement {
-  connectedCallback() {
-    this.setAttribute("popover", "manual");
-  }
-}
+export class UICalendarPopup extends UIPopupElement {}
 
 define("ui-calendar", UICalendar);
 define("ui-calendar-popup", UICalendarPopup);

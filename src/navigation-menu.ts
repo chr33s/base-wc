@@ -13,11 +13,11 @@
  * a `[data-nav-trigger]` and a `<ui-nav-content>`.
  */
 import { define } from "./define.ts";
-import { connectLightDom } from "./lifecycle.ts";
+import { numberAttribute } from "./math.ts";
 import { getFocusable } from "./focus-trap.ts";
 import { nextId } from "./id.ts";
 import { hoverIntent, type HoverIntent } from "./intent.ts";
-import { roving, type Roving } from "./roving.ts";
+import { RovingElement, isDisabled, type RovingOptions } from "./roving.ts";
 import { runExit, setOpenState } from "./transitions.ts";
 
 interface NavItem {
@@ -25,52 +25,134 @@ interface NavItem {
   readonly content: HTMLElement | null;
 }
 
-export class UINavigationMenu extends HTMLElement {
-  #items: NavItem[] = [];
-  #activeIndex = -1;
-  #roving: Roving | null = null;
-  #wired = false;
-  /** Index whose panel a pending hover-intent open will reveal. */
-  #pendingIndex = -1;
+export class UINavigationMenu extends RovingElement {
+  /**
+   * The authored items, keyed by trigger and rebuilt whenever the light DOM
+   * changes. One map rather than a list plus a lookup: a `Map` already iterates
+   * in insertion order, so it *is* the ordered item list, and a single
+   * structure cannot drift out of step with itself the way two caches rebuilt
+   * side by side can.
+   */
+  #items = new Map<HTMLElement, NavItem>();
+  /**
+   * The open item, held as the item itself rather than an index. An index into
+   * a list that can change under it is what freezes the menu when the open
+   * trigger is removed: the index still looks valid, points at a different
+   * item, and every close path then targets the wrong panel — or a detached
+   * one — leaving the menu stuck open forever.
+   */
+  #active: NavItem | null = null;
+  /** The element roving is attached to — the authored list, else the host. */
+  #list: HTMLElement | null = null;
+  #observer: MutationObserver | null = null;
+  /** Triggers already given their listeners, so a re-sync never double-wires. */
+  #wiredTriggers = new WeakSet<HTMLElement>();
+  /** Panels already set up — keyed on their own, since a panel can arrive or be
+   * swapped after its trigger was wired (a nav that renders per route). */
+  #wiredContents = new WeakSet<HTMLElement>();
+  /** The item a pending hover-intent open will reveal. */
+  #pending: NavItem | null = null;
   #intent: HoverIntent = hoverIntent({
-    isOpen: () => this.#activeIndex >= 0,
-    open: () => this.#open(this.#pendingIndex),
+    isOpen: () => this.#active != null,
+    open: () => this.#open(this.#pending),
     close: () => this.#close(),
     openDelay: () => this.#delay,
     closeDelay: () => this.#delay,
   });
 
   get #delay() {
-    return Number(this.getAttribute("delay") ?? 200);
+    return numberAttribute(this, "delay", 200);
   }
 
-  connectedCallback() {
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
+  override connectedCallback() {
+    // The base rebuilds the roving helper for a re-inserted host; this menu's
+    // item observer, dropped by the same `disconnectedCallback`, needs the
+    // same treatment.
+    if (this.wired) this.#observeItems();
+    super.connectedCallback();
   }
 
-  disconnectedCallback() {
+  override disconnectedCallback() {
+    super.disconnectedCallback();
     this.#intent.cancel();
+    this.#observer?.disconnect();
+    this.#observer = null;
   }
 
-  #wire() {
-    this.#wired = true;
+  protected override wire() {
+    this.wired = true;
     const list = this.querySelector<HTMLElement>("ui-nav-list") ?? this;
-    // Items without a trigger cannot participate at all — dropping them here
-    // keeps `NavItem.trigger` honestly non-null for everything downstream.
-    this.#items = [...this.querySelectorAll<HTMLElement>("ui-nav-item")].flatMap((item) => {
-      const trigger = item.querySelector<HTMLElement>("[data-nav-trigger]");
-      const content = item.querySelector<HTMLElement>("ui-nav-content");
-      return trigger ? [{ trigger, content }] : [];
-    });
+    this.#syncItems();
 
-    this.#items.forEach(({ trigger, content }, i) => {
+    this.#list = list;
+    this.attachRoving();
+    this.roving?.refresh(0);
+
+    this.addEventListener("pointerenter", this.#cancelClose);
+    this.addEventListener("pointerleave", this.#scheduleClose);
+
+    this.#observeItems();
+  }
+
+  protected override get rovingContainer(): HTMLElement {
+    return this.#list ?? this;
+  }
+
+  protected override rovingOptions(): RovingOptions {
+    return {
+      items: () => this.#triggers(),
+      orientation: "horizontal",
+      loop: true,
+    };
+  }
+
+  /**
+   * Nav items are routinely added or removed at runtime (a nav that renders
+   * per-route, an item behind a permission check). Re-read them instead of
+   * holding the snapshot taken at wire time, which would leave new items inert
+   * and removed ones still addressable.
+   */
+  #observeItems() {
+    if (this.#observer || typeof MutationObserver === "undefined") return;
+    this.#observer = new MutationObserver(() => this.#syncItems());
+    this.#observer.observe(this, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["disabled", "aria-disabled"],
+    });
+  }
+
+  /**
+   * Rebuild the item list from the DOM and wire any newcomers. Items without a
+   * trigger cannot participate at all — dropping them here keeps
+   * `NavItem.trigger` honestly non-null for everything downstream.
+   */
+  #syncItems() {
+    // Entries are reused, keyed by trigger, so an item keeps *one* identity for
+    // as long as its trigger is in the document. `#active` and `#pending` hold
+    // entries, and a rebuild that minted fresh objects would silently stop
+    // matching them — leaving the menu unable to recognise its own open panel.
+    const previous = this.#items;
+    this.#items = new Map();
+    for (const item of this.querySelectorAll<HTMLElement>("ui-nav-item")) {
+      const trigger = item.querySelector<HTMLElement>("[data-nav-trigger]");
+      if (!trigger) continue;
+      const content = item.querySelector<HTMLElement>("ui-nav-content");
+      const existing = previous.get(trigger);
+      this.#items.set(trigger, existing?.content === content ? existing : { trigger, content });
+    }
+
+    for (const entry of this.#items.values()) {
+      const { trigger, content } = entry;
       if (!trigger.id) trigger.id = nextId("ui-nav-trigger");
-      trigger.setAttribute("aria-expanded", "false");
-      if (content) {
+      // Re-reflected on every sync, not just at wiring: `disabled` is the one
+      // piece of trigger state a consumer flips at runtime, and `data-disabled`
+      // is what their CSS styles it with.
+      trigger.toggleAttribute("data-disabled", isDisabled(trigger));
+      if (!content) trigger.removeAttribute("aria-controls");
+      else if (!this.#wiredContents.has(content)) {
+        this.#wiredContents.add(content);
         if (!content.id) content.id = nextId("ui-nav-content");
         trigger.setAttribute("aria-controls", content.id);
         content.setAttribute("role", "region");
@@ -80,32 +162,47 @@ export class UINavigationMenu extends HTMLElement {
         content.addEventListener("pointerenter", this.#cancelClose);
         content.addEventListener("keydown", this.#onContentKeydown);
       }
-      trigger.addEventListener("click", () => this.#toggle(i));
-      trigger.addEventListener("keydown", (e) => this.#onTriggerKeydown(e, i));
-      trigger.addEventListener("pointerenter", () => this.#onTriggerEnter(i));
-    });
+      if (this.#wiredTriggers.has(trigger)) continue;
+      this.#wiredTriggers.add(trigger);
+      trigger.setAttribute("aria-expanded", "false");
+      // Bound to the entry, not to an index — the entry survives its neighbours
+      // being reordered or removed.
+      trigger.addEventListener("click", () => this.#toggle(this.#itemFor(trigger)));
+      trigger.addEventListener("keydown", (e) => this.#onTriggerKeydown(e, this.#itemFor(trigger)));
+      trigger.addEventListener("pointerenter", () => this.#onTriggerEnter(this.#itemFor(trigger)));
+    }
 
-    this.#roving = roving(list, {
-      items: () => this.#triggers(),
-      orientation: "horizontal",
-      loop: true,
-    });
-    this.#roving.refresh(0);
+    // The open panel's trigger just left the DOM: drop the open state outright
+    // rather than animating a detached element, or the menu stays latched open
+    // and every later hover is ignored.
+    if (this.#active && !this.#active.trigger.isConnected) {
+      this.#active = null;
+      this.removeAttribute("data-open");
+      this.#intent.cancel();
+    }
+    if (this.#pending && !this.#pending.trigger.isConnected) this.#pending = null;
+    // Roving reads triggers through the cache rebuilt above; its own observer
+    // may already have fired against the stale list, so re-assert the tab stop
+    // now that the list is current (no index: keeps the stop where it survives).
+    this.roving?.refresh();
+  }
 
-    this.addEventListener("pointerenter", this.#cancelClose);
-    this.addEventListener("pointerleave", this.#scheduleClose);
+  /** The live entry for a trigger (identity, so a rebuilt list still matches). */
+  #itemFor(trigger: HTMLElement) {
+    return this.#items.get(trigger) ?? null;
   }
 
   #triggers() {
-    return this.#items.map((it) => it.trigger).filter((t) => !t.hasAttribute("disabled"));
+    return [...this.#items.keys()].filter((t) => !isDisabled(t));
   }
 
   // ---- open / close ----------------------------------------------------
-  #open(index: number) {
-    const { trigger, content } = this.#items[index] ?? {};
-    if (!trigger || !content) return;
-    if (this.#activeIndex >= 0 && this.#activeIndex !== index) this.#hide(this.#activeIndex);
-    this.#activeIndex = index;
+  #open(item: NavItem | null) {
+    if (!item?.content || !item.trigger.isConnected) return;
+    if (item.trigger.hasAttribute("data-disabled")) return;
+    const { trigger, content } = item;
+    if (this.#active && this.#active !== item) this.#hide(this.#active);
+    this.#active = item;
     trigger.setAttribute("aria-expanded", "true");
     content.hidden = false;
     content.setAttribute("data-open", "");
@@ -116,14 +213,16 @@ export class UINavigationMenu extends HTMLElement {
     this.dispatchEvent(
       new CustomEvent("change", {
         bubbles: true,
-        detail: { index, value: trigger.textContent?.trim() ?? "" },
+        detail: {
+          index: [...this.#items.values()].indexOf(item),
+          value: trigger.textContent?.trim() ?? "",
+        },
       }),
     );
   }
 
-  #hide(index: number) {
-    const { trigger, content } = this.#items[index] ?? {};
-    if (!trigger || !content) return;
+  #hide({ trigger, content }: NavItem) {
+    if (!content) return;
     trigger.setAttribute("aria-expanded", "false");
     content.removeAttribute("data-open");
     runExit(content, () => {
@@ -132,30 +231,32 @@ export class UINavigationMenu extends HTMLElement {
   }
 
   #close(restoreFocus = false) {
-    if (this.#activeIndex < 0) return;
-    const index = this.#activeIndex;
-    this.#activeIndex = -1;
-    this.#hide(index);
+    const item = this.#active;
+    if (!item) return;
+    this.#active = null;
+    this.#hide(item);
     this.removeAttribute("data-open");
-    if (restoreFocus) this.#items[index]?.trigger?.focus();
+    if (restoreFocus) item.trigger.focus();
   }
 
-  #toggle(index: number) {
-    if (this.#activeIndex === index) this.#close();
-    else this.#open(index);
+  #toggle(item: NavItem | null) {
+    if (!item) return;
+    if (this.#active === item) this.#close();
+    else this.#open(item);
   }
 
   // ---- intent ----------------------------------------------------------
-  #onTriggerEnter(index: number) {
+  #onTriggerEnter(item: NavItem | null) {
+    if (!item) return;
     this.#intent.cancelClose();
     // Cancel any pending open from an earlier trigger so a fast hover sweep
     // doesn't queue several opens (which would flash panels or open one after
     // the pointer has already left).
     this.#intent.cancelOpen();
-    if (this.#activeIndex >= 0) {
-      this.#open(index); // already browsing — switch instantly
+    if (this.#active) {
+      this.#open(item); // already browsing — switch instantly
     } else {
-      this.#pendingIndex = index;
+      this.#pending = item;
       this.#intent.scheduleOpen();
     }
   }
@@ -163,12 +264,12 @@ export class UINavigationMenu extends HTMLElement {
   #scheduleClose = () => this.#intent.scheduleClose();
 
   // ---- keyboard --------------------------------------------------------
-  #onTriggerKeydown = (e: KeyboardEvent, index: number) => {
+  #onTriggerKeydown = (e: KeyboardEvent, item: NavItem | null) => {
+    if (!item) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      this.#open(index);
-      const content = this.#items[index]?.content;
-      if (content) getFocusable(content)[0]?.focus();
+      this.#open(item);
+      if (item.content) getFocusable(item.content)[0]?.focus();
     } else if (e.key === "Escape") {
       this.#close(true);
     }

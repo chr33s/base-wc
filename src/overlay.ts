@@ -30,6 +30,7 @@ import {
 import { onOutsidePress } from "./dismiss.ts";
 import { trapFocus } from "./focus-trap.ts";
 import { nextId } from "./id.ts";
+import type { ChangeReason, OpenChangeDetail } from "./reasons.ts";
 import { lockScroll } from "./scroll-lock.ts";
 import { runExit, setOpenState } from "./transitions.ts";
 
@@ -101,6 +102,7 @@ export interface OverlayOptions {
   /**
    * Host element that dispatches bubbling `open`/`close` CustomEvents as the
    * overlay's state changes, so components stop hand-rolling the dispatch.
+   * Each carries an {@link OpenChangeDetail} naming what caused the change.
    */
   events?: HTMLElement;
 }
@@ -110,13 +112,13 @@ export interface Overlay {
    * Lift the popup into the top layer, position it, and arm light-dismiss.
    * Returns whether state changed (false when already open).
    */
-  show(): boolean;
+  show(reason?: ChangeReason): boolean;
   /**
    * Play the exit transition, then drop the popup from the top layer. Returns
    * whether state changed. `restoreFocus` (default true) only applies to the
    * modal focus trap's restore.
    */
-  hide(options?: { restoreFocus?: boolean }): boolean;
+  hide(options?: { restoreFocus?: boolean; reason?: ChangeReason }): boolean;
   readonly open: boolean;
 }
 
@@ -154,7 +156,7 @@ export function overlay(popup: HTMLElement, options: OverlayOptions = {}) {
     get open() {
       return isOpen;
     },
-    show() {
+    show(reason: ChangeReason = "none") {
       if (isOpen) return false;
       isOpen = true;
       popup.setAttribute("data-open", "");
@@ -177,10 +179,15 @@ export function overlay(popup: HTMLElement, options: OverlayOptions = {}) {
         const within = options.dismiss.within().filter((el): el is Element => el != null);
         stopDismiss = onOutsidePress(within, options.dismiss.onDismiss);
       }
-      options.events?.dispatchEvent(new CustomEvent("open", { bubbles: true }));
+      options.events?.dispatchEvent(
+        new CustomEvent<OpenChangeDetail>("open", { bubbles: true, detail: { reason } }),
+      );
       return true;
     },
-    hide({ restoreFocus = true }: { restoreFocus?: boolean } = {}) {
+    hide({
+      restoreFocus = true,
+      reason = "none",
+    }: { restoreFocus?: boolean; reason?: ChangeReason } = {}) {
       if (!isOpen) return false;
       isOpen = false;
       trigger?.setAttribute("aria-expanded", "false");
@@ -204,7 +211,9 @@ export function overlay(popup: HTMLElement, options: OverlayOptions = {}) {
       // normally (on disconnect there is nothing sensible to focus).
       releaseFocus?.(restoreFocus);
       releaseFocus = null;
-      options.events?.dispatchEvent(new CustomEvent("close", { bubbles: true }));
+      options.events?.dispatchEvent(
+        new CustomEvent<OpenChangeDetail>("close", { bubbles: true, detail: { reason } }),
+      );
       return true;
     },
   };

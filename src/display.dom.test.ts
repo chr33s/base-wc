@@ -90,3 +90,33 @@ describe("ui-avatar", () => {
     expect(el.state).toBe("error");
   });
 });
+
+describe("range value text", () => {
+  it("announces a progress bar as a percentage of its range", () => {
+    document.body.innerHTML = `<ui-progress value="25" max="50"></ui-progress>`;
+    expect(document.querySelector("ui-progress")!.getAttribute("aria-valuetext")).toBe("50%");
+  });
+
+  it("announces the clamped value, never the raw one", () => {
+    // The bar stops at its end, so announcing 200 next to a full bar would be
+    // the one thing a screen-reader user cannot reconcile.
+    document.body.innerHTML = `<ui-meter value="200" max="100"></ui-meter>`;
+    const meter = document.querySelector("ui-meter")!;
+    expect(meter.getAttribute("aria-valuenow")).toBe("100");
+    expect(meter.getAttribute("aria-valuetext")).toBe("100%");
+  });
+
+  it("formats the clamped value when given Intl options", () => {
+    document.body.innerHTML = `<ui-meter value="150" max="100"></ui-meter>`;
+    const meter = document.querySelector("ui-meter")!;
+    meter.format = { style: "currency", currency: "USD", maximumFractionDigits: 0 };
+    expect(meter.getAttribute("aria-valuetext")).toBe("$100");
+  });
+
+  it("says nothing about an indeterminate bar's progress", () => {
+    document.body.innerHTML = `<ui-progress indeterminate></ui-progress>`;
+    const bar = document.querySelector("ui-progress")!;
+    expect(bar.hasAttribute("aria-valuenow")).toBe(false);
+    expect(bar.hasAttribute("aria-valuetext")).toBe(false);
+  });
+});

@@ -15,6 +15,9 @@
  * last one closes) sibling members open instantly. This is what makes sweeping
  * across a row of tooltips feel responsive instead of re-incurring the delay on
  * every one. Components without a `group` never participate.
+ *
+ * {@link onPointerMoved} is the third piece: the filter that tells a hover the
+ * user actually performed from one the page performed *at* them.
  */
 
 export interface HoverIntentOptions {
@@ -129,4 +132,36 @@ export function closeGroup(name: string | null, cooldown: number) {
   group.timer = window.setTimeout(() => {
     group.warm = false;
   }, cooldown);
+}
+
+/**
+ * Listen for `pointermove`s that actually moved the pointer.
+ *
+ * A scrolling list slides a new row under a *stationary* cursor, and Safari
+ * reports that as a `pointermove` at unchanged coordinates. Any handler that
+ * treats a move as "the user is hovering this" then yanks the highlight away
+ * from the item the keyboard just navigated to — the highlight chases the
+ * scroll instead of the arrow keys. Comparing against the last coordinates is
+ * what separates a hover the user performed from one the page performed at
+ * them, so every scrollable hover surface (the combobox's virtualized viewport,
+ * a long menu popup) needs the same guard.
+ *
+ * Returns a dispose that detaches the listener.
+ */
+export function onPointerMoved(
+  target: EventTarget,
+  handler: (e: PointerEvent) => void,
+  options?: AddEventListenerOptions,
+) {
+  let lastX: number | null = null;
+  let lastY: number | null = null;
+  const onMove = (event: Event) => {
+    const e = event as PointerEvent;
+    if (e.clientX === lastX && e.clientY === lastY) return;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    handler(e);
+  };
+  target.addEventListener("pointermove", onMove, options);
+  return () => target.removeEventListener("pointermove", onMove, options);
 }

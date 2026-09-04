@@ -8,7 +8,7 @@
  */
 import { define } from "./define.ts";
 import { FORM_CONTROL_TAGS } from "./form-control.ts";
-import { connectLightDom } from "./lifecycle.ts";
+import { LightDomElement } from "./lifecycle.ts";
 import { nextId } from "./id.ts";
 
 // Native controls plus the library's form-value-bearing elements (the shared
@@ -18,22 +18,13 @@ import { nextId } from "./id.ts";
 // below) is what suppresses interaction and submission.
 const CONTROLS = ["input", "select", "textarea", "button", ...FORM_CONTROL_TAGS].join(",");
 
-export class UIFieldset extends HTMLElement {
+export class UIFieldset extends LightDomElement {
   static observedAttributes = ["disabled"];
 
-  #wired = false;
   #managed = new Set<Element>();
 
-  connectedCallback() {
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
-  }
-
-  #wire() {
-    this.#wired = true;
+  protected override wire() {
+    this.wired = true;
     this.setAttribute("role", "group");
     const legend = this.querySelector<HTMLElement>("[data-fieldset-legend]");
     if (legend) {
@@ -44,7 +35,7 @@ export class UIFieldset extends HTMLElement {
   }
 
   attributeChangedCallback() {
-    if (this.#wired) this.#propagateDisabled();
+    if (this.wired) this.#propagateDisabled();
   }
 
   #propagateDisabled() {

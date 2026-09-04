@@ -9,6 +9,7 @@
  * and side-effect-free; behaviour is pinned against fixtures captured from real
  * d3-scale/d3-array (ISC © Mike Bostock) — see `chart-scale.dom.test.ts`.
  */
+import { clamp } from "./math.ts";
 
 export type ScaleType = "band" | "point" | "linear" | "log" | "sqrt" | "time";
 
@@ -447,7 +448,7 @@ export function pointScale(
 }
 
 function clampPadding(p: number) {
-  return Math.max(0, Math.min(1, p));
+  return clamp(p, 0, 1);
 }
 
 /** The continuous member of {@link ScaleType} — everything but the discrete `band`/`point`. */

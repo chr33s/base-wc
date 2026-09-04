@@ -27,7 +27,9 @@
  */
 import { arcPath } from "./chart-shape.ts";
 import { define } from "./define.ts";
-import { rangeNumber, syncRangeState } from "./range.ts";
+import { numberAttribute } from "./math.ts";
+import { localeOf } from "./text.ts";
+import { syncRangeState } from "./range.ts";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const DEG2RAD = Math.PI / 180;
@@ -42,22 +44,22 @@ export class UIGauge extends HTMLElement {
   #viewBoxHeight = 200;
 
   get min() {
-    return rangeNumber(this, "min", 0);
+    return numberAttribute(this, "min", 0);
   }
   get max() {
-    return rangeNumber(this, "max", 100);
+    return numberAttribute(this, "max", 100);
   }
   get value() {
-    return rangeNumber(this, "value", 0);
+    return numberAttribute(this, "value", 0);
   }
   get startAngle() {
-    return rangeNumber(this, "start-angle", -120);
+    return numberAttribute(this, "start-angle", -120);
   }
   get endAngle() {
-    return rangeNumber(this, "end-angle", 120);
+    return numberAttribute(this, "end-angle", 120);
   }
   get thickness() {
-    return rangeNumber(this, "thickness", 12);
+    return numberAttribute(this, "thickness", 12);
   }
 
   connectedCallback() {
@@ -71,8 +73,8 @@ export class UIGauge extends HTMLElement {
   }
 
   #build() {
-    this.#viewBoxWidth = this.hasAttribute("width") ? Number(this.getAttribute("width")) : 200;
-    this.#viewBoxHeight = this.hasAttribute("height") ? Number(this.getAttribute("height")) : 200;
+    this.#viewBoxWidth = numberAttribute(this, "width", 200);
+    this.#viewBoxHeight = numberAttribute(this, "height", 200);
 
     const svg = document.createElementNS(SVG_NS, "svg");
     svg.setAttribute("aria-hidden", "true");
@@ -91,6 +93,20 @@ export class UIGauge extends HTMLElement {
     this.#value = value;
   }
 
+  /**
+   * `Intl.NumberFormat` options for the announced value (`aria-valuetext`).
+   * Set as a property — an options object is not an attribute. Omit it and the
+   * value is announced as a percentage of its range.
+   */
+  get format(): Intl.NumberFormatOptions | null {
+    return this.#format;
+  }
+  set format(next: Intl.NumberFormatOptions | null) {
+    this.#format = next;
+    this.#sync();
+  }
+  #format: Intl.NumberFormatOptions | null = null;
+
   #sync() {
     const { min, max } = this;
     const { fraction } = syncRangeState(this, {
@@ -98,6 +114,8 @@ export class UIGauge extends HTMLElement {
       max,
       value: this.value,
       property: "--gauge",
+      format: this.#format,
+      locale: localeOf(this),
     });
 
     const startAngle = this.startAngle * DEG2RAD;

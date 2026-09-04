@@ -15,14 +15,15 @@
  * `role="alertdialog"`.
  */
 import { define } from "./define.ts";
-import { connectLightDom } from "./lifecycle.ts";
+import { UIModalPopupElement } from "./popup.ts";
+import { LightDomElement } from "./lifecycle.ts";
 import { labelFrom } from "./id.ts";
 import { type Overlay, overlay } from "./overlay.ts";
+import type { ChangeReason } from "./reasons.ts";
 
-export class UIDialog extends HTMLElement {
+export class UIDialog extends LightDomElement {
   #trigger: HTMLElement | null = null;
   #popup: HTMLElement | null = null;
-  #wired = false;
   #overlay: Overlay | null = null;
 
   get open() {
@@ -37,19 +38,11 @@ export class UIDialog extends HTMLElement {
     return this.hasAttribute("static") || this.hasAttribute("alert");
   }
 
-  connectedCallback() {
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
-  }
-
-  #wire() {
+  protected override wire() {
     this.#trigger = this.querySelector<HTMLElement>("[data-dialog-trigger]");
     this.#popup = this.querySelector<HTMLElement>("ui-dialog-popup");
     if (!this.#popup) return;
-    this.#wired = true;
+    this.wired = true;
 
     // Alert dialogs force an explicit action: role=alertdialog + no dismissal.
     if (this.hasAttribute("alert")) this.#popup.setAttribute("role", "alertdialog");
@@ -76,7 +69,7 @@ export class UIDialog extends HTMLElement {
       // handler owns toggling instead of double-firing with dismissal.
       dismiss: {
         within: () => [this.#popup, this.#trigger],
-        onDismiss: () => this.#close(),
+        onDismiss: () => this.#close("outside-press"),
         enabled: () => !this.static,
       },
       events: this,
@@ -87,43 +80,36 @@ export class UIDialog extends HTMLElement {
     this.#overlay?.hide({ restoreFocus: false });
   }
 
-  show() {
+  show(reason: ChangeReason = "none") {
     // Wire synchronously if `show()` is called in the same task as connection,
     // before the deferred wiring microtask has run — otherwise #popup is still
     // null and the open would silently no-op.
-    if (!this.#wired) this.#wire();
-    this.#overlay?.show();
+    if (!this.wired) this.wire();
+    this.#overlay?.show(reason);
   }
 
-  hide() {
-    this.#close();
+  hide(reason: ChangeReason = "none") {
+    this.#close(reason);
   }
 
-  #close() {
-    this.#overlay?.hide();
+  #close(reason: ChangeReason = "none") {
+    this.#overlay?.hide({ reason });
   }
 
   #onTriggerClick = () => {
-    if (this.open) this.#close();
-    else this.show();
+    if (this.open) this.#close("trigger-press");
+    else this.show("trigger-press");
   };
 
   #onPopupKeydown = (e: KeyboardEvent) => {
     if (e.key === "Escape" && !this.static) {
       e.preventDefault();
-      this.#close();
+      this.#close("escape-key");
     }
   };
 }
 
-export class UIDialogPopup extends HTMLElement {
-  connectedCallback() {
-    this.setAttribute("role", "dialog");
-    this.setAttribute("aria-modal", "true");
-    this.setAttribute("popover", "manual");
-    this.tabIndex = -1;
-  }
-}
+export class UIDialogPopup extends UIModalPopupElement {}
 
 export class UIDialogBackdrop extends HTMLElement {}
 

@@ -8,10 +8,9 @@
  * ancestry, so it defers activation to the group from the moment it is inserted
  * — a keypress or click is never handled twice.
  */
-import { connectLightDom } from "./lifecycle.ts";
 import { define } from "./define.ts";
 import { scopedQuery } from "./query.ts";
-import { roving, type Roving } from "./roving.ts";
+import { RovingElement, type RovingOptions } from "./roving.ts";
 
 export class UIToggle extends HTMLElement {
   static observedAttributes = ["pressed", "disabled"];
@@ -72,10 +71,7 @@ export class UIToggle extends HTMLElement {
   };
 }
 
-export class UIToggleGroup extends HTMLElement {
-  #roving: Roving | null = null;
-  #wired = false;
-
+export class UIToggleGroup extends RovingElement {
   /** `multiple` attribute → any number pressed; otherwise single-select. */
   get multiple() {
     return this.hasAttribute("multiple");
@@ -87,30 +83,26 @@ export class UIToggleGroup extends HTMLElement {
     return this.multiple ? pressed : (pressed[0] ?? null);
   }
 
-  connectedCallback() {
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
-  }
-
-  #wire() {
+  protected override wire() {
     // Only wire once at least one toggle exists, so a wiring pass that beats
     // the parser sees connectLightDom retry on the next light-DOM mutation
     // instead of silently claiming an empty host.
     if (this.#allToggles().length === 0) return;
-    this.#wired = true;
+    this.wired = true;
     this.setAttribute("role", "group");
 
-    this.#roving = roving(this, {
+    this.attachRoving();
+    this.addEventListener("click", this.#onClick);
+    this.roving?.refresh(0);
+  }
+
+  protected override rovingOptions(): RovingOptions {
+    return {
       items: () => this.#toggles(),
       orientation: "horizontal",
       loop: true,
       onActivate: (item) => this.#activate(item as UIToggle),
-    });
-    this.addEventListener("click", this.#onClick);
-    this.#roving.refresh(0);
+    };
   }
 
   // Scoped so a nested ui-toggle-group keeps ownership of its own toggles.

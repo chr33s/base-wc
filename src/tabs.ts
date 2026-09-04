@@ -6,19 +6,34 @@
  * (selection follows arrow focus) by default, or `manual` (Enter/Space to
  * select). Orientation picks the arrow axis.
  *
+ * An optional `<ui-tab-indicator>` (or `[data-tab-indicator]`) inside the list
+ * is positioned over the selected tab by publishing `--active-tab-left` /
+ * `-right` / `-top` / `-bottom` / `-width` / `-height` on it, plus
+ * `data-orientation` and `data-activation-direction` — the same headless split
+ * as anchor positioning: this element measures, consumer CSS draws.
+ *
  * Markup: a `<ui-tab-list>` of `[data-tab value]` buttons and sibling
  * `[data-tab-panel value]` elements.
  */
-import { connectLightDom } from "./lifecycle.ts";
 import { define } from "./define.ts";
 import { nextId } from "./id.ts";
 import { scopedQuery } from "./query.ts";
-import { roving, type Roving } from "./roving.ts";
+import { RovingElement, type RovingOptions } from "./roving.ts";
 
-export class UITabs extends HTMLElement {
+/** Direction the selection moved in, for enter/exit animations. */
+export type TabActivationDirection = "left" | "right" | "up" | "down" | "none";
+
+// `offsetLeft`/`offsetTop` are rounded to whole pixels and the error compounds
+// across the offset-parent chain, so agreement with the rect-based offset is
+// only ever checked to within this many pixels.
+const MAX_LAYOUT_ROUNDING_ERROR = 2;
+
+export class UITabs extends RovingElement {
   #list: HTMLElement | null = null;
-  #roving: Roving | null = null;
-  #wired = false;
+  #indicator: HTMLElement | null = null;
+  #resize: ResizeObserver | null = null;
+  /** Index of the previously selected tab, for `data-activation-direction`. */
+  #previousIndex = -1;
 
   get value() {
     return this.#selectedTab()?.getAttribute("value") ?? null;
@@ -34,20 +49,12 @@ export class UITabs extends HTMLElement {
     return this.getAttribute("activation") !== "manual";
   }
 
-  connectedCallback() {
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
-  }
-
-  #wire() {
+  protected override wire() {
     // Only wire once at least one tab exists, so a wiring pass that beats the
     // parser sees connectLightDom retry on the next light-DOM mutation instead
     // of silently claiming an empty host.
     if (this.#tabs().length === 0) return;
-    this.#wired = true;
+    this.wired = true;
     this.#list = scopedQuery(this, "ui-tab-list, [data-tab-list]")[0] ?? null;
     this.#list?.setAttribute("role", "tablist");
     this.#list?.setAttribute("aria-orientation", this.orientation);
@@ -65,17 +72,12 @@ export class UITabs extends HTMLElement {
       }
     }
 
-    const container = this.#list ?? this;
-    this.#roving = roving(container, {
-      items: () => this.#navTabs(),
-      orientation: this.orientation,
-      loop: true,
-      onMove: (tab) => {
-        if (this.#automatic) this.#select(tab, true);
-      },
-      onActivate: (tab) => this.#select(tab, true),
-    });
-    container.addEventListener("click", this.#onClick);
+    this.attachRoving();
+    (this.#list ?? this).addEventListener("click", this.#onClick);
+
+    this.#indicator =
+      scopedQuery<HTMLElement>(this, "ui-tab-indicator, [data-tab-indicator]")[0] ?? null;
+    this.#observeResize();
 
     const preset = this.getAttribute("value");
     const initial =
@@ -83,6 +85,18 @@ export class UITabs extends HTMLElement {
       this.#navTabs()[0] ??
       this.#tabs()[0];
     if (initial) this.#select(initial, false);
+  }
+
+  override connectedCallback() {
+    // `RovingElement.disconnectedCallback` drops this element's observer along
+    // with the roving helper, so a re-inserted host rebuilds both.
+    if (this.wired) this.#observeResize();
+    super.connectedCallback();
+  }
+
+  override disconnectedCallback() {
+    super.disconnectedCallback();
+    this.#resize?.disconnect();
   }
 
   // Child queries are scoped so a `ui-tabs` nested inside a panel keeps
@@ -96,6 +110,22 @@ export class UITabs extends HTMLElement {
   #panels() {
     return scopedQuery(this, "[data-tab-panel]");
   }
+  protected override get rovingContainer(): HTMLElement {
+    return this.#list ?? this;
+  }
+
+  protected override rovingOptions(): RovingOptions {
+    return {
+      items: () => this.#navTabs(),
+      orientation: this.orientation,
+      loop: true,
+      onMove: (tab) => {
+        if (this.#automatic) this.#select(tab, true);
+      },
+      onActivate: (tab) => this.#select(tab, true),
+    };
+  }
+
   #panelFor(value: string | null) {
     return this.#panels().find((p) => p.getAttribute("value") === value);
   }
@@ -106,14 +136,113 @@ export class UITabs extends HTMLElement {
   #select(tab: HTMLElement, emit: boolean) {
     if (tab.hasAttribute("disabled")) return;
     const value = tab.getAttribute("value");
-    for (const t of this.#tabs()) t.setAttribute("aria-selected", String(t === tab));
+    const tabs = this.#tabs();
+    const selectedIndex = tabs.indexOf(tab);
+    this.#setActivationDirection(selectedIndex);
+    this.#previousIndex = selectedIndex;
+    for (const t of tabs) t.setAttribute("aria-selected", String(t === tab));
     for (const panel of this.#panels()) {
       panel.toggleAttribute("hidden", panel.getAttribute("value") !== value);
     }
     const index = this.#navTabs().indexOf(tab);
-    if (index >= 0) this.#roving?.refresh(index);
+    if (index >= 0) this.roving?.refresh(index);
+    this.#positionIndicator();
     if (emit) this.dispatchEvent(new CustomEvent("change", { bubbles: true, detail: { value } }));
   }
+
+  // ---- indicator --------------------------------------------------------
+  /**
+   * Watch the list and the selected tab for size changes: the indicator is
+   * positioned from measured geometry, so a font swap, a container resize or a
+   * label change would otherwise leave it behind the tab it tracks.
+   */
+  #observeResize() {
+    if (!this.#indicator || typeof ResizeObserver === "undefined") return;
+    this.#resize ??= new ResizeObserver(() => this.#positionIndicator());
+    this.#resize.disconnect();
+    const list = this.#list ?? this;
+    this.#resize.observe(list);
+    for (const tab of this.#tabs()) this.#resize.observe(tab);
+  }
+
+  /** Record which way the selection travelled, for enter/exit animations. */
+  #setActivationDirection(next: number) {
+    const previous = this.#previousIndex;
+    let direction: TabActivationDirection = "none";
+    if (previous >= 0 && next >= 0 && previous !== next) {
+      const forward = next > previous;
+      direction =
+        this.orientation === "vertical" ? (forward ? "down" : "up") : forward ? "right" : "left";
+    }
+    this.#indicator?.setAttribute("data-activation-direction", direction);
+  }
+
+  /**
+   * Publish the selected tab's box, relative to the list's padding box, as the
+   * `--active-tab-*` custom properties. Two measurements are taken because
+   * neither is sufficient alone: layout offsets survive transforms but are
+   * rounded to whole pixels, while the rect-based offset is sub-pixel-precise
+   * but is projected viewport geometry that a rotation, skew or 3D transform
+   * anywhere in the ancestry warps beyond what dividing out the scale can undo.
+   * The precise value is adopted only when the two agree (up to layout
+   * rounding), which is exactly the case where no such distortion is in effect.
+   *
+   * The tab's *own* translation moves the rect but not its layout slot, so it
+   * is stripped before comparing — that lets the indicator follow a tab-local
+   * animation, which it does not inherit as the tab's sibling.
+   */
+  #positionIndicator = () => {
+    const indicator = this.#indicator;
+    const list = this.#list ?? this;
+    if (!indicator) return;
+    indicator.setAttribute("data-orientation", this.orientation);
+    const tab = this.#selectedTab();
+    // `getBoundingClientRect` is absent under happy-dom's bare elements; with no
+    // measurable geometry there is nothing to draw, so stay hidden.
+    if (!tab || typeof tab.getBoundingClientRect !== "function") {
+      indicator.hidden = true;
+      return;
+    }
+
+    const tabRect = tab.getBoundingClientRect();
+    const listRect = list.getBoundingClientRect();
+    const width = tab.offsetWidth;
+    const height = tab.offsetHeight;
+    // A list scaled by CSS reports a rect that no longer matches its layout
+    // size; divide the scale back out so both offsets are in layout pixels.
+    const scaleX = list.offsetWidth > 0 ? listRect.width / list.offsetWidth : 1;
+    const scaleY = list.offsetHeight > 0 ? listRect.height / list.offsetHeight : 1;
+
+    const layout = layoutOffset(tab, list);
+    let { left, top } = layout;
+
+    const rectLeft = (tabRect.left - listRect.left) / scaleX + list.scrollLeft - list.clientLeft;
+    const rectTop = (tabRect.top - listRect.top) / scaleY + list.scrollTop - list.clientTop;
+    // A degenerate scale divides by zero above; the resulting NaN/Infinity fails
+    // this same comparison, so it needs no guard of its own.
+    const translation = elementTranslation(tab);
+    if (
+      Math.abs(rectLeft - translation.x - left) <= MAX_LAYOUT_ROUNDING_ERROR &&
+      Math.abs(rectTop - translation.y - top) <= MAX_LAYOUT_ROUNDING_ERROR
+    ) {
+      left = rectLeft;
+      top = rectTop;
+    }
+
+    for (const [name, px] of [
+      ["--active-tab-left", left],
+      ["--active-tab-top", top],
+      ["--active-tab-right", list.scrollWidth - left - width],
+      ["--active-tab-bottom", list.scrollHeight - top - height],
+      ["--active-tab-width", width],
+      ["--active-tab-height", height],
+    ] as const) {
+      indicator.style.setProperty(name, `${px}px`);
+    }
+    // Never show it before the layout has settled — a zero-sized tab would
+    // otherwise flash the indicator collapsed at the list's origin.
+    indicator.hidden = !(width > 0 && height > 0);
+  };
 
   #onClick = (e: MouseEvent) => {
     const tab = (e.target as Element).closest("[data-tab]") as HTMLElement | null;
@@ -127,12 +256,114 @@ export class UITabs extends HTMLElement {
 
 export class UITabList extends HTMLElement {}
 
+/**
+ * The moving highlight behind the selected tab. Purely decorative — the tab
+ * list already announces which tab is selected — so it stays out of the
+ * accessibility tree.
+ */
+export class UITabIndicator extends HTMLElement {
+  connectedCallback() {
+    this.setAttribute("role", "presentation");
+    this.setAttribute("aria-hidden", "true");
+  }
+}
+
+/**
+ * The element's box relative to `ancestor`'s padding box, from layout offsets
+ * only. Immune to transforms, but rounded to whole pixels.
+ */
+function layoutOffset(element: HTMLElement, ancestor: HTMLElement) {
+  const own = cumulativeOffset(element);
+  const base = cumulativeOffset(ancestor);
+  let left = own.left - base.left - ancestor.clientLeft;
+  let top = own.top - base.top - ancestor.clientTop;
+
+  // Layout offsets describe layout, and scrolling does not change layout: a
+  // scroll container *between* the tab and the list moves the tab on screen
+  // while its layout slot stays put. Subtract that scroll so this offset stays
+  // comparable with the rect-based one — otherwise the difference reads as
+  // transform distortion and the indicator is left behind by the full scroll
+  // amount. The list's own scroll is excluded on purpose: the indicator lives
+  // inside it and scrolls along with the tab.
+  let node = element.parentElement;
+  while (node && node !== ancestor) {
+    left -= node.scrollLeft;
+    top -= node.scrollTop;
+    node = node.parentElement;
+  }
+  return { left, top };
+}
+
+function cumulativeOffset(element: HTMLElement) {
+  let left = 0;
+  let top = 0;
+  let node: HTMLElement | null = element;
+  while (node) {
+    left += node.offsetLeft;
+    top += node.offsetTop;
+    const parent = node.offsetParent as HTMLElement | null;
+    if (parent) {
+      left += parent.clientLeft;
+      top += parent.clientTop;
+    }
+    node = parent;
+  }
+  return { left, top };
+}
+
+/**
+ * The element's own 2D translation in CSS pixels: the translation component of
+ * the computed `transform` matrix plus the `translate` longhand, which is a
+ * separate property and never appears in that matrix. CSS composes the two as
+ * `translate → rotate → scale → transform`, so summing them is exact only
+ * without rotation or scale — enough here, because with either in play the
+ * caller's agreement check rejects the rect-based offset anyway.
+ */
+function elementTranslation(element: HTMLElement) {
+  const view = element.ownerDocument?.defaultView;
+  const style = view?.getComputedStyle?.(element);
+  if (!style) return { x: 0, y: 0 };
+
+  let x = 0;
+  let y = 0;
+  const { transform } = style;
+  if (transform && transform !== "none") {
+    const matrix = /matrix(?:3d)?\(([^)]+)\)/.exec(transform);
+    if (matrix) {
+      const values = matrix[1].split(",").map((part) => Number.parseFloat(part));
+      // `matrix()` carries translation in slots 4/5; `matrix3d()` in 12/13.
+      if (values.length === 6) [x, y] = [values[4], values[5]];
+      else if (values.length === 16) [x, y] = [values[12], values[13]];
+    }
+  }
+
+  // `getComputedStyle` resolves absolute and font-relative lengths to pixels
+  // but keeps percentages, which resolve against the tab's border box.
+  const { translate } = style;
+  if (translate && translate !== "none") {
+    const parts = translate.split(" ");
+    x += translateLength(parts[0], element.offsetWidth);
+    y += translateLength(parts[1], element.offsetHeight);
+  }
+  return { x, y };
+}
+
+/** One `translate` longhand component in pixels; anything unresolvable is 0. */
+function translateLength(value: string | undefined, reference: number) {
+  if (!value) return 0;
+  const numeric = Number.parseFloat(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return value.endsWith("%") ? (numeric / 100) * reference : numeric;
+}
+
 define("ui-tabs", UITabs);
 define("ui-tab-list", UITabList);
+define("ui-tab-indicator", UITabIndicator);
 
 declare global {
   interface HTMLElementTagNameMap {
     "ui-tabs": UITabs;
     "ui-tab-list": UITabList;
+    "ui-tab-indicator": UITabIndicator;
   }
 }

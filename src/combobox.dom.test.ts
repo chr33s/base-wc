@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { ComboboxChangeDetail, ComboboxCounts, ComboboxItem } from "./combobox.ts";
+import { createItems } from "./combobox.ts";
 import "./elements.ts";
 
 const key = (target: EventTarget, k: string) =>
@@ -275,5 +276,213 @@ describe("ui-combobox — form integration (reset / disabled / required)", () =>
     cb.formDisabledCallback(true);
     cb.formDisabledCallback(false);
     expect(input.disabled).toBe(true); // left alone
+  });
+});
+
+describe("ui-combobox — hover highlighting", () => {
+  it("ignores a pointermove that reports the same coordinates as the last one", async () => {
+    const { input } = await mount(PEOPLE);
+    input.click(); // open for browsing
+    const row = (i: number) => document.querySelector<HTMLElement>(`.cb-row[data-index="${i}"]`)!;
+    row(2).dispatchEvent(
+      new MouseEvent("pointermove", { clientX: 10, clientY: 40, bubbles: true }),
+    );
+    expect(row(2).hasAttribute("data-highlighted")).toBe(true);
+
+    key(input, "ArrowDown"); // keyboard moves the highlight on
+    expect(row(3).hasAttribute("data-highlighted")).toBe(true);
+
+    // Scrolling the list under a *stationary* cursor makes Safari emit a
+    // pointermove at unchanged coordinates. Acting on it would yank the
+    // highlight back to whatever row slid under the mouse.
+    row(2).dispatchEvent(
+      new MouseEvent("pointermove", { clientX: 10, clientY: 40, bubbles: true }),
+    );
+    expect(row(3).hasAttribute("data-highlighted")).toBe(true);
+    expect(row(2).hasAttribute("data-highlighted")).toBe(false);
+
+    // A genuine move still highlights.
+    row(2).dispatchEvent(
+      new MouseEvent("pointermove", { clientX: 11, clientY: 40, bubbles: true }),
+    );
+    expect(row(2).hasAttribute("data-highlighted")).toBe(true);
+  });
+});
+
+describe("ui-combobox — locale-aware filtering", () => {
+  afterEach(() => document.documentElement.removeAttribute("lang"));
+
+  it("folds the query with the document language", async () => {
+    document.documentElement.setAttribute("lang", "tr");
+    const { input, cb } = await mount([
+      { value: "1", label: "Isparta" },
+      { value: "2", label: "İzmir" },
+    ]);
+    type(input, "i");
+    // Turkish lowercases `I` to the dotless `ı`, so a query of `i` matches
+    // İzmir and not Isparta — the reverse of the Unicode default rules.
+    expect(cb.counts.matched).toBe(1);
+    expect(document.querySelector<HTMLElement>('.cb-row[data-index="0"]')!.textContent).toContain(
+      "İzmir",
+    );
+  });
+});
+
+describe("ui-combobox createItems", () => {
+  it("maps application records to options and hands the record back", async () => {
+    const users = [
+      { id: 1, name: "Ava" },
+      { id: 2, name: "Liam" },
+    ];
+    const items = createItems(users, { getValue: (u) => u.id, getLabel: (u) => u.name });
+    // Ids become strings — a form value is always text.
+    expect(items).toEqual([
+      { value: "1", label: "Ava", item: users[0] },
+      { value: "2", label: "Liam", item: users[1] },
+    ]);
+
+    const { cb, input } = await mount(items);
+    const onChange = vi.fn();
+    cb.addEventListener("change", (e) => onChange((e as CustomEvent<ComboboxChangeDetail>).detail));
+    input.click();
+    key(input, "Enter");
+
+    expect(onChange.mock.calls[0][0].item).toBe(users[0]);
+    expect(cb.value).toBe("1");
+  });
+});
+
+describe("ui-combobox readonly", () => {
+  it("opens and browses but refuses to commit", async () => {
+    const { cb, input } = await mount(PEOPLE);
+    cb.setAttribute("readonly", "");
+
+    expect(cb.hasAttribute("data-readonly")).toBe(true);
+    expect(input.readOnly).toBe(true);
+    expect(input.getAttribute("aria-readonly")).toBe("true");
+
+    input.click(); // still opens
+    expect(input.getAttribute("aria-expanded")).toBe("true");
+    key(input, "ArrowDown"); // still highlights
+    expect(input.getAttribute("aria-activedescendant")).toBeTruthy();
+
+    key(input, "Enter"); // …but the value is locked
+    expect(cb.value).toBe(null);
+  });
+
+  it("refuses the clear control while readonly", async () => {
+    document.body.innerHTML = `
+      <ui-combobox multiple readonly>
+        <input data-combobox-input />
+        <ui-combobox-chips></ui-combobox-chips>
+        <button data-combobox-clear type="button">Clear</button>
+        <ui-combobox-popup>
+          <ui-combobox-viewport><ui-combobox-spacer></ui-combobox-spacer></ui-combobox-viewport>
+        </ui-combobox-popup>
+      </ui-combobox>`;
+    await Promise.resolve();
+    const cb = document.querySelector("ui-combobox")!;
+    cb.items = PEOPLE;
+    cb.value = ["u1"];
+
+    document.querySelector<HTMLButtonElement>("[data-combobox-clear]")!.click();
+    expect(cb.value).toEqual(["u1"]);
+  });
+});
+
+describe("ui-combobox change reasons", () => {
+  it("names what caused each change", async () => {
+    const { cb, input } = await mount(PEOPLE);
+    const reasons: string[] = [];
+    cb.addEventListener("change", (e) =>
+      reasons.push((e as CustomEvent<ComboboxChangeDetail>).detail.reason),
+    );
+
+    input.click();
+    key(input, "Enter");
+    expect(reasons).toEqual(["item-press"]);
+  });
+});
+
+describe("ui-combobox grid mode", () => {
+  async function grid(columns: number, items = PEOPLE) {
+    document.body.innerHTML = `
+      <ui-combobox columns="${columns}">
+        <input data-combobox-input />
+        <ui-combobox-popup>
+          <ui-combobox-viewport><ui-combobox-spacer></ui-combobox-spacer></ui-combobox-viewport>
+        </ui-combobox-popup>
+      </ui-combobox>`;
+    await Promise.resolve();
+    const cb = document.querySelector("ui-combobox")!;
+    cb.items = items;
+    const input = document.querySelector<HTMLInputElement>("[data-combobox-input]")!;
+    const viewport = document.querySelector("ui-combobox-viewport")!;
+    return { cb, input, viewport };
+  }
+
+  it("announces the popup as a grid with its column count", async () => {
+    const { input, viewport } = await grid(3);
+    expect(viewport.getAttribute("role")).toBe("grid");
+    expect(viewport.getAttribute("aria-colcount")).toBe("3");
+    expect(input.getAttribute("aria-haspopup")).toBe("grid");
+    // 5 people over 3 columns is 2 rows.
+    expect(viewport.getAttribute("aria-rowcount")).toBe("2");
+  });
+
+  it("recycles rows of gridcells rather than bare options", async () => {
+    const { input, viewport } = await grid(3);
+    input.click();
+    const rows = [...viewport.querySelectorAll('[role="row"]')];
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows[0].getAttribute("aria-rowindex")).toBe("1");
+
+    const cells = [...rows[0].querySelectorAll<HTMLElement>('[role="gridcell"]')];
+    expect(cells).toHaveLength(3);
+    expect(cells.map((c) => c.textContent)).toEqual(["Ava Kim", "Liam Patel", "Noah Garcia"]);
+    expect(cells[1].getAttribute("aria-colindex")).toBe("2");
+  });
+
+  it("hides the spare cells of a short last row", async () => {
+    const { input, viewport } = await grid(3);
+    input.click();
+    const rows = [...viewport.querySelectorAll<HTMLElement>('[role="row"]')];
+    const lastCells = [...rows[1].querySelectorAll<HTMLElement>('[role="gridcell"]')];
+    // 5 items over 3 columns leaves the second row holding two.
+    expect(lastCells.map((c) => c.hidden)).toEqual([false, false, true]);
+    expect(lastCells[2].hasAttribute("data-index")).toBe(false);
+  });
+
+  it("walks the grid in two dimensions", async () => {
+    const { cb, input } = await grid(3);
+    input.click(); // opens with the first cell active
+    const activeIndex = () => {
+      const id = input.getAttribute("aria-activedescendant")!;
+      return Number(document.getElementById(id)!.dataset.index);
+    };
+    expect(activeIndex()).toBe(0);
+
+    key(input, "ArrowRight");
+    expect(activeIndex()).toBe(1);
+    key(input, "ArrowDown"); // one row down, same column
+    expect(activeIndex()).toBe(4);
+    key(input, "ArrowUp");
+    expect(activeIndex()).toBe(1);
+    expect(cb.value).toBe(null); // navigation alone commits nothing
+  });
+
+  it("wraps within the row and skips a column the last row does not reach", async () => {
+    const { input } = await grid(3);
+    input.click();
+    const activeIndex = () => {
+      const id = input.getAttribute("aria-activedescendant")!;
+      return Number(document.getElementById(id)!.dataset.index);
+    };
+
+    key(input, "ArrowLeft"); // wraps to the end of row 0
+    expect(activeIndex()).toBe(2);
+    // Column 2 has no cell in the short second row, so Down wraps back to row 0.
+    key(input, "ArrowDown");
+    expect(activeIndex()).toBe(2);
   });
 });

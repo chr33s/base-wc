@@ -135,3 +135,33 @@ describe("ui-dialog", () => {
     expect(document.documentElement.style.overflow).toBe("");
   });
 });
+
+describe("ui-dialog change reasons", () => {
+  it("names what opened and closed it", async () => {
+    document.body.innerHTML = `
+      <ui-dialog>
+        <button data-dialog-trigger>Open</button>
+        <ui-dialog-popup><p>Body</p></ui-dialog-popup>
+      </ui-dialog>`;
+    await Promise.resolve();
+    const dialog = document.querySelector("ui-dialog")!;
+    const trigger = document.querySelector<HTMLButtonElement>("[data-dialog-trigger]")!;
+    const popup = document.querySelector("ui-dialog-popup")!;
+    const reasons: string[] = [];
+    for (const type of ["open", "close"]) {
+      dialog.addEventListener(type, (e) =>
+        reasons.push(`${type}:${(e as CustomEvent<{ reason: string }>).detail.reason}`),
+      );
+    }
+
+    trigger.click();
+    popup.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    );
+    expect(reasons).toEqual(["open:trigger-press", "close:escape-key"]);
+
+    // A programmatic call has nothing more specific to say.
+    dialog.show();
+    expect(reasons.at(-1)).toBe("open:none");
+  });
+});

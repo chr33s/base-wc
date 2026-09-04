@@ -39,7 +39,9 @@
  * elements may name the same dimension; the lines stay until the last of them
  * is removed.
  */
-import { type AxisRegistration, type ChartValue, numberAttribute } from "./chart-core.ts";
+import { ChartChildElement } from "./chart-child.ts";
+import type { AxisRegistration, ChartValue } from "./chart-core.ts";
+import { numberAttribute } from "./math.ts";
 import { DEFAULT_TICK_COUNT } from "./chart-domain.ts";
 import { type Scale, isDiscreteScale } from "./chart-scale.ts";
 import type { UIChart } from "./chart.ts";
@@ -51,11 +53,8 @@ function formatTick(value: ChartValue) {
   return String(value);
 }
 
-export class UIChartAxis extends HTMLElement implements AxisRegistration {
+export class UIChartAxis extends ChartChildElement implements AxisRegistration {
   static observedAttributes = ["position", "key", "scale", "min", "max", "ticks"];
-
-  #chart: UIChart | null = null;
-  #unregister: (() => void) | null = null;
 
   /** Override the default tick text (`toLocaleDateString` for dates, `String` otherwise). */
   formatter: ((value: ChartValue, index: number) => string) | null = null;
@@ -95,26 +94,8 @@ export class UIChartAxis extends HTMLElement implements AxisRegistration {
     return numberAttribute(this, "ticks");
   }
 
-  connectedCallback() {
-    connectOwned(
-      this,
-      "ui-chart",
-      () => this.#unregister !== null,
-      (chart) => this.#wire(chart),
-    );
-  }
-
-  disconnectedCallback() {
-    this.#unregister?.();
-    this.#unregister = null;
-    this.#chart = null;
-  }
-
-  attributeChangedCallback() {
-    // This element *is* its registration — the chart reads the getters above
-    // directly, so the new value is already in place. Re-registering would
-    // only churn list order; a re-render request is the whole update.
-    this.#chart?.requestRender();
+  protected override register(chart: UIChart) {
+    return chart.registerAxis(this);
   }
 
   /**
@@ -153,11 +134,6 @@ export class UIChartAxis extends HTMLElement implements AxisRegistration {
       tick.textContent = this.formatter ? this.formatter(value, i) : formatTick(value);
     });
     for (let i = ticks.length; i < existing.length; i++) existing[i]?.remove();
-  }
-
-  #wire(chart: UIChart) {
-    this.#chart = chart;
-    this.#unregister = chart.registerAxis(this);
   }
 }
 

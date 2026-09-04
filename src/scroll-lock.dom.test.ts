@@ -41,3 +41,18 @@ describe("lockScroll", () => {
     unlock2();
   });
 });
+
+describe("lockScroll — foreign ownership", () => {
+  it("leaves overflow alone when something else took it over during the lock", () => {
+    const root = document.documentElement;
+    const unlock = lockScroll();
+    expect(root.style.overflow).toBe("hidden");
+    // A native <dialog>, a router transition or a third-party overlay claims
+    // the style while our lock is held.
+    root.style.overflow = "clip";
+    unlock();
+    // Restoring our snapshot here would unfreeze a page someone else froze.
+    expect(root.style.overflow).toBe("clip");
+    root.style.overflow = "";
+  });
+});

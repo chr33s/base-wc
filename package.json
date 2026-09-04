@@ -1,6 +1,6 @@
 {
   "name": "@chr33s/base-wc",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "Base UI ported to dependency-free, light-DOM web components.",
   "files": [
     "dist",
@@ -64,7 +64,7 @@
     "fsevents": true
   },
   "ref": {
-    "github.com/mui/base-ui": "849a0561321fd4e409512b5a8a4134d928598aa0",
+    "github.com/mui/base-ui": "47b40521eab921c2756bf9bdb0b0f07fbfdb8c8c",
     "github.com/mui/mui-x": "0b9e55e21217056c890ef03b069647f373093280"
   }
 }

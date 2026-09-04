@@ -9,16 +9,14 @@
  * Markup: `<ui-accordion-item>`s, each with a `[data-accordion-trigger]` and a
  * `[data-accordion-content]`.
  */
-import { connectLightDom } from "./lifecycle.ts";
+import { LightDomElement } from "./lifecycle.ts";
 import { define } from "./define.ts";
 import { nextId } from "./id.ts";
 import { scopedQuery } from "./query.ts";
 import { resolveNavKey } from "./roving.ts";
 import { syncDisclosure } from "./collapsible.ts";
 
-export class UIAccordion extends HTMLElement {
-  #wired = false;
-
+export class UIAccordion extends LightDomElement {
   get multiple() {
     return this.hasAttribute("multiple");
   }
@@ -29,15 +27,7 @@ export class UIAccordion extends HTMLElement {
     return this.multiple ? open : (open[0] ?? null);
   }
 
-  connectedCallback() {
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
-  }
-
-  #wire() {
+  protected override wire() {
     // Only wire once at least one complete trigger+content pair exists, so a
     // wiring pass that beats the parser sees connectLightDom retry on the next
     // light-DOM mutation instead of silently claiming an empty host.
@@ -45,7 +35,7 @@ export class UIAccordion extends HTMLElement {
       .map((item) => ({ item, ...this.#parts(item) }))
       .filter((pair) => pair.trigger && pair.content);
     if (pairs.length === 0) return;
-    this.#wired = true;
+    this.wired = true;
 
     for (const { item, trigger, content } of pairs) {
       if (!trigger || !content) continue;

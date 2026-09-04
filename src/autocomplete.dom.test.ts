@@ -76,7 +76,7 @@ describe("ui-autocomplete", () => {
     expect(input.value).toBe("Lisbon");
     expect(ac.value).toBe("Lisbon");
     expect(input.getAttribute("aria-expanded")).toBe("false");
-    expect(onChange.mock.calls[0][0]).toEqual({ value: "Lisbon" });
+    expect(onChange.mock.calls[0][0]).toEqual({ value: "Lisbon", reason: "item-press" });
   });
 
   it("commits a suggestion on click", async () => {
@@ -128,5 +128,22 @@ describe("ui-autocomplete — form integration (reset / disabled / required)", (
     ac.formDisabledCallback(false);
     expect(input.disabled).toBe(false);
     expect(ac.hasAttribute("data-disabled")).toBe(false);
+  });
+});
+
+describe("ui-autocomplete readonly", () => {
+  it("browses suggestions but never rewrites the text", async () => {
+    const { ac, input } = await mount();
+    ac.setAttribute("readonly", "");
+
+    expect(ac.hasAttribute("data-readonly")).toBe(true);
+    expect(input.readOnly).toBe(true);
+
+    // An arrow opens for browsing, since typing a query is impossible here.
+    key(input, "ArrowDown");
+    expect(input.getAttribute("aria-expanded")).toBe("true");
+
+    key(input, "Enter");
+    expect(input.value).toBe("");
   });
 });

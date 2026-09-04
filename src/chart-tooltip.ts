@@ -39,6 +39,7 @@ import type { ChartValue } from "./chart-core.ts";
 import type { UIChart, UIChartHighlightDetail } from "./chart.ts";
 import { define } from "./define.ts";
 import { connectOwned } from "./lifecycle.ts";
+import { UIPopupElement } from "./popup.ts";
 
 const TOKENS = ["{key}", "{label}", "{value}", "{index}"] as const;
 
@@ -56,7 +57,9 @@ function formatValue(value: ChartValue) {
   return String(value);
 }
 
-export class UIChartTooltip extends HTMLElement {
+export class UIChartTooltip extends UIPopupElement {
+  static override role = "tooltip";
+
   #wired = false;
   #chart: UIChart | null = null;
   #active = false;
@@ -65,9 +68,8 @@ export class UIChartTooltip extends HTMLElement {
     return this.getAttribute("trigger") === "item" ? "item" : "axis";
   }
 
-  connectedCallback() {
-    this.setAttribute("popover", "manual");
-    this.setAttribute("role", "tooltip");
+  override connectedCallback() {
+    super.connectedCallback();
     connectOwned(
       this,
       "ui-chart",

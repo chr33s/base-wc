@@ -108,6 +108,7 @@ const constructors: readonly CustomElementConstructor[] = [
   ui.UISliderThumb,
   ui.UISliderTrack,
   ui.UISwitch,
+  ui.UITabIndicator,
   ui.UITabList,
   ui.UITable,
   ui.UITabs,

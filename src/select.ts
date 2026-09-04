@@ -7,7 +7,10 @@
  * {@link onOutsidePress} light-dismiss) and the shared {@link listNav} keyboard
  * + typeahead engine (clamp policy — a select does not wrap past its ends). The
  * `multiple` attribute makes it a multi-select listbox (`aria-multiselectable`):
- * options toggle without closing and `value` is a `string[]`.
+ * options toggle without closing and `value` is a `string[]`. `orientation`
+ * picks the arrow axis, `readonly` locks the value while leaving the popup
+ * operable, and a press on the trigger can be dragged straight onto an option
+ * and released to choose it.
  *
  * **Default (native-first).** Author a native `<select>` inside the element —
  * `<ui-select name="fruit"><select>…<option>…</select></ui-select>` (`multiple`
@@ -29,10 +32,15 @@
  * item-indicator (check-mark) style hook.
  */
 import { define } from "./define.ts";
-import { type FormControl, formControl } from "./form-control.ts";
-import { connectLightDom } from "./lifecycle.ts";
+import { isRTL } from "./direction.ts";
+import { UIPopupElement } from "./popup.ts";
+import { FormAssociatedElement, type FormControlOptions } from "./form-control.ts";
 import { labelFrom, nextId } from "./id.ts";
 import { listNav, type ListNav } from "./list-nav.ts";
+import { clamp } from "./math.ts";
+import type { ChangeReason } from "./reasons.ts";
+import type { Orientation } from "./roving.ts";
+import { localeOf } from "./text.ts";
 import { adoptedControl, fireNativeChange, retireNative } from "./native.ts";
 import { type Overlay, overlay } from "./overlay.ts";
 
@@ -43,73 +51,74 @@ export interface SelectChangeDetail {
   readonly label: string;
   /** All currently-selected values, in option order (single → `[value]`). */
   readonly values: string[];
+  /** What caused the change — a press on an option, or Enter on one. */
+  readonly reason: ChangeReason;
 }
 
-export class UISelect extends HTMLElement {
-  static formAssociated = true;
-
-  #formControl: FormControl = formControl(this, {
-    adopted: () => this.#native != null,
-    value: () => this.#selectedInOrder()[0] ?? null, // any selection satisfies `required`
-    onReset: () => this.#onFormReset(),
-    onFormDisabled: (disabled) => {
-      this.#formDisabled = disabled;
-      this.toggleAttribute("data-disabled", disabled);
-    },
-  });
+export class UISelect extends FormAssociatedElement {
+  protected override formControlOptions(): FormControlOptions {
+    return {
+      adopted: () => this.#native != null,
+      value: () => this.#selectedInOrder()[0] ?? null, // any selection satisfies `required`
+      onReset: () => this.#onFormReset(),
+    };
+  }
+  protected override onFormDisabled(disabled: boolean) {
+    this.toggleAttribute("data-disabled", disabled);
+  }
+  static observedAttributes = ["readonly"];
+  attributeChangedCallback() {
+    this.#syncReadOnly();
+  }
   #uid = nextId("select");
   #trigger: HTMLElement | null = null;
   #valueEl: HTMLElement | null = null;
   #popup: HTMLElement | null = null;
   /** An adopted native `<select>` (progressive-enhancement mode), else `null`. */
   #native: HTMLSelectElement | null = null;
-  #wired = false;
-  #formDisabled = false;
   #activeIndex = -1;
   #selected = new Set<string>();
   #placeholder = "";
   #overlay: Overlay | null = null;
+  /** Whether the currently-open popup was opened by a press, not a click. */
+  #openedOnPress = false;
   #nav: ListNav = listNav({
     count: () => this.#options().length,
     activeIndex: () => this.#activeIndex,
     onActive: (i) => this.#setActive(i),
     loop: false, // POLICY: a select clamps at its ends (no wrap)
     onCommit: (i) => this.#activate(i),
-    onCancel: () => this.#close(),
-    onTab: () => this.#close({ restoreFocus: false }),
+    onCancel: () => this.#close({ reason: "escape-key" }),
+    onTab: () => this.#close({ restoreFocus: false, reason: "focus-out" }),
+    orientation: () => this.orientation,
+    rtl: () => isRTL(this),
     label: (i) => {
       const option = this.#options()[i];
       return option ? this.#labelOf(option) : "";
     },
+    locale: () => localeOf(this),
   });
 
-  get form() {
-    return this.#formControl.form;
-  }
-  get name() {
-    return this.getAttribute("name");
-  }
-  get validity() {
-    return this.#formControl.validity;
-  }
-  get validationMessage() {
-    return this.#formControl.validationMessage;
-  }
-  checkValidity() {
-    return this.#formControl.checkValidity();
-  }
-  reportValidity() {
-    return this.#formControl.reportValidity();
-  }
-  formResetCallback() {
-    this.#formControl.handleReset();
-  }
-  formDisabledCallback(disabled: boolean) {
-    this.#formControl.handleDisabled(disabled);
-  }
   /** Multi-select mode — options toggle without closing; `value` is an array. */
   get multiple() {
     return this.hasAttribute("multiple");
+  }
+  /**
+   * Locks the *value*, not the interaction. Per WAI-ARIA an `aria-readonly`
+   * widget is "not editable, but is otherwise operable", so the popup still
+   * opens, highlights and typeahead still work, and only committing a choice is
+   * refused — an author who wants the control inert wants `disabled`.
+   */
+  get readOnly() {
+    return this.hasAttribute("readonly");
+  }
+  /**
+   * The axis the arrow keys walk. `vertical` is the ARIA default for a listbox,
+   * so only the horizontal case is announced — on the popup, which owns the
+   * `listbox` role, rather than on this wrapper.
+   */
+  get orientation(): Orientation {
+    return this.getAttribute("orientation") === "horizontal" ? "horizontal" : "vertical";
   }
   get value() {
     const vals = this.#selectedInOrder();
@@ -118,35 +127,33 @@ export class UISelect extends HTMLElement {
   set value(next: string | string[] | null) {
     // Wire synchronously if the value is set in the same task as connection so
     // the trigger label reflects it (the imperative entry-point guard).
-    if (!this.#wired) this.#wire();
+    if (!this.wired) this.wire();
     const arr = next == null ? [] : Array.isArray(next) ? next : [next];
     this.#applySelection(new Set(this.multiple ? arr : arr.slice(0, 1)));
   }
 
-  connectedCallback() {
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
-  }
-
-  #wire() {
+  protected override wire() {
     this.#adoptNative();
     this.#trigger = this.querySelector<HTMLElement>("[data-select-trigger]");
     this.#valueEl = this.querySelector<HTMLElement>("[data-select-value]");
     this.#popup = this.querySelector<HTMLElement>("ui-select-popup");
     if (!this.#trigger || !this.#popup) return;
-    this.#wired = true;
+    this.wired = true;
 
     this.#popup.setAttribute("role", "listbox");
     if (this.multiple) this.#popup.setAttribute("aria-multiselectable", "true");
+    if (this.orientation === "horizontal") {
+      this.#popup.setAttribute("aria-orientation", "horizontal");
+    }
     this.#popup.tabIndex = -1;
+    this.#syncReadOnly();
     this.#placeholder = this.#valueEl?.textContent?.trim() ?? "";
     this.#trigger.addEventListener("click", this.#onTriggerClick);
+    this.#trigger.addEventListener("pointerdown", this.#onTriggerPointerDown);
     this.#trigger.addEventListener("keydown", this.#onTriggerKeydown);
     this.#popup.addEventListener("keydown", this.#onPopupKeydown);
     this.#popup.addEventListener("click", this.#onOptionClick);
+    this.#popup.addEventListener("pointerover", this.#onOptionPointerOver);
 
     this.#allOptions().forEach((o, i) => {
       o.setAttribute("role", "option");
@@ -168,7 +175,7 @@ export class UISelect extends HTMLElement {
       anchor: { ref: () => this.#trigger, options: { offset: 6, padding: 8 }, pair: "select" },
       dismiss: {
         within: () => [this.#popup, this.#trigger],
-        onDismiss: () => this.#close({ restoreFocus: false }),
+        onDismiss: () => this.#close({ restoreFocus: false, reason: "outside-press" }),
       },
       trigger: { element: this.#trigger, haspopup: "listbox", controls: "ui-select-popup" },
       events: this,
@@ -269,6 +276,18 @@ export class UISelect extends HTMLElement {
     for (const opt of this.#native.options) opt.selected = this.#selected.has(opt.value);
   }
 
+  /** Mirror `readonly` onto the host, the trigger and the listbox. */
+  #syncReadOnly() {
+    const readOnly = this.readOnly;
+    this.toggleAttribute("data-readonly", readOnly);
+    for (const el of [this.#trigger, this.#popup]) {
+      if (!el) continue;
+      el.toggleAttribute("data-readonly", readOnly);
+      if (readOnly) el.setAttribute("aria-readonly", "true");
+      else el.removeAttribute("aria-readonly");
+    }
+  }
+
   #allOptions() {
     return [...this.querySelectorAll<HTMLElement>("ui-select-option")];
   }
@@ -289,27 +308,32 @@ export class UISelect extends HTMLElement {
       .filter((v) => this.#selected.has(v));
   }
 
-  #open() {
-    if (!this.#overlay?.show()) return;
+  #open(reason: ChangeReason = "none") {
+    if (!this.#overlay?.show(reason)) return;
     this.#popup?.focus();
     const options = this.#options();
     const current = options.findIndex((o) => this.#selected.has(this.#valueOf(o)));
     this.#setActive(current >= 0 ? current : 0);
   }
 
-  #close({ restoreFocus = true }: { restoreFocus?: boolean } = {}) {
+  #close({
+    restoreFocus = true,
+    reason = "none",
+  }: { restoreFocus?: boolean; reason?: ChangeReason } = {}) {
     if (!this.#overlay?.open) return;
+    // The gesture that opened it is over, whatever ended it.
+    this.#openedOnPress = false;
     this.#activeIndex = -1;
     this.#popup?.removeAttribute("aria-activedescendant");
     this.#allOptions().forEach((o) => o.removeAttribute("data-highlighted"));
-    this.#overlay.hide();
+    this.#overlay.hide({ reason });
     if (restoreFocus) this.#trigger?.focus();
   }
 
   #setActive(index: number) {
     const options = this.#options();
     if (options.length === 0) return;
-    const i = Math.max(0, Math.min(index, options.length - 1));
+    const i = clamp(index, 0, options.length - 1);
     this.#activeIndex = i;
     this.#allOptions().forEach((o) => o.removeAttribute("data-highlighted"));
     const active = options[i];
@@ -346,16 +370,16 @@ export class UISelect extends HTMLElement {
     if (this.multiple && name) {
       const data = new FormData();
       for (const v of values) data.append(name, v);
-      this.#formControl.setValue(data);
+      this.formControl.setValue(data);
     } else {
-      this.#formControl.setValue(values[0] ?? null);
+      this.formControl.setValue(values[0] ?? null);
     }
   }
 
   /** `form.reset()`: restore the markup's `selected` options (native mode: the
    * browser restores the retired `<select>`'s defaults; re-seed from it). */
   #onFormReset() {
-    if (!this.#wired) return;
+    if (!this.wired) return;
     if (this.#native) {
       queueMicrotask(() => {
         const native = this.#native;
@@ -375,7 +399,9 @@ export class UISelect extends HTMLElement {
    * this toggles membership and stays open; otherwise it replaces + closes. */
   #activate(index: number) {
     const option = this.#options()[index];
-    if (!option) return;
+    // `readonly` locks the value: opening, highlighting and typeahead all still
+    // work, and committing is where it stops.
+    if (!option || this.readOnly) return;
     const v = this.#valueOf(option);
     if (this.multiple) {
       const next = new Set(this.#selected);
@@ -384,7 +410,7 @@ export class UISelect extends HTMLElement {
       this.#applySelection(next);
     } else {
       this.#applySelection(new Set([v]));
-      this.#close();
+      this.#close({ reason: "item-press" });
     }
     // Mirror a real <select>: a user selection fires `input` *and* `change` on
     // the native control (programmatic `.value =` fires neither — see the value
@@ -393,27 +419,87 @@ export class UISelect extends HTMLElement {
     this.dispatchEvent(
       new CustomEvent<SelectChangeDetail>("change", {
         bubbles: true,
-        detail: { value: v, label: this.#labelOf(option), values: this.#selectedInOrder() },
+        detail: {
+          value: v,
+          label: this.#labelOf(option),
+          values: this.#selectedInOrder(),
+          reason: "item-press",
+        },
       }),
     );
   }
 
+  /**
+   * Press-drag-release selection: pressing the trigger opens immediately so the
+   * *same* gesture can continue onto an option and release to choose it — the
+   * one-handed interaction a native `<select>` has always had. Opening on the
+   * press (rather than the click) is what makes it possible, since a click only
+   * lands after the release the user is already choosing with.
+   */
+  #onTriggerPointerDown = (e: PointerEvent) => {
+    if (this.formDisabled) return;
+    if (e.button !== 0 || this.#overlay?.open) return;
+    this.#openedOnPress = true;
+    this.#open("trigger-press");
+    // Bound on the window: the release routinely lands outside the trigger —
+    // that is the entire point of a drag — and often outside the popup too.
+    const finish = (up: PointerEvent) => {
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+      this.#endPressDrag(up);
+    };
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", finish);
+  };
+
+  /** Resolve a press-drag: commit what it landed on, or take back the open. */
+  #endPressDrag(e: PointerEvent) {
+    const target = e.target as Element | null;
+    const option = target?.closest?.("ui-select-option") as HTMLElement | null;
+    if (option && this.#popup?.contains(option)) {
+      const index = this.#options().indexOf(option);
+      if (index >= 0) this.#activate(index);
+      return;
+    }
+    // Released back on the trigger: an ordinary press-and-release, so the popup
+    // stays open for a second, separate press to choose from.
+    if (target && this.#trigger?.contains(target)) return;
+    // Released anywhere else — the user changed their mind mid-gesture, so the
+    // open is taken back rather than left hanging.
+    this.#close({ reason: "cancel-open" });
+  }
+
   #onTriggerClick = () => {
-    if (this.#formDisabled) return;
-    if (this.#overlay?.open) this.#close();
-    else this.#open();
+    if (this.formDisabled) return;
+    // The press already opened it; the click that completes the same gesture
+    // must not immediately toggle it shut again.
+    if (this.#openedOnPress) {
+      this.#openedOnPress = false;
+      return;
+    }
+    if (this.#overlay?.open) this.#close({ reason: "trigger-press" });
+    else this.#open("trigger-press");
   };
 
   #onTriggerKeydown = (e: KeyboardEvent) => {
-    if (this.#formDisabled) return;
+    if (this.formDisabled) return;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
-      this.#open();
+      this.#open("list-navigation");
     }
   };
 
   #onPopupKeydown = (e: KeyboardEvent) => {
     this.#nav.handle(e);
+  };
+
+  /** While a press-drag runs, the option under the pointer becomes the active one. */
+  #onOptionPointerOver = (e: PointerEvent) => {
+    if (!this.#openedOnPress) return;
+    const option = (e.target as Element).closest("ui-select-option") as HTMLElement | null;
+    if (!option || option.hasAttribute("disabled")) return;
+    const index = this.#options().indexOf(option);
+    if (index >= 0) this.#setActive(index);
   };
 
   #onOptionClick = (e: MouseEvent) => {
@@ -424,10 +510,12 @@ export class UISelect extends HTMLElement {
   };
 }
 
-export class UISelectPopup extends HTMLElement {
-  connectedCallback() {
-    this.setAttribute("popover", "manual");
-  }
+export class UISelectPopup extends UIPopupElement {
+  // Claimed here as well as in the root's wiring: a popup is unconditionally a
+  // listbox, and announcing it before the children connect lets them see the
+  // role-constrained context they sit in (`ui-separator` demotes itself inside
+  // one) without waiting for the root's deferred wiring pass.
+  static override role = "listbox";
 }
 export class UISelectOption extends HTMLElement {
   connectedCallback() {
@@ -442,10 +530,17 @@ export class UISelectGroup extends HTMLElement {
   }
 }
 
-/** The label for a `<ui-select-group>` (presentational). */
+/**
+ * The label for a `<ui-select-group>`. Hidden from the accessibility tree
+ * rather than merely `role="presentation"`: the group already announces this
+ * text through its `aria-labelledby`, so an exposed node would make a screen
+ * reader read the heading twice — once as the group's name and again as a
+ * sibling of the options. `aria-hidden` does not affect a name computed via
+ * `aria-labelledby`, so the group keeps its label.
+ */
 export class UISelectGroupLabel extends HTMLElement {
   connectedCallback() {
-    this.setAttribute("role", "presentation");
+    this.setAttribute("aria-hidden", "true");
   }
 }
 

@@ -5,10 +5,9 @@
  * items. Activation stays with each control. Navigation is the shared
  * {@link roving} helper; `orientation` picks the arrow axis.
  */
-import { connectLightDom } from "./lifecycle.ts";
 import { define } from "./define.ts";
 import { scopedQuery } from "./query.ts";
-import { roving, type Roving } from "./roving.ts";
+import { RovingElement, type RovingOptions } from "./roving.ts";
 
 // `ui-switch` / `ui-checkbox` are not listed: they enhance a native checkbox,
 // so their inner `input` is the real focus target (already matched below).
@@ -22,37 +21,30 @@ const TOOLBAR_ITEMS = [
   "[data-toolbar-item]",
 ].join(",");
 
-export class UIToolbar extends HTMLElement {
-  #roving: Roving | null = null;
-  #wired = false;
-
+export class UIToolbar extends RovingElement {
   get orientation() {
     return this.getAttribute("orientation") === "vertical" ? "vertical" : "horizontal";
   }
 
-  connectedCallback() {
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
-  }
-
-  #wire() {
+  protected override wire() {
     // Only wire once at least one item exists (disabled ones count — they still
     // prove the children are parsed), so a wiring pass that beats the parser
     // sees connectLightDom retry on the next light-DOM mutation instead of
     // silently claiming an empty host.
     if (scopedQuery(this, TOOLBAR_ITEMS).length === 0) return;
-    this.#wired = true;
+    this.wired = true;
     this.setAttribute("role", "toolbar");
     this.setAttribute("aria-orientation", this.orientation);
-    this.#roving = roving(this, {
+    this.attachRoving();
+    this.roving?.refresh(0);
+  }
+
+  protected override rovingOptions(): RovingOptions {
+    return {
       items: () => this.#items(),
       orientation: this.orientation,
       loop: true,
-    });
-    this.#roving.refresh(0);
+    };
   }
 
   // Stable membership regardless of the roving tab stop — do NOT filter on

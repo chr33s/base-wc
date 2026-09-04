@@ -208,7 +208,11 @@ describe("ui-select — groups and item indicator", () => {
     for (const g of groups) {
       const label = g.querySelector("ui-select-group-label")!;
       expect(g.getAttribute("role")).toBe("group");
-      expect(label.getAttribute("role")).toBe("presentation");
+      // Hidden from the a11y tree rather than presentational: the group already
+      // announces this text through aria-labelledby, and aria-hidden does not
+      // suppress a name computed that way — so the label is spoken once, as the
+      // group's name, instead of again as a node among the options.
+      expect(label.getAttribute("aria-hidden")).toBe("true");
       expect(g.getAttribute("aria-labelledby")).toBe(label.id);
       expect(label.id).toBeTruthy();
     }
@@ -454,5 +458,152 @@ describe("ui-select — multiple", () => {
     expect(options[2].getAttribute("aria-selected")).toBe("true");
     expect(options[0].getAttribute("aria-selected")).toBe("false");
     expect(valueEl.textContent).toBe("Go, Rust");
+  });
+});
+
+describe("ui-select readonly", () => {
+  it("opens and highlights but refuses to commit", async () => {
+    const { select, trigger, popup } = await mount("readonly");
+
+    expect(select.hasAttribute("data-readonly")).toBe(true);
+    expect(trigger.getAttribute("aria-readonly")).toBe("true");
+    expect(popup.getAttribute("aria-readonly")).toBe("true");
+
+    trigger.click(); // an aria-readonly widget is still operable
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    key(popup, "ArrowDown");
+    expect(popup.getAttribute("aria-activedescendant")).toBeTruthy();
+
+    key(popup, "Enter");
+    expect(select.value).toBe(null);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true"); // no commit, no close
+  });
+
+  it("ignores an option press while readonly", async () => {
+    const { select, trigger, options } = await mount("readonly");
+    trigger.click();
+    (options[0] as HTMLElement).click();
+    expect(select.value).toBe(null);
+  });
+
+  it("still accepts a programmatic value", async () => {
+    const { select } = await mount("readonly");
+    select.value = "banana"; // readonly locks the user, not the consumer
+    expect(select.value).toBe("banana");
+  });
+
+  it("drops the readonly state when the attribute goes away", async () => {
+    const { select, trigger, popup } = await mount("readonly");
+    select.removeAttribute("readonly");
+    expect(select.hasAttribute("data-readonly")).toBe(false);
+    expect(trigger.hasAttribute("aria-readonly")).toBe(false);
+
+    trigger.click(); // opens with the first option active
+    key(popup, "ArrowDown"); // …and now the second
+    key(popup, "Enter");
+    expect(select.value).toBe("banana");
+  });
+});
+
+describe("ui-select orientation", () => {
+  it("leaves the vertical default unannounced", async () => {
+    const { popup } = await mount();
+    expect(popup.hasAttribute("aria-orientation")).toBe(false);
+  });
+
+  it("announces a horizontal listbox on the role owner and walks it sideways", async () => {
+    const { select, trigger, popup } = await mount('orientation="horizontal"');
+    expect(popup.getAttribute("aria-orientation")).toBe("horizontal");
+    // The wrapper is not the listbox, so it carries nothing.
+    expect(select.hasAttribute("aria-orientation")).toBe(false);
+
+    trigger.click();
+    key(popup, "ArrowRight");
+    key(popup, "Enter");
+    expect(select.value).toBe("banana");
+  });
+});
+
+describe("ui-select change reasons", () => {
+  it("names an option press as the cause", async () => {
+    const { select, trigger, popup } = await mount();
+    const onChange = vi.fn();
+    select.addEventListener("change", (e) =>
+      onChange((e as CustomEvent<SelectChangeDetail>).detail.reason),
+    );
+    trigger.click();
+    key(popup, "Enter");
+    expect(onChange).toHaveBeenCalledWith("item-press");
+  });
+
+  it("names why the popup closed", async () => {
+    const { select, trigger, popup } = await mount();
+    const reasons: string[] = [];
+    select.addEventListener("close", (e) =>
+      reasons.push((e as CustomEvent<{ reason: string }>).detail.reason),
+    );
+    trigger.click();
+    key(popup, "Escape");
+    expect(reasons).toEqual(["escape-key"]);
+  });
+});
+
+describe("ui-select press-drag-release", () => {
+  const press = (el: Element) =>
+    el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+  const release = (el: Element) =>
+    el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+
+  it("opens on the press so one gesture can reach an option", async () => {
+    const { select, trigger, options } = await mount();
+    press(trigger);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+
+    // Dragging over an option highlights it…
+    options[1].dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
+    expect(options[1].hasAttribute("data-highlighted")).toBe(true);
+
+    release(options[1]); // …and releasing there chooses it
+    expect(select.value).toBe("banana");
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("stays open when the press is released on the trigger", async () => {
+    const { select, trigger } = await mount();
+    press(trigger);
+    release(trigger);
+    // An ordinary click: the popup waits for a second, separate press.
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(select.value).toBe(null);
+
+    trigger.click(); // the click completing that same gesture must not re-toggle
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("takes the open back when the gesture ends nowhere", async () => {
+    const { select, trigger } = await mount();
+    const reasons: string[] = [];
+    select.addEventListener("close", (e) =>
+      reasons.push((e as CustomEvent<{ reason: string }>).detail.reason),
+    );
+
+    press(trigger);
+    release(document.body);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(select.value).toBe(null);
+    expect(reasons).toEqual(["cancel-open"]);
+  });
+
+  it("ignores a non-primary button", async () => {
+    const { trigger } = await mount();
+    trigger.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 2 }));
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("commits nothing on a drag release while readonly", async () => {
+    const { select, trigger, options } = await mount("readonly");
+    press(trigger);
+    release(options[1]);
+    expect(select.value).toBe(null);
   });
 });

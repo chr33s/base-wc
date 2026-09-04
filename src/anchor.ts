@@ -9,9 +9,12 @@
  * `@floating-ui/dom`: it prefers placing the floating element below the
  * reference, flips above when it will not fit, and clamps horizontally into the
  * viewport. It reads {@link window.visualViewport} so it stays correct on iOS
- * Safari, where the URL bar and pinch-zoom shift the layout viewport.
+ * Safari, where the URL bar shifts the layout viewport — but ignores it while
+ * the page is pinch-zoomed, since there the visual viewport is the user's own
+ * pan window and following it would drag the popup around under their fingers.
  */
 import { nextId } from "./id.ts";
+import { clamp } from "./math.ts";
 
 /** True where CSS Anchor Positioning is natively supported. */
 export const SUPPORTS_ANCHOR =
@@ -85,7 +88,7 @@ export function arrowOffset(
 ) {
   const ideal = refCenter - floatStart - arrowSize / 2;
   const max = Math.max(padding, floatSize - arrowSize - padding);
-  return Math.max(padding, Math.min(ideal, max));
+  return clamp(ideal, padding, max);
 }
 
 /**
@@ -136,10 +139,25 @@ export function anchor(
     const r = reference.getBoundingClientRect();
     const fw = floating.offsetWidth;
     const fh = floating.offsetHeight;
-    const vw = vv?.width ?? window.innerWidth;
-    const vh = vv?.height ?? window.innerHeight;
-    const vLeft = vv?.offsetLeft ?? 0;
-    const vTop = vv?.offsetTop ?? 0;
+    // While the user is pinch-zoomed in, the visual viewport is a window the
+    // user pans over the page — reading it here would clamp the popup into
+    // whatever slice they are looking at and drag it around under their
+    // fingers, fighting the gesture. At scale 1 the two viewports differ only
+    // by the on-screen keyboard and the iOS URL bar, which is exactly what we
+    // *do* want to track, so only the zoomed case falls back to the layout
+    // viewport. That is `documentElement.client*`, not `window.inner*` — on
+    // iOS Safari the latter reports the *visual* size while zoomed, which
+    // would clamp into a visual-sized box pinned at the layout origin. The
+    // scale check carries a tolerance: pages without a viewport meta, and
+    // Chrome after DPR rounding, sit at 0.999… permanently.
+    const zoomed = Math.abs((vv?.scale ?? 1) - 1) > 0.01;
+    const root = document.documentElement;
+    const vw = zoomed ? root.clientWidth || window.innerWidth : (vv?.width ?? window.innerWidth);
+    const vh = zoomed
+      ? root.clientHeight || window.innerHeight
+      : (vv?.height ?? window.innerHeight);
+    const vLeft = zoomed ? 0 : (vv?.offsetLeft ?? 0);
+    const vTop = zoomed ? 0 : (vv?.offsetTop ?? 0);
 
     if (placement === "left" || placement === "right") {
       const leftRoom = r.left - vLeft - offset - padding;
@@ -154,9 +172,8 @@ export function anchor(
           ? fw <= leftRoom || leftRoom >= rightRoom
           : !(fw <= rightRoom || rightRoom >= leftRoom);
       const left = goLeft ? r.left - offset - fw : r.right + offset;
-      const top = Math.min(Math.max(r.top, vTop + padding), vTop + vh - fh - padding);
       const finalLeft = Math.max(left, vLeft + padding);
-      const finalTop = Math.max(top, vTop + padding);
+      const finalTop = clamp(r.top, vTop + padding, vTop + vh - fh - padding);
       floating.style.left = `${Math.round(finalLeft)}px`;
       floating.style.top = `${Math.round(finalTop)}px`;
       placeArrow(goLeft ? "left" : "right", (r.top + r.bottom) / 2, finalTop, fh);
@@ -179,6 +196,8 @@ export function anchor(
       placedBelow = false;
     }
 
+    // Deliberately *not* `clamp`: the min is outermost, so a popup wider than
+    // the viewport keeps its right edge in view rather than its left.
     const left = Math.min(Math.max(r.left, vLeft + padding), vLeft + vw - fw - padding);
     floating.style.left = `${Math.round(left)}px`;
     floating.style.top = `${Math.round(Math.max(top, vTop + padding))}px`;

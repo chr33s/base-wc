@@ -14,7 +14,8 @@
  * to the top), and lets `Space` extend a pending search so multi-word labels
  * stay reachable — `Space` only commits when no search is in progress.
  */
-import { resolveNavKey } from "./roving.ts";
+import { type Orientation, resolveNavKey } from "./roving.ts";
+import { clamp } from "./math.ts";
 import { normalize } from "./text.ts";
 
 export interface ListNavOptions {
@@ -26,6 +27,16 @@ export interface ListNavOptions {
   onActive: (index: number) => void;
   /** Wrap past the ends (menus, comboboxes) vs clamp (select). Default true. */
   loop?: boolean;
+  /**
+   * Arrow-key axis, read per keydown so a runtime `orientation` change applies.
+   * Default `"vertical"` — the axis of a listbox or menu.
+   */
+  orientation?: () => Orientation;
+  /**
+   * Whether the list reads right-to-left, read per keydown. Only consulted on
+   * the horizontal axis, where it swaps the arrows.
+   */
+  rtl?: () => boolean;
   /** Commit the active item (`Enter`, or bare `Space` when typeahead is on). */
   onCommit?: (index: number) => void;
   /** `Escape` pressed — close/cancel. The engine calls `preventDefault`. */
@@ -38,6 +49,11 @@ export interface ListNavOptions {
   homeEnd?: boolean;
   /** Typeahead label per index; omit to disable typeahead (text inputs). */
   label?: (index: number) => string;
+  /**
+   * BCP-47 locale for typeahead case folding, read per search so a runtime
+   * `lang` change applies. Omit to fold with the runtime default.
+   */
+  locale?: () => string | undefined;
 }
 
 export interface ListNav {
@@ -58,13 +74,14 @@ export function listNav(options: ListNavOptions) {
     clearTimeout(typeaheadTimer);
     typeahead += char;
     typeaheadTimer = window.setTimeout(() => (typeahead = ""), 500);
-    const q = normalize(typeahead);
+    const locale = options.locale?.();
+    const q = normalize(typeahead, locale);
     if (!q) return;
     const count = options.count();
     const start = options.activeIndex() + 1; // search from the item after the active one
     for (let n = 0; n < count; n++) {
       const i = (start + n) % count;
-      if (normalize(label(i)).startsWith(q)) {
+      if (normalize(label(i), locale).startsWith(q)) {
         options.onActive(i);
         return;
       }
@@ -105,20 +122,29 @@ export function listNav(options: ListNavOptions) {
       if (options.page && (event.key === "PageDown" || event.key === "PageUp") && count > 0) {
         event.preventDefault();
         const delta = options.page() * (event.key === "PageDown" ? 1 : -1);
-        options.onActive(Math.max(0, Math.min(current + delta, count - 1)));
+        options.onActive(clamp(current + delta, 0, count - 1));
         return true;
       }
       if (!homeEnd && (event.key === "Home" || event.key === "End")) return false;
       if (count > 0) {
+        const orientation = options.orientation?.() ?? "vertical";
+        const rtl = orientation !== "vertical" && (options.rtl?.() ?? false);
         // With nothing active yet, the arrows enter the list at its ends.
-        if (current < 0 && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+        const [forward, backward] =
+          orientation === "vertical"
+            ? (["ArrowDown", "ArrowUp"] as const)
+            : rtl
+              ? (["ArrowLeft", "ArrowRight"] as const)
+              : (["ArrowRight", "ArrowLeft"] as const);
+        if (current < 0 && (event.key === forward || event.key === backward)) {
           event.preventDefault();
-          options.onActive(event.key === "ArrowDown" ? 0 : count - 1);
+          options.onActive(event.key === forward ? 0 : count - 1);
           return true;
         }
         const target = resolveNavKey(event.key, count, Math.max(0, current), {
-          orientation: "vertical",
+          orientation,
           loop,
+          rtl,
         });
         if (target !== null) {
           event.preventDefault();

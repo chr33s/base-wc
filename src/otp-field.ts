@@ -14,38 +14,27 @@
  * `[data-otp-cells]` container to generate them into.
  */
 import { define } from "./define.ts";
-import { type FormControl, formControl } from "./form-control.ts";
-import { connectLightDom } from "./lifecycle.ts";
+import { numberAttribute } from "./math.ts";
+import { FormAssociatedElement, type FormControlOptions } from "./form-control.ts";
 
-export class UIOtpField extends HTMLElement {
-  static formAssociated = true;
+export class UIOtpField extends FormAssociatedElement {
   static observedAttributes = ["disabled", "length", "mode", "mask"];
 
-  #formControl: FormControl = formControl(this, {
-    value: () => this.value, // "" counts as empty for `required`
-    onReset: () => this.#onFormReset(),
-    onFormDisabled: (disabled) => {
-      this.#formDisabled = disabled;
-      if (this.#wired) this.#syncCells();
-    },
-  });
+  protected override formControlOptions(): FormControlOptions {
+    return {
+      value: () => this.value, // "" counts as empty for `required`
+      onReset: () => this.#onFormReset(),
+    };
+  }
+  protected override onFormDisabled() {
+    if (this.wired) this.#syncCells();
+  }
   #cells: HTMLInputElement[] = [];
   /** Cells whose listeners are already attached (cells persist across re-syncs). */
   #cellWired = new WeakSet<HTMLInputElement>();
-  #wired = false;
-  #formDisabled = false;
 
-  get name() {
-    return this.getAttribute("name");
-  }
-  get form() {
-    return this.#formControl.form;
-  }
   get length() {
-    return Math.max(1, Number(this.getAttribute("length") ?? 6));
-  }
-  get disabled() {
-    return this.hasAttribute("disabled") || this.#formDisabled;
+    return Math.max(1, numberAttribute(this, "length", 6));
   }
   get value() {
     return this.#cells.map((c) => c.value).join("");
@@ -57,24 +46,6 @@ export class UIOtpField extends HTMLElement {
     });
     this.#syncFormValue();
   }
-  get validity() {
-    return this.#formControl.validity;
-  }
-  get validationMessage() {
-    return this.#formControl.validationMessage;
-  }
-  checkValidity() {
-    return this.#formControl.checkValidity();
-  }
-  reportValidity() {
-    return this.#formControl.reportValidity();
-  }
-  formResetCallback() {
-    this.#formControl.handleReset();
-  }
-  formDisabledCallback(disabled: boolean) {
-    this.#formControl.handleDisabled(disabled);
-  }
 
   get #alphanumeric() {
     return this.getAttribute("mode") === "alphanumeric";
@@ -83,22 +54,14 @@ export class UIOtpField extends HTMLElement {
     return this.hasAttribute("mask");
   }
 
-  connectedCallback() {
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
-  }
-
   attributeChangedCallback() {
-    if (!this.#wired) return;
+    if (!this.wired) return;
     this.#syncCells();
     this.#syncFormValue(); // a `length` change can change the concatenated value
   }
 
-  #wire() {
-    this.#wired = true;
+  protected override wire() {
+    this.wired = true;
     this.setAttribute("role", "group");
     this.#syncCells();
     this.#syncFormValue();
@@ -215,7 +178,7 @@ export class UIOtpField extends HTMLElement {
   }
 
   #syncFormValue() {
-    this.#formControl.setValue(this.value);
+    this.formControl.setValue(this.value);
   }
 }
 

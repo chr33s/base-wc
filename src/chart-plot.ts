@@ -36,6 +36,7 @@ import {
 } from "./chart-core.ts";
 import { type ContinuousScale, type Scale, categoryKey, isDiscreteScale } from "./chart-scale.ts";
 import { round } from "./chart-shape.ts";
+import { clamp } from "./math.ts";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -149,7 +150,7 @@ export class ChartPlot {
       // a slot of its own step width, and clamp so a point near either end
       // (where even the intended outer padding is smaller than half a step)
       // never spills its hit rect past the plot's own edge.
-      const x = bandwidth ? start : Math.max(r0, Math.min(start - step / 2, r1 - step));
+      const x = bandwidth ? start : clamp(start - step / 2, r0, r1 - step);
       rect.setAttribute("x", String(round(x)));
       rect.setAttribute("width", String(Math.max(0, round(step))));
       rect.setAttribute("y", "0");

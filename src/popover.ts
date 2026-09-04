@@ -15,35 +15,28 @@
  * close focus returns to the trigger.
  */
 import { define } from "./define.ts";
-import { connectLightDom } from "./lifecycle.ts";
+import { UIPopupElement } from "./popup.ts";
+import { LightDomElement } from "./lifecycle.ts";
 import { getFocusable } from "./focus-trap.ts";
 import { labelFrom } from "./id.ts";
 import { type Overlay, overlay } from "./overlay.ts";
+import type { ChangeReason } from "./reasons.ts";
 
-export class UIPopover extends HTMLElement {
+export class UIPopover extends LightDomElement {
   #trigger: HTMLElement | null = null;
   #popup: HTMLElement | null = null;
   #arrow: HTMLElement | null = null;
-  #wired = false;
   #overlay: Overlay | null = null;
 
   get open() {
     return this.#overlay?.open ?? false;
   }
 
-  connectedCallback() {
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
-  }
-
-  #wire() {
+  protected override wire() {
     this.#trigger = this.querySelector<HTMLElement>("[data-popover-trigger]");
     this.#popup = this.querySelector<HTMLElement>("ui-popover-popup");
     if (!this.#trigger || !this.#popup) return;
-    this.#wired = true;
+    this.wired = true;
     this.#arrow = this.#popup.querySelector<HTMLElement>("ui-arrow");
 
     // Label/describe the dialog from its title/description so assistive tech
@@ -65,7 +58,7 @@ export class UIPopover extends HTMLElement {
     // focus stays on the trigger, and a popup-only listener would never hear it.
     this.addEventListener("keydown", this.#onKeydown);
     this.#popup.addEventListener("click", (e) => {
-      if ((e.target as Element).closest("[data-popover-close]")) this.hide();
+      if ((e.target as Element).closest("[data-popover-close]")) this.hide("close-press");
     });
 
     this.#overlay = overlay(this.#popup, {
@@ -76,7 +69,7 @@ export class UIPopover extends HTMLElement {
       },
       dismiss: {
         within: () => [this.#popup, this.#trigger],
-        onDismiss: () => this.#close({ restoreFocus: false }),
+        onDismiss: () => this.#close({ restoreFocus: false, reason: "outside-press" }),
       },
       trigger: { element: this.#trigger, haspopup: "dialog", controls: "ui-popover-popup" },
       events: this,
@@ -87,50 +80,50 @@ export class UIPopover extends HTMLElement {
     this.#close({ restoreFocus: false });
   }
 
-  show() {
+  show(reason: ChangeReason = "none") {
     // Wire synchronously if `show()` is called in the same task as connection,
     // before the deferred wiring microtask has run — otherwise the overlay is
     // still missing and the open would silently no-op.
-    if (!this.#wired) this.#wire();
-    if (!this.#overlay?.show()) return;
+    if (!this.wired) this.wire();
+    if (!this.#overlay?.show(reason)) return;
     // Focus the popup itself when it holds no focusable content, so Escape
     // still reaches the host instead of dying on the (blurred) page.
     (getFocusable(this.#popup!)[0] ?? this.#popup!).focus();
   }
 
-  hide() {
-    this.#close();
+  hide(reason: ChangeReason = "none") {
+    this.#close({ reason });
   }
 
-  toggle() {
-    if (this.open) this.#close();
-    else this.show();
+  toggle(reason: ChangeReason = "none") {
+    if (this.open) this.#close({ reason });
+    else this.show(reason);
   }
 
-  #close({ restoreFocus = true }: { restoreFocus?: boolean } = {}) {
+  #close({
+    restoreFocus = true,
+    reason = "none",
+  }: { restoreFocus?: boolean; reason?: ChangeReason } = {}) {
     if (!this.#overlay?.open) return;
     const restore =
       restoreFocus && this.#trigger != null && this.#popup!.contains(document.activeElement);
-    this.#overlay.hide();
+    this.#overlay.hide({ reason });
     if (restore) this.#trigger?.focus();
   }
 
-  #onTriggerClick = () => this.toggle();
+  #onTriggerClick = () => this.toggle("trigger-press");
 
   #onKeydown = (e: KeyboardEvent) => {
     if (e.key === "Escape" && this.open) {
       e.preventDefault();
-      this.#close();
+      this.#close({ reason: "escape-key" });
     }
   };
 }
 
-export class UIPopoverPopup extends HTMLElement {
-  connectedCallback() {
-    this.setAttribute("role", "dialog");
-    this.setAttribute("popover", "manual");
-    this.tabIndex = -1;
-  }
+export class UIPopoverPopup extends UIPopupElement {
+  static override role = "dialog";
+  static override focusable = true;
 }
 
 define("ui-popover", UIPopover);

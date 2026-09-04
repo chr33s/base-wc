@@ -1,15 +1,52 @@
 /**
- * Tiny numeric helpers shared by the value-bearing controls. `clampSnap` is the
- * one copy of the snap-to-step arithmetic (`ui-number-field`, `ui-slider`):
- * values snap to the step grid anchored at `min` (so `min="1" step="2"` yields
- * 1, 3, 5, …), clamp into `[min, max]`, and have the float noise from the grid
- * arithmetic trimmed so `0.1 + 0.2`-style artifacts never surface in values or
- * ARIA attributes.
+ * Tiny numeric helpers shared by the value-bearing controls, plus the one
+ * numeric-attribute reader the whole library uses.
+ *
+ * {@link clampSnap} is the one copy of the snap-to-step arithmetic
+ * (`ui-number-field`, `ui-slider`): values snap to the step grid anchored at
+ * `min` (so `min="1" step="2"` yields 1, 3, 5, …), clamp into `[min, max]`, and
+ * have the float noise from the grid arithmetic trimmed so `0.1 + 0.2`-style
+ * artifacts never surface in values or ARIA attributes.
+ *
+ * {@link numberAttribute} replaces the four different spellings of "read a
+ * number off an attribute" the components used to carry — a bare
+ * `Number(getAttribute(x) ?? d)` reads `delay=""` as `0` and `delay="soon"` as
+ * `NaN`, neither of which is what a fallback is for. One guarded reader treats
+ * absent, empty, and unparsable alike: none of them carries a number, so all
+ * three yield the fallback.
  */
 
 /** `n` clamped into `[min, max]`. */
 export function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
+}
+
+/**
+ * Parse an attribute-shaped string. Absent, empty, and unparsable
+ * (`NaN`/`±Infinity`) strings all yield `fallback` — a value that carries no
+ * number is not the same as one carrying `0`, and a typo should not poison
+ * arithmetic with `NaN`. A legitimate `0` is kept.
+ *
+ * Exposed alongside {@link numberAttribute} for the callers whose raw string
+ * does not come from `getAttribute` (`ui-slider` reads an adopted
+ * `<input type="range">`'s `min`/`max`/`step` properties).
+ */
+export function toNumber(raw: string | null | undefined): number | undefined;
+export function toNumber(raw: string | null | undefined, fallback: number): number;
+export function toNumber(raw: string | null | undefined, fallback?: number) {
+  if (raw == null || raw.trim() === "") return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+/**
+ * Read a numeric attribute with {@link toNumber}'s rules. Omit `fallback` to
+ * get `undefined` for "unauthored, derive it".
+ */
+export function numberAttribute(element: Element, name: string): number | undefined;
+export function numberAttribute(element: Element, name: string, fallback: number): number;
+export function numberAttribute(element: Element, name: string, fallback?: number) {
+  return toNumber(element.getAttribute(name), fallback as number);
 }
 
 export interface ClampSnapBounds {

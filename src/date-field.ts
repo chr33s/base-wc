@@ -11,28 +11,19 @@
  * native input stays the visible, submitting form value.
  */
 import { define } from "./define.ts";
-import { connectLightDom } from "./lifecycle.ts";
+import { LightDomElement } from "./lifecycle.ts";
 import { type CalendarChangeDetail, UICalendar, UICalendarPopup } from "./calendar.ts";
 import { adoptedControl, fireNativeChange } from "./native.ts";
 import { type PopoverField, popoverField } from "./popover-field.ts";
 
-export class UIDateField extends HTMLElement {
-  #wired = false;
+export class UIDateField extends LightDomElement {
   #input!: HTMLInputElement;
   #field: PopoverField | null = null;
 
-  connectedCallback() {
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
-  }
-
-  #wire() {
+  protected override wire() {
     const input = adoptedControl<HTMLInputElement>(this, 'input[type="date"]');
     if (!input) return;
-    this.#wired = true;
+    this.wired = true;
     this.#input = input;
 
     // `new UICalendar()` / `new UICalendarPopup()` (rather than createElement)

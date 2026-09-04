@@ -101,3 +101,27 @@ describe("ui-toolbar", () => {
     expect(document.activeElement).toBe(two);
   });
 });
+
+describe("ui-toolbar — re-attach", () => {
+  it("keeps the tab stop where the user left it when the toolbar is moved", async () => {
+    const { toolbar, b, i, u } = await mount();
+    b.focus();
+    key(toolbar, "ArrowRight");
+    expect(i.tabIndex).toBe(0);
+
+    // Moving a toolbar (a router swapping its container, a drag-reorder) runs
+    // disconnect + connect. The roving helper is dropped on disconnect so its
+    // observer stops firing on a detached tree; the replacement adopts the tab
+    // stop already marked in the DOM rather than walking it to the first item.
+    const host = document.createElement("div");
+    document.body.append(host);
+    host.append(toolbar);
+    await Promise.resolve();
+    expect(i.tabIndex).toBe(0);
+    expect(b.tabIndex).toBe(-1);
+
+    i.focus();
+    key(toolbar, "ArrowRight"); // skips disabled D → U
+    expect(document.activeElement).toBe(u);
+  });
+});

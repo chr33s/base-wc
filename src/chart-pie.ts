@@ -43,12 +43,8 @@
  * Not implemented: `cornerRadius` (MUI's rounded-slice-corner option) —
  * `chart-shape.ts`'s `arcPath` has no support for it (see its own module doc).
  */
-import {
-  type SeriesTypeDefinition,
-  numberAttribute,
-  registerSeriesType,
-  toNumeric,
-} from "./chart-core.ts";
+import { type SeriesTypeDefinition, registerSeriesType, toNumeric } from "./chart-core.ts";
+import { numberAttribute } from "./math.ts";
 import { SERIES_ATTRIBUTES, UIChartSeries } from "./chart-series.ts";
 import { arcPath, pieAngles } from "./chart-shape.ts";
 import { define } from "./define.ts";
@@ -69,7 +65,7 @@ export class UIChartPie extends UIChartSeries {
   readonly type = "pie";
 
   get innerRadius() {
-    return numberAttribute(this, "inner-radius") ?? 0;
+    return numberAttribute(this, "inner-radius", 0);
   }
 
   /** `undefined` when unauthored — `computeMarks` then fits the outer radius to the plot (see class doc). */
@@ -78,17 +74,17 @@ export class UIChartPie extends UIChartSeries {
   }
 
   get padAngle() {
-    return numberAttribute(this, "pad-angle") ?? 0;
+    return numberAttribute(this, "pad-angle", 0);
   }
 
   /** Radians, converted from the authored (degrees) `start-angle` attribute. */
   get startAngle() {
-    return (numberAttribute(this, "start-angle") ?? 0) * DEGREES_TO_RADIANS;
+    return numberAttribute(this, "start-angle", 0) * DEGREES_TO_RADIANS;
   }
 
   /** Radians, converted from the authored (degrees) `end-angle` attribute. */
   get endAngle() {
-    return (numberAttribute(this, "end-angle") ?? 360) * DEGREES_TO_RADIANS;
+    return numberAttribute(this, "end-angle", 360) * DEGREES_TO_RADIANS;
   }
 
   get sort() {

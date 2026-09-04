@@ -29,6 +29,7 @@ export {
   type ComboboxChangeDetail,
   type ComboboxCounts,
   type ComboboxItem,
+  createItems,
   UICombobox,
   UIComboboxChip,
   UIComboboxChips,
@@ -50,6 +51,7 @@ export { UIBanner } from "./banner.ts";
 export { type CalendarChangeDetail, UICalendar, UICalendarPopup } from "./calendar.ts";
 export { UIDateField } from "./date-field.ts";
 export { UIChartAxis, UIChartGrid } from "./chart-axis.ts";
+export { ChartChildElement } from "./chart-child.ts";
 export { UIChartBar } from "./chart-bar.ts";
 export {
   type AxisPosition,
@@ -70,7 +72,6 @@ export {
   isSeriesHighlighted,
   type MarkDescriptor,
   mergeExtent,
-  numberAttribute,
   numericExtent,
   parseTable,
   registerSeriesType,
@@ -149,13 +150,19 @@ export { UIDialog, UIDialogBackdrop, UIDialogPopup } from "./dialog.ts";
 export { onOutsidePress } from "./dismiss.ts";
 export { UIDrawer, UIDrawerBackdrop, UIDrawerPopup } from "./drawer.ts";
 export { type DropZoneChangeDetail, UIDropZone } from "./drop-zone.ts";
-export { UIField } from "./field.ts";
+export {
+  type FieldValidate,
+  type FieldValidateResult,
+  type FieldValidationMode,
+  UIField,
+} from "./field.ts";
 export { UIFieldset } from "./fieldset.ts";
 export { type FocusTrapOptions, getFocusable, trapFocus } from "./focus-trap.ts";
 export {
   type FormControl,
   formControl,
   FORM_CONTROL_TAGS,
+  FormAssociatedElement,
   type FormControlOptions,
   NativeCheckboxElement,
 } from "./form-control.ts";
@@ -168,11 +175,12 @@ export {
   hoverIntent,
   type HoverIntentOptions,
   isGroupWarm,
+  onPointerMoved,
   openGroup,
 } from "./intent.ts";
-export { connectLightDom, connectOwned } from "./lifecycle.ts";
+export { connectLightDom, connectOwned, LightDomElement } from "./lifecycle.ts";
 export { type ListNav, listNav, type ListNavOptions } from "./list-nav.ts";
-export { clamp, type ClampSnapBounds, clampSnap } from "./math.ts";
+export { clamp, type ClampSnapBounds, clampSnap, numberAttribute, toNumber } from "./math.ts";
 export { UIMeter } from "./meter.ts";
 export {
   type MenuSelectDetail,
@@ -187,25 +195,35 @@ export {
 } from "./menu.ts";
 export { UIMenubar } from "./menubar.ts";
 export { UINavContent, UINavItem, UINavList, UINavigationMenu } from "./navigation-menu.ts";
-export { adoptedControl, fireNativeChange, retireNative } from "./native.ts";
+export { adoptedControl, fireNativeChange, managedDisabled, retireNative } from "./native.ts";
 export { UINumberField } from "./number-field.ts";
 export { UIOtpField } from "./otp-field.ts";
 export { type Overlay, overlay, type OverlayOptions } from "./overlay.ts";
 export { ensureButton, type EnsureButtonOptions } from "./parts.ts";
-export { type PointerDragHandlers, trackPointerDrag } from "./pointer-drag.ts";
+export {
+  type DragAxis,
+  type DragDirection,
+  type PointerDragOptions,
+  trackPointerDrag,
+} from "./pointer-drag.ts";
 export { type PopoverField, popoverField, type PopoverFieldConfig } from "./popover-field.ts";
 export { UIPopover, UIPopoverPopup } from "./popover.ts";
+export { UIModalPopupElement, UIPopupElement } from "./popup.ts";
+export { HoverCardElement } from "./hover-card.ts";
 export { UIPreviewCard, UIPreviewCardContent } from "./preview-card.ts";
 export { UIProgress } from "./progress.ts";
-export { scopedQuery } from "./query.ts";
+export { isOwnedBy, scopedFirst, scopedQuery } from "./query.ts";
 export { UIRadio, UIRadioGroup } from "./radio.ts";
-export { rangeNumber, syncRangeState } from "./range.ts";
+export { syncRangeState } from "./range.ts";
+export { type ChangeReason, type OpenChangeDetail } from "./reasons.ts";
 export {
   type NavKeyOptions,
+  isDisabled,
   type Orientation,
   resolveNavKey,
   roving,
   type Roving,
+  RovingElement,
   type RovingOptions,
 } from "./roving.ts";
 export { UIScrollArea, UIScrollScrollbar, UIScrollThumb, UIScrollViewport } from "./scroll-area.ts";
@@ -232,9 +250,9 @@ export {
   type UITableSortDirection,
   type UITableVariant,
 } from "./table.ts";
-export { UITabList, UITabs } from "./tabs.ts";
-export { normalize } from "./text.ts";
-export { type ToastOptions, toast, UIToast, UIToastViewport } from "./toast.ts";
+export { type TabActivationDirection, UITabIndicator, UITabList, UITabs } from "./tabs.ts";
+export { localeOf, normalize } from "./text.ts";
+export { type ToastOptions, toast, UIToast, UIToastViewport, updateToast } from "./toast.ts";
 export { UIToggle, UIToggleGroup } from "./toggle.ts";
 export { runExit, setOpenState } from "./transitions.ts";
 export { UIToolbar } from "./toolbar.ts";

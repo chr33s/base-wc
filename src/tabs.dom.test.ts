@@ -135,4 +135,73 @@ describe("ui-tabs", () => {
     expect(tabs.value).toBe("late");
     expect(tabs.querySelector<HTMLElement>("[data-tab-panel]")!.hidden).toBe(false);
   });
+
+  it("positions an indicator over the selected tab", async () => {
+    document.body.innerHTML = `
+      <ui-tabs value="a">
+        <ui-tab-list>
+          <button data-tab value="a">A</button>
+          <button data-tab value="b">B</button>
+          <ui-tab-indicator></ui-tab-indicator>
+        </ui-tab-list>
+        <div data-tab-panel value="a">A</div>
+        <div data-tab-panel value="b">B</div>
+      </ui-tabs>`;
+    await Promise.resolve();
+    const indicator = document.querySelector<HTMLElement>("ui-tab-indicator")!;
+
+    // Decorative: the tab list already announces which tab is selected.
+    expect(indicator.getAttribute("role")).toBe("presentation");
+    expect(indicator.getAttribute("aria-hidden")).toBe("true");
+    expect(indicator.getAttribute("data-orientation")).toBe("horizontal");
+    // Every geometry variable is published, even at zero size.
+    expect(indicator.style.getPropertyValue("--active-tab-left")).toBe("0px");
+    expect(indicator.style.getPropertyValue("--active-tab-width")).toBe("0px");
+    // Nothing measurable yet, so it stays out of sight rather than flashing
+    // collapsed at the list's origin.
+    expect(indicator.hidden).toBe(true);
+  });
+
+  it("reports which way the selection travelled", async () => {
+    document.body.innerHTML = `
+      <ui-tabs value="a">
+        <ui-tab-list>
+          <button data-tab value="a">A</button>
+          <button data-tab value="b">B</button>
+          <ui-tab-indicator></ui-tab-indicator>
+        </ui-tab-list>
+        <div data-tab-panel value="a">A</div>
+        <div data-tab-panel value="b">B</div>
+      </ui-tabs>`;
+    await Promise.resolve();
+    const tabs = document.querySelector("ui-tabs")!;
+    const indicator = document.querySelector<HTMLElement>("ui-tab-indicator")!;
+    // The first selection has no predecessor to have travelled from.
+    expect(indicator.getAttribute("data-activation-direction")).toBe("none");
+
+    tabs.value = "b";
+    expect(indicator.getAttribute("data-activation-direction")).toBe("right");
+    tabs.value = "a";
+    expect(indicator.getAttribute("data-activation-direction")).toBe("left");
+  });
+
+  it("swaps the indicator direction axis when vertical", async () => {
+    document.body.innerHTML = `
+      <ui-tabs value="a" orientation="vertical">
+        <ui-tab-list>
+          <button data-tab value="a">A</button>
+          <button data-tab value="b">B</button>
+          <ui-tab-indicator></ui-tab-indicator>
+        </ui-tab-list>
+        <div data-tab-panel value="a">A</div>
+        <div data-tab-panel value="b">B</div>
+      </ui-tabs>`;
+    await Promise.resolve();
+    const tabs = document.querySelector("ui-tabs")!;
+    const indicator = document.querySelector<HTMLElement>("ui-tab-indicator")!;
+    expect(indicator.getAttribute("data-orientation")).toBe("vertical");
+
+    tabs.value = "b";
+    expect(indicator.getAttribute("data-activation-direction")).toBe("down");
+  });
 });

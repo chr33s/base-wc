@@ -7,7 +7,7 @@
  * pagination state, responsive-list metadata on cells, and click delegation from
  * a row to an existing in-row primary action.
  */
-import { connectLightDom } from "./lifecycle.ts";
+import { LightDomElement } from "./lifecycle.ts";
 import { define } from "./define.ts";
 
 export type UITableVariant = "auto" | "list" | "table";
@@ -85,7 +85,7 @@ const numberValue = (text: string) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-export class UITable extends HTMLElement {
+export class UITable extends LightDomElement {
   static observedAttributes = [
     "variant",
     "loading",
@@ -94,7 +94,6 @@ export class UITable extends HTMLElement {
     "has-next-page",
   ];
 
-  #wired = false;
   #table: HTMLTableElement | null = null;
   #generatedPagination: HTMLElement | null = null;
   #mutation: MutationObserver | null = null;
@@ -140,14 +139,10 @@ export class UITable extends HTMLElement {
       .map((box) => box.value);
   }
 
-  connectedCallback() {
+  override connectedCallback() {
     this.addEventListener("click", this.#onClick);
     this.addEventListener("change", this.#onChange);
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
+    super.connectedCallback();
   }
 
   disconnectedCallback() {
@@ -155,7 +150,7 @@ export class UITable extends HTMLElement {
     this.removeEventListener("change", this.#onChange);
     this.#mutation?.disconnect();
     this.#mutation = null;
-    this.#wired = false;
+    this.wired = false;
   }
 
   attributeChangedCallback() {
@@ -173,13 +168,13 @@ export class UITable extends HTMLElement {
     });
   }
 
-  #wire() {
+  protected override wire() {
     // Only wire once the authored <table> exists, so a wiring pass that beats
     // the parser — or a renderer that appends the table after upgrade — sees
     // connectLightDom retry on the next light-DOM mutation instead of silently
     // claiming a table-less host that nothing would ever enhance.
     if (!this.querySelector("table")) return;
-    this.#wired = true;
+    this.wired = true;
     this.refresh();
     this.#mutation = new MutationObserver(() => this.refresh());
     this.#observe();
@@ -209,7 +204,7 @@ export class UITable extends HTMLElement {
     this.dataset.variant = this.variant;
     this.toggleAttribute("data-loading", this.loading);
     this.setAttribute("aria-busy", String(this.loading));
-    if (this.#wired) this.#syncPagination();
+    if (this.wired) this.#syncPagination();
   }
 
   #headers() {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readdir } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import process from "node:process";
 import { build } from "vite";
 
@@ -87,14 +87,25 @@ for (const [entry, output] of [
   assert.match(output, /ui-switch/, `${entry} omitted the requested element registration`);
 }
 
-assert.ok(definitions(registerAll) >= 80, "register-all import was incorrectly tree-shaken");
+// The exact roster size, not a floor: a floor cannot catch a *single* element
+// omitted from `elements.ts`'s roster (or dropped by tree-shaking), which is
+// precisely the drift that ships a silently unregistered component.
+const rosterSize = ((await readFile("src/elements.ts", "utf8")).match(/\bui\.UI\w+/g) ?? []).length;
+assert.ok(rosterSize >= 80, `elements.ts roster looks truncated (${rosterSize} entries)`);
+
+assert.equal(
+  definitions(registerAll),
+  rosterSize,
+  "register-all bundle registered a different number of elements than the roster lists",
+);
 assert.match(registerAll, /ui-combobox/, "register-all output omitted ui-combobox");
 assert.doesNotMatch(registerAll, /__perseusUI/, "register-all leaked a package global");
 // The source variant is a side-effect-only import too: it must be pinned by
 // package.json `sideEffects` ("./src/elements.ts") or bundlers drop it whole.
-assert.ok(
-  definitions(sourceRegisterAll) >= 80,
-  "source register-all import was incorrectly tree-shaken",
+assert.equal(
+  definitions(sourceRegisterAll),
+  rosterSize,
+  "source register-all bundle registered a different number of elements than the roster lists",
 );
 assert.match(
   import.meta.resolve("@chr33s/base-wc/src/styles.css"),

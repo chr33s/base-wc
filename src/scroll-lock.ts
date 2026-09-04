@@ -5,6 +5,15 @@
  * matching padding so the page does not shift. It is **reference-counted**:
  * nested/stacked overlays each take a lock and the page only unfreezes once the
  * last one releases.
+ *
+ * Release **hands the styles back to whoever holds them now**, not to whatever
+ * was there when the first lock was taken. This library is never the only thing
+ * on a page: a native `<dialog>`, a third-party overlay or a router transition
+ * can set `overflow` while our lock is held, and blindly restoring a snapshot
+ * from minutes earlier would either strand the page unscrollable or unfreeze
+ * one that another component still wants frozen. So the values we wrote are
+ * remembered, and on release each is restored only if it is still exactly what
+ * we left — otherwise someone else has taken ownership and is left alone.
  */
 
 let count = 0;
@@ -19,11 +28,15 @@ export function lockScroll() {
     const previousOverflow = root.style.overflow;
     const previousPadding = body.style.paddingRight;
     const scrollbar = window.innerWidth - root.clientWidth;
+    const appliedPadding = scrollbar > 0 ? `${scrollbar}px` : null;
     root.style.overflow = "hidden";
-    if (scrollbar > 0) body.style.paddingRight = `${scrollbar}px`;
+    if (appliedPadding) body.style.paddingRight = appliedPadding;
     restore = () => {
-      root.style.overflow = previousOverflow;
-      body.style.paddingRight = previousPadding;
+      // "hidden" is what we wrote; anything else means the page moved on.
+      if (root.style.overflow === "hidden") root.style.overflow = previousOverflow;
+      if (appliedPadding && body.style.paddingRight === appliedPadding) {
+        body.style.paddingRight = previousPadding;
+      }
     };
   }
 

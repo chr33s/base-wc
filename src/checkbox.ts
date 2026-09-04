@@ -24,7 +24,7 @@
  */
 import { define } from "./define.ts";
 import { NativeCheckboxElement } from "./form-control.ts";
-import { connectLightDom } from "./lifecycle.ts";
+import { LightDomElement } from "./lifecycle.ts";
 
 export class UICheckbox extends NativeCheckboxElement {
   get indeterminate() {
@@ -41,20 +41,11 @@ export class UICheckbox extends NativeCheckboxElement {
   }
 }
 
-export class UICheckboxGroup extends HTMLElement {
-  #wired = false;
+export class UICheckboxGroup extends LightDomElement {
   #master: UICheckbox | null = null;
 
-  connectedCallback() {
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
-  }
-
-  #wire() {
-    this.#wired = true;
+  protected override wire() {
+    this.wired = true;
     this.setAttribute("role", "group");
     this.#master = this.querySelector<UICheckbox>("ui-checkbox[data-checkbox-all]");
     this.addEventListener("change", this.#onChange);

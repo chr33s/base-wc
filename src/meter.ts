@@ -7,19 +7,35 @@
  * the fill.
  */
 import { define } from "./define.ts";
-import { rangeNumber, syncRangeState } from "./range.ts";
+import { clamp, numberAttribute } from "./math.ts";
+import { localeOf } from "./text.ts";
+import { syncRangeState } from "./range.ts";
 
 export class UIMeter extends HTMLElement {
   static observedAttributes = ["value", "min", "max", "low", "high", "optimum"];
 
   get min() {
-    return rangeNumber(this, "min", 0);
+    return numberAttribute(this, "min", 0);
   }
   get max() {
-    return rangeNumber(this, "max", 100);
+    return numberAttribute(this, "max", 100);
   }
+  /**
+   * `Intl.NumberFormat` options for the announced value (`aria-valuetext`).
+   * Set as a property — an options object is not an attribute. Omit it and the
+   * value is announced as a percentage of its range.
+   */
+  get format(): Intl.NumberFormatOptions | null {
+    return this.#format;
+  }
+  set format(next: Intl.NumberFormatOptions | null) {
+    this.#format = next;
+    this.#sync();
+  }
+  #format: Intl.NumberFormatOptions | null = null;
+
   get value() {
-    return rangeNumber(this, "value", 0);
+    return numberAttribute(this, "value", 0);
   }
 
   connectedCallback() {
@@ -33,14 +49,21 @@ export class UIMeter extends HTMLElement {
 
   #sync() {
     const { min, max } = this;
-    const { value } = syncRangeState(this, { min, max, value: this.value, property: "--meter" });
+    const { value } = syncRangeState(this, {
+      min,
+      max,
+      value: this.value,
+      property: "--meter",
+      format: this.#format,
+      locale: localeOf(this),
+    });
     this.setAttribute("data-state", this.#level(value, min, max));
   }
 
   #level(value: number, min: number, max: number) {
-    const low = Math.max(min, Math.min(rangeNumber(this, "low", min), max));
-    const high = Math.max(low, Math.min(rangeNumber(this, "high", max), max));
-    const optimum = Math.max(min, Math.min(rangeNumber(this, "optimum", (min + max) / 2), max));
+    const low = clamp(numberAttribute(this, "low", min), min, max);
+    const high = clamp(numberAttribute(this, "high", max), low, max);
+    const optimum = clamp(numberAttribute(this, "optimum", (min + max) / 2), min, max);
     const region = (x: number) => (x < low ? 0 : x > high ? 2 : 1);
     const distance = Math.abs(region(value) - region(optimum));
     return distance === 0 ? "optimal" : distance === 1 ? "suboptimal" : "poor";

@@ -8,7 +8,7 @@
  * `aria-label`, and an optional glyph. An authored element is returned as-is —
  * its label, content, and tag are the consumer's business.
  */
-import { scopedQuery } from "./query.ts";
+import { scopedFirst } from "./query.ts";
 
 export interface EnsureButtonOptions {
   /** Marker attribute identifying the button; set on a generated one. */
@@ -25,7 +25,7 @@ export interface EnsureButtonOptions {
 
 /** Adopt the authored `[marker]` element owned by `host`, or generate a button. */
 export function ensureButton(host: HTMLElement, options: EnsureButtonOptions) {
-  const authored = scopedQuery<HTMLElement>(host, `[${options.marker}]`)[0];
+  const authored = scopedFirst<HTMLElement>(host, `[${options.marker}]`);
   if (authored) return authored;
   const btn = document.createElement("button");
   btn.type = "button";

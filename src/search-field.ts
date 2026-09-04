@@ -12,7 +12,7 @@
  * fires synchronously).
  */
 import { define } from "./define.ts";
-import { connectLightDom } from "./lifecycle.ts";
+import { LightDomElement } from "./lifecycle.ts";
 import { adoptedControl, fireNativeChange } from "./native.ts";
 import { ensureButton } from "./parts.ts";
 
@@ -20,8 +20,7 @@ export interface SearchDetail {
   readonly value: string;
 }
 
-export class UISearchField extends HTMLElement {
-  #wired = false;
+export class UISearchField extends LightDomElement {
   #input!: HTMLInputElement;
   #clear: HTMLElement | null = null;
   #timer = 0;
@@ -43,22 +42,14 @@ export class UISearchField extends HTMLElement {
     return Number.isFinite(n) && n >= 0 ? n : 250;
   }
 
-  connectedCallback() {
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
-  }
-
-  #wire() {
+  protected override wire() {
     // Adoption-scoped: an input belonging to a *nested* component inside our
     // light DOM must never be wired as ours.
     const input =
       adoptedControl<HTMLInputElement>(this, 'input[type="search"]') ??
       adoptedControl<HTMLInputElement>(this, "input");
     if (!input) return;
-    this.#wired = true;
+    this.wired = true;
     this.#input = input;
     if (!input.type) input.type = "search";
 

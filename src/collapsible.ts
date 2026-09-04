@@ -7,7 +7,7 @@
  *
  * Markup: a `[data-collapsible-trigger]` and a `[data-collapsible-content]`.
  */
-import { connectLightDom } from "./lifecycle.ts";
+import { LightDomElement } from "./lifecycle.ts";
 import { define } from "./define.ts";
 import { nextId } from "./id.ts";
 
@@ -32,12 +32,11 @@ export function syncDisclosure(
   }
 }
 
-export class UICollapsible extends HTMLElement {
+export class UICollapsible extends LightDomElement {
   static observedAttributes = ["open"];
 
   #trigger: HTMLElement | null = null;
   #content: HTMLElement | null = null;
-  #wired = false;
 
   get open() {
     return this.hasAttribute("open");
@@ -46,19 +45,11 @@ export class UICollapsible extends HTMLElement {
     this.toggleAttribute("open", next);
   }
 
-  connectedCallback() {
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
-  }
-
-  #wire() {
+  protected override wire() {
     this.#trigger = this.querySelector<HTMLElement>("[data-collapsible-trigger]");
     this.#content = this.querySelector<HTMLElement>("[data-collapsible-content]");
     if (!this.#trigger || !this.#content) return;
-    this.#wired = true;
+    this.wired = true;
     if (!this.#content.id) this.#content.id = nextId("ui-collapsible-content");
     this.#trigger.setAttribute("aria-controls", this.#content.id);
     this.#trigger.addEventListener("click", this.#toggle);
@@ -66,7 +57,7 @@ export class UICollapsible extends HTMLElement {
   }
 
   attributeChangedCallback() {
-    if (this.#wired) this.#sync();
+    if (this.wired) this.#sync();
   }
 
   #sync() {

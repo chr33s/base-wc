@@ -72,3 +72,87 @@ describe("ui-scroll-area", () => {
     }
   });
 });
+
+describe("ui-scroll-area — scrollbar chrome", () => {
+  async function mount() {
+    document.body.innerHTML = `
+      <ui-scroll-area>
+        <ui-scroll-viewport style="scroll-snap-type: y mandatory"><div>content</div></ui-scroll-viewport>
+        <ui-scroll-scrollbar data-orientation="vertical"><ui-scroll-thumb></ui-scroll-thumb></ui-scroll-scrollbar>
+      </ui-scroll-area>`;
+    await Promise.resolve();
+    return {
+      viewport: document.querySelector<HTMLElement>("ui-scroll-viewport")!,
+      bar: document.querySelector("ui-scroll-scrollbar")!,
+      thumb: document.querySelector<HTMLElement>("ui-scroll-thumb")!,
+    };
+  }
+
+  it("hides the scrollbar and thumb from the accessibility tree", async () => {
+    const { bar, thumb } = await mount();
+    // Pure pointer affordances: a screen reader user scrolls the viewport with
+    // the caret or virtual cursor, so exposing these only adds unlabeled
+    // generic nodes to the tree.
+    expect(bar.getAttribute("aria-hidden")).toBe("true");
+    expect(thumb.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("suspends scroll snapping for the duration of a thumb drag", async () => {
+    const { viewport, thumb } = await mount();
+    expect(viewport.style.scrollSnapType).toBe("y mandatory");
+    thumb.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 1, bubbles: true }));
+    // Snapping forces every programmatic scroll onto a snap point, so a drag
+    // would jump between them instead of tracking the pointer. Native
+    // scrollbars suppress it while dragging; so do we.
+    expect(viewport.style.scrollSnapType).toBe("none");
+    window.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1 }));
+    expect(viewport.style.scrollSnapType).toBe("y mandatory"); // and re-snaps on release
+  });
+
+  it("re-snaps only once the last of two simultaneous thumb drags ends", async () => {
+    document.body.innerHTML = `
+      <ui-scroll-area>
+        <ui-scroll-viewport style="scroll-snap-type: both mandatory"><div>content</div></ui-scroll-viewport>
+        <ui-scroll-scrollbar data-orientation="vertical"><ui-scroll-thumb id="v"></ui-scroll-thumb></ui-scroll-scrollbar>
+        <ui-scroll-scrollbar data-orientation="horizontal"><ui-scroll-thumb id="h"></ui-scroll-thumb></ui-scroll-scrollbar>
+      </ui-scroll-area>`;
+    await Promise.resolve();
+    const viewport = document.querySelector<HTMLElement>("ui-scroll-viewport")!;
+    document
+      .querySelector("#v")!
+      .dispatchEvent(new PointerEvent("pointerdown", { pointerId: 1, bubbles: true }));
+    document
+      .querySelector("#h")!
+      .dispatchEvent(new PointerEvent("pointerdown", { pointerId: 2, bubbles: true }));
+    expect(viewport.style.scrollSnapType).toBe("none");
+    window.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1 }));
+    // Each thumb is its own drag; the first release must not re-snap under
+    // the finger still dragging the other thumb.
+    expect(viewport.style.scrollSnapType).toBe("none");
+    window.dispatchEvent(new PointerEvent("pointerup", { pointerId: 2 }));
+    expect(viewport.style.scrollSnapType).toBe("both mandatory");
+  });
+});
+
+describe("ui-scroll-area scrollbar press", () => {
+  it("does not let a scrollbar press move focus", async () => {
+    document.body.innerHTML = `
+      <ui-scroll-area>
+        <ui-scroll-viewport><div></div></ui-scroll-viewport>
+        <ui-scroll-scrollbar data-orientation="vertical">
+          <ui-scroll-thumb></ui-scroll-thumb>
+        </ui-scroll-scrollbar>
+      </ui-scroll-area>`;
+    await Promise.resolve(); // deferred wiring
+    const bar = document.querySelector("ui-scroll-scrollbar")!;
+    const thumb = document.querySelector("ui-scroll-thumb")!;
+
+    // Native scrollbars never take focus. Bound on the bar, so a press that
+    // lands on the thumb is covered by the same handler as one on the track.
+    for (const target of [bar, thumb]) {
+      const press = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+      target.dispatchEvent(press);
+      expect(press.defaultPrevented).toBe(true);
+    }
+  });
+});

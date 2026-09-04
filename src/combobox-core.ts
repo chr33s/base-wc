@@ -13,20 +13,27 @@
 import { type AnchorOptions } from "./anchor.ts";
 import { nextId } from "./id.ts";
 import { type Overlay, overlay } from "./overlay.ts";
+import type { ChangeReason } from "./reasons.ts";
 
 export interface AriaComboboxOptions {
   readonly input: HTMLInputElement;
   readonly popup: HTMLElement;
   readonly listbox: HTMLElement;
   readonly idPrefix: string;
+  /**
+   * The role the popup list owns. `"listbox"` (the default) for a one-column
+   * list of options; `"grid"` when the owner lays its items out in rows and
+   * columns, which changes which roles its children are allowed to carry.
+   */
+  readonly listboxRole?: "listbox" | "grid";
   /** Focus/dismiss boundary: presses and focus inside it never close. */
   readonly host: HTMLElement;
   readonly anchorOptions?: AnchorOptions;
   readonly onInput: (event: Event) => void;
   /** Close request: Escape while open, focus left the host, outside press. */
-  readonly onClose: () => void;
+  readonly onClose: (reason: ChangeReason) => void;
   /** ArrowDown/ArrowUp while closed. Omit to leave closed-state arrows alone. */
-  readonly onArrowOpen?: () => void;
+  readonly onArrowOpen?: (reason: ChangeReason) => void;
   /** Keydown while open (after the shared guards) — list navigation. */
   readonly onNavigate: (event: KeyboardEvent) => void;
   readonly onOptionCommit: (index: number) => void;
@@ -41,12 +48,13 @@ export class AriaCombobox {
     const { input, popup, listbox } = options;
     this.#input = input;
 
+    const listboxRole = options.listboxRole ?? "listbox";
     if (!listbox.id) listbox.id = nextId(`${options.idPrefix}-listbox`);
-    listbox.setAttribute("role", "listbox");
+    listbox.setAttribute("role", listboxRole);
     for (const [name, value] of Object.entries({
       role: "combobox",
       "aria-autocomplete": "list",
-      "aria-haspopup": "listbox",
+      "aria-haspopup": listboxRole,
       "aria-expanded": "false",
       "aria-controls": listbox.id,
       autocomplete: "off",
@@ -63,13 +71,13 @@ export class AriaCombobox {
         // else (typing, Enter submitting the form) keeps its native behavior.
         if ((event.key === "ArrowDown" || event.key === "ArrowUp") && options.onArrowOpen) {
           event.preventDefault();
-          options.onArrowOpen();
+          options.onArrowOpen("list-navigation");
         }
         return;
       }
       if (event.key === "Escape") {
         event.preventDefault();
-        options.onClose();
+        options.onClose("escape-key");
         return;
       }
       options.onNavigate(event);
@@ -77,7 +85,7 @@ export class AriaCombobox {
     // Close when focus leaves the widget entirely; moving focus between parts
     // of the host (chips, clear button) keeps it open.
     input.addEventListener("blur", (event) => {
-      if (!options.host.contains(event.relatedTarget as Node | null)) options.onClose();
+      if (!options.host.contains(event.relatedTarget as Node | null)) options.onClose("focus-out");
     });
     // The host emits its own semantic events; native events from the internal
     // input would otherwise escape with an incompatible shape.
@@ -98,7 +106,13 @@ export class AriaCombobox {
       anchor: { ref: () => input, options: options.anchorOptions, pair: options.idPrefix },
       // The host is the containment boundary: chips, clear controls and the
       // popup all live inside it, so a press there must not light-dismiss.
-      dismiss: { within: () => [options.host, popup], onDismiss: options.onClose },
+      dismiss: {
+        within: () => [options.host, popup],
+        onDismiss: () => options.onClose("outside-press"),
+      },
+      // The host is what a consumer binds to, so it is where the open-state
+      // events belong — each carrying the reason that caused the change.
+      events: options.host,
     });
   }
 
@@ -118,15 +132,15 @@ export class AriaCombobox {
   }
 
   /** Open once. Returns whether state changed. */
-  show() {
-    if (!this.#overlay.show()) return false;
+  show(reason: ChangeReason = "none") {
+    if (!this.#overlay.show(reason)) return false;
     this.#input.setAttribute("aria-expanded", "true");
     return true;
   }
 
   /** Close once and clear active-descendant state. Returns whether state changed. */
-  hide() {
-    if (!this.#overlay.hide()) return false;
+  hide(reason: ChangeReason = "none") {
+    if (!this.#overlay.hide({ reason })) return false;
     this.#input.setAttribute("aria-expanded", "false");
     this.setActive(-1, null);
     return true;

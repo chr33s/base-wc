@@ -232,3 +232,124 @@ describe("ui-menu — checkbox / radio items and groups", () => {
     expect(group.value).toBe("lg");
   });
 });
+
+describe("ui-menu — disabled", () => {
+  async function mount(rootAttrs = "") {
+    document.body.innerHTML = `
+      <ui-menu ${rootAttrs}>
+        <button data-menu-trigger id="t">Options</button>
+        <ui-menu-popup>
+          <ui-menu-group>
+            <ui-menu-group-label id="gl">Actions</ui-menu-group-label>
+            <ui-menu-item value="a" id="a">A</ui-menu-item>
+            <ui-menu-item value="b" id="b" disabled>B</ui-menu-item>
+            <ui-menu-item value="c" id="c" aria-disabled="true">C</ui-menu-item>
+          </ui-menu-group>
+        </ui-menu-popup>
+      </ui-menu>`;
+    await Promise.resolve();
+    await Promise.resolve();
+    const menu = document.querySelector("ui-menu")!;
+    const trigger = document.querySelector<HTMLButtonElement>("#t")!;
+    return { menu, trigger };
+  }
+
+  it("hides the group label from the accessibility tree while still naming the group", async () => {
+    await mount();
+    const label = document.querySelector("#gl")!;
+    const group = document.querySelector("ui-menu-group")!;
+    // aria-hidden does not suppress a name computed via aria-labelledby, so the
+    // group keeps its label — spoken once, as the group's name, rather than
+    // again as a node sitting among the menu items.
+    expect(label.getAttribute("aria-hidden")).toBe("true");
+    expect(group.getAttribute("aria-labelledby")).toBe(label.id);
+  });
+
+  it("refuses to open while the root is disabled", async () => {
+    const { menu, trigger } = await mount("disabled");
+    trigger.click();
+    expect(menu.open).toBe(false);
+    menu.show(); // and not through the imperative entry point either
+    expect(menu.open).toBe(false);
+  });
+
+  it("marks the trigger and every item disabled when the root is", async () => {
+    const { menu, trigger } = await mount("disabled");
+    expect(menu.hasAttribute("data-disabled")).toBe(true);
+    expect(trigger.getAttribute("aria-disabled")).toBe("true");
+    for (const id of ["#a", "#b", "#c"]) {
+      const item = document.querySelector(id)!;
+      expect(item.getAttribute("aria-disabled")).toBe("true");
+      expect(item.hasAttribute("data-disabled")).toBe(true);
+    }
+  });
+
+  it("releases only the state it owns when the root is re-enabled", async () => {
+    const { menu, trigger } = await mount("disabled");
+    menu.removeAttribute("disabled");
+    expect(trigger.hasAttribute("aria-disabled")).toBe(false);
+    expect(document.querySelector("#a")!.hasAttribute("aria-disabled")).toBe(false);
+    // B carries its own `disabled`, and C was announced disabled by the author
+    // without one — neither is ours to clear.
+    expect(document.querySelector("#b")!.getAttribute("aria-disabled")).toBe("true");
+    expect(document.querySelector("#c")!.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("skips aria-disabled items when navigating, not just [disabled] ones", async () => {
+    const { menu, trigger } = await mount();
+    trigger.click();
+    expect(menu.open).toBe(true);
+    const popup = document.querySelector("ui-menu-popup")!;
+    // A is highlighted on open; ArrowDown must land past both B ([disabled])
+    // and C (aria-disabled) — which, being the only remaining item, wraps to A.
+    expect(document.querySelector("#a")!.hasAttribute("data-highlighted")).toBe(true);
+    popup.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+    );
+    expect(document.querySelector("#b")!.hasAttribute("data-highlighted")).toBe(false);
+    expect(document.querySelector("#c")!.hasAttribute("data-highlighted")).toBe(false);
+  });
+
+  it("re-enables an item whose `disabled` is removed at runtime", async () => {
+    const { menu, trigger } = await mount();
+    const b = document.querySelector<HTMLElement>("#b")!;
+    b.removeAttribute("disabled");
+    expect(b.hasAttribute("aria-disabled")).toBe(false);
+    expect(b.hasAttribute("data-disabled")).toBe(false);
+    trigger.click();
+    expect(menu.open).toBe(true);
+    document
+      .querySelector("ui-menu-popup")!
+      .dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+      );
+    // A stale aria-disabled left behind by the one-shot connect reflection
+    // would keep the item out of navigation and swallow its clicks forever.
+    expect(b.hasAttribute("data-highlighted")).toBe(true);
+  });
+});
+
+describe("ui-menu — hover highlight", () => {
+  const hover = (target: Element, clientX: number, clientY: number) =>
+    target.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX, clientY }));
+
+  it("ignores a pointermove that reports the same coordinates as the last one", async () => {
+    const { menu, popup, items } = await mount();
+    menu.show();
+    hover(items[0], 10, 10);
+    expect(items[0].hasAttribute("data-highlighted")).toBe(true);
+
+    // Arrow-key navigation scrolls a long menu, sliding a new item under a
+    // resting cursor — and Safari reports that as a pointermove at unchanged
+    // coordinates. Acting on it would drag the highlight back off whatever the
+    // keyboard just reached.
+    key(popup, "ArrowDown");
+    expect(items[1].hasAttribute("data-highlighted")).toBe(true);
+    hover(items[0], 10, 10);
+    expect(items[1].hasAttribute("data-highlighted")).toBe(true);
+
+    // A pointer that genuinely moved still highlights.
+    hover(items[0], 11, 10);
+    expect(items[0].hasAttribute("data-highlighted")).toBe(true);
+  });
+});

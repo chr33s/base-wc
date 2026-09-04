@@ -35,17 +35,14 @@
  * A subclass's `observedAttributes` should spread {@link SERIES_ATTRIBUTES}
  * and add its own on top.
  */
+import { ChartChildElement } from "./chart-child.ts";
 import type { HighlightScope, SeriesRegistration } from "./chart-core.ts";
 import type { UIChart } from "./chart.ts";
-import { connectOwned } from "./lifecycle.ts";
 
 /** The attributes {@link UIChartSeries} itself reads — spread into each subclass's `observedAttributes`. */
 export const SERIES_ATTRIBUTES = ["key", "label", "highlight", "fade", "hidden"] as const;
 
-export abstract class UIChartSeries extends HTMLElement implements SeriesRegistration {
-  #chart: UIChart | null = null;
-  #unregister: (() => void) | null = null;
-
+export abstract class UIChartSeries extends ChartChildElement implements SeriesRegistration {
   /** The `registerSeriesType` name whose renderer draws this series. */
   abstract readonly type: string;
 
@@ -79,37 +76,7 @@ export abstract class UIChartSeries extends HTMLElement implements SeriesRegistr
     };
   }
 
-  /** The `ui-chart` this series is registered with, or `null` while unattached. */
-  protected get chart() {
-    return this.#chart;
-  }
-
-  connectedCallback() {
-    connectOwned(
-      this,
-      "ui-chart",
-      () => this.#unregister !== null,
-      (chart) => this.#wire(chart),
-    );
-  }
-
-  disconnectedCallback() {
-    this.#unregister?.();
-    this.#unregister = null;
-    this.#chart = null;
-  }
-
-  attributeChangedCallback() {
-    // The chart renders straight from this element (it *is* the registration),
-    // so there is nothing to sync — the new value is already visible. It only
-    // needs telling that the registry moved on. Re-registering instead would
-    // hand the series a new position in the list, and with it a new palette
-    // slot and a fresh set of mark elements, for what is only an edit.
-    this.#chart?.requestRender();
-  }
-
-  #wire(chart: UIChart) {
-    this.#chart = chart;
-    this.#unregister = chart.registerSeries(this);
+  protected override register(chart: UIChart) {
+    return chart.registerSeries(this);
   }
 }

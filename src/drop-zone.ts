@@ -12,7 +12,7 @@
  * A bubbling `change` event exposes the accepted `{ files }`.
  */
 import { define } from "./define.ts";
-import { connectLightDom } from "./lifecycle.ts";
+import { LightDomElement } from "./lifecycle.ts";
 import { adoptedControl, fireNativeChange, retireNative } from "./native.ts";
 
 export interface DropZoneChangeDetail {
@@ -20,8 +20,7 @@ export interface DropZoneChangeDetail {
   readonly files: File[];
 }
 
-export class UIDropZone extends HTMLElement {
-  #wired = false;
+export class UIDropZone extends LightDomElement {
   #input!: HTMLInputElement;
   #target!: HTMLElement;
   /** dragenter/dragleave fire per descendant; count to know when we truly left. */
@@ -31,18 +30,10 @@ export class UIDropZone extends HTMLElement {
     return this.#input?.files ? Array.from(this.#input.files) : [];
   }
 
-  connectedCallback() {
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
-  }
-
-  #wire() {
+  protected override wire() {
     const input = adoptedControl<HTMLInputElement>(this, 'input[type="file"]');
     if (!input) return;
-    this.#wired = true;
+    this.wired = true;
     this.#input = input;
     this.#target = this.querySelector<HTMLElement>("[data-drop-target]") ?? this.#buildTarget();
 

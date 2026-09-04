@@ -7,12 +7,32 @@
  *
  * The helper is deliberately state-light: it never caches the item list (the
  * DOM is the source of truth), taking a live `items()` accessor so additions,
- * removals and disabled changes are always reflected. Horizontal arrow keys
- * flip under RTL (see {@link isRTL}).
+ * removals and disabled changes are always reflected. It does track *which
+ * element* holds the tab stop, because "one tabbable item" is an invariant the
+ * live list cannot state on its own — remove the tabbable item and the group
+ * silently leaves the tab order. A mutation observer restores the invariant,
+ * preferring the element that already had the stop over resetting to the first.
+ * Horizontal arrow keys flip under RTL (see {@link isRTL}).
+ *
+ * The observer is the one piece with a lifetime, so every owner calls
+ * {@link Roving.destroy} from its `disconnectedCallback` and builds a fresh
+ * helper if it is re-inserted. Nothing is lost in the round trip: with no
+ * tracked stop, {@link Roving.refresh} adopts whichever item the DOM already
+ * marks tabbable.
  */
 import { isRTL } from "./direction.ts";
+import { LightDomElement } from "./lifecycle.ts";
+import { clamp } from "./math.ts";
 
 export type Orientation = "horizontal" | "vertical" | "both";
+
+/**
+ * Disabled via the attribute, or announced so — a non-form custom element can
+ * only do the latter. The one predicate every composite's `items()` should use.
+ */
+export function isDisabled(el: Element): boolean {
+  return el.hasAttribute("disabled") || el.getAttribute("aria-disabled") === "true";
+}
 
 export interface NavKeyOptions {
   /** Arrow-key axis. Default `"horizontal"`. */
@@ -58,7 +78,7 @@ export function resolveNavKey(
   }
   const target = current + delta;
   if (loop) return (target + count) % count;
-  return Math.max(0, Math.min(target, count - 1));
+  return clamp(target, 0, count - 1);
 }
 
 // Input types that don't consume arrow/Home/End/Space for text editing, so
@@ -89,10 +109,22 @@ export interface RovingOptions {
 }
 
 export interface Roving {
-  /** Reset the roving tab stop so only `activeIndex` (default 0) is tabbable. */
+  /**
+   * Re-assert the roving tab stop so exactly one item is tabbable. With an
+   * `activeIndex` the stop moves there; with none it stays on whichever element
+   * already held it — then on whichever item the DOM marks tabbable, and only
+   * then on the first.
+   */
   refresh(activeIndex?: number): void;
   /** Move focus (and the tab stop) to an item; index is clamped or wrapped. */
   focusItem(index: number): void;
+  /**
+   * Drop the keydown listener and the mutation observer. Call it from the
+   * owner's `disconnectedCallback`: an observer left running on a detached
+   * subtree keeps firing (and keeps the whole component reachable) for as long
+   * as anything mutates it. A re-attached owner creates a fresh helper, which
+   * adopts the tab stop already in the DOM — see {@link Roving.refresh}.
+   */
   destroy(): void;
 }
 
@@ -100,12 +132,47 @@ export interface Roving {
 export function roving(container: HTMLElement, options: RovingOptions) {
   const orientation = options.orientation ?? "horizontal";
   const loop = options.loop ?? true;
+  /** The element that currently holds the tab stop, tracked across item changes. */
+  let stop: HTMLElement | null = null;
 
-  const refresh = (activeIndex = 0) => {
-    const items = options.items();
+  const apply = (items: HTMLElement[], index: number) => {
+    const next = items[index] ?? null;
+    // The previous stop may have left the navigable set while staying in the
+    // DOM (disabled / aria-disabled / hidden); nothing else resets it, and a
+    // stale 0 would leave the group with two tab stops.
+    if (stop && stop !== next && stop.isConnected && !items.includes(stop)) stop.tabIndex = -1;
     items.forEach((el, i) => {
-      el.tabIndex = i === activeIndex ? 0 : -1;
+      el.tabIndex = i === index ? 0 : -1;
     });
+    stop = next;
+  };
+
+  /**
+   * Re-assert the tab stop. Called with an explicit index it moves the stop
+   * there; called with none it *keeps* the stop on the element that already had
+   * it. That distinction is the whole point: items are read live from the DOM,
+   * so a group whose items are added, removed or enabled between refreshes
+   * would otherwise snap the user back to the first item — or, when the
+   * tabbable element is the one that was removed, leave no tabbable item at all
+   * and drop the entire group out of the tab order.
+   */
+  const refresh = (activeIndex?: number) => {
+    const items = options.items();
+    if (items.length === 0) {
+      stop = null;
+      return;
+    }
+    if (activeIndex != null) {
+      apply(items, clamp(activeIndex, 0, items.length - 1));
+      return;
+    }
+    // With no tracked stop — a freshly created helper, e.g. after a component
+    // was moved and re-attached — adopt whichever item the DOM already marks
+    // tabbable before falling back to the first. The DOM is this module's
+    // source of truth, so re-attaching must not silently walk the user's tab
+    // stop back to the start of the group.
+    const kept = stop ? items.indexOf(stop) : items.findIndex((el) => el.tabIndex === 0);
+    apply(items, kept >= 0 ? kept : 0);
   };
 
   const focusItem = (index: number) => {
@@ -113,10 +180,8 @@ export function roving(container: HTMLElement, options: RovingOptions) {
     if (items.length === 0) return;
     let i = index;
     if (loop) i = (i + items.length) % items.length;
-    else i = Math.max(0, Math.min(i, items.length - 1));
-    items.forEach((el, n) => {
-      el.tabIndex = n === i ? 0 : -1;
-    });
+    else i = clamp(i, 0, items.length - 1);
+    apply(items, i);
     const target = items[i];
     target.focus();
     options.onMove?.(target, i);
@@ -154,9 +219,89 @@ export function roving(container: HTMLElement, options: RovingOptions) {
   };
 
   container.addEventListener("keydown", onKeydown);
+
+  // The item list is read live from the DOM, so nothing tells the group when a
+  // tabbable item is removed or a `disabled` flips — and a group with no
+  // tabbable item is unreachable by keyboard entirely. Watch for it rather than
+  // making every caller remember to refresh. Only writes when the stop is
+  // actually missing or duplicated; a no-arg `refresh` keeps it where it is.
+  const observer =
+    typeof MutationObserver === "undefined"
+      ? null
+      : new MutationObserver(() => {
+          if (
+            !stop?.isConnected ||
+            options.items().filter((el) => el.tabIndex === 0).length !== 1
+          ) {
+            refresh();
+          }
+        });
+  observer?.observe(container, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["disabled", "aria-disabled", "hidden"],
+  });
+
   return {
     refresh,
     focusItem,
-    destroy: () => container.removeEventListener("keydown", onKeydown),
+    destroy: () => {
+      observer?.disconnect();
+      container.removeEventListener("keydown", onKeydown);
+    },
   };
+}
+
+/**
+ * The base for a composite that **owns a roving helper** — `ui-tabs`,
+ * `ui-toggle-group`, `ui-toolbar`, `ui-menubar`, `ui-navigation-menu`.
+ *
+ * All five carried the same three members: a `#roving` field, a
+ * `disconnectedCallback` that destroys it, and a `connectedCallback` that
+ * rebuilds it when an already-wired host is re-inserted. That last one is the
+ * subtle half — {@link connectLightDom} deliberately skips a host it has
+ * already wired, so nothing else would recreate the helper `disconnectedCallback`
+ * dropped, and a moved composite would silently lose its arrow keys. The new
+ * helper adopts the tab stop still marked in the DOM (see {@link Roving.refresh}),
+ * so the round trip costs the user nothing.
+ *
+ * A subclass supplies {@link rovingOptions}, calls {@link attachRoving} from its
+ * `wire`, and overrides {@link rovingContainer} when the keydown listener belongs
+ * on an inner list element rather than the host.
+ *
+ * `ui-radio-group` is the one composite that does *not* extend this: it is
+ * form-associated, so it already extends `FormAssociatedElement` and keeps its
+ * own copy of the three members.
+ */
+export abstract class RovingElement extends LightDomElement {
+  #roving: Roving | null = null;
+
+  /** Options for this composite's helper, read once when it is created. */
+  protected abstract rovingOptions(): RovingOptions;
+
+  /** The element the keydown listener attaches to. Defaults to the host. */
+  protected get rovingContainer(): HTMLElement {
+    return this;
+  }
+
+  /** The live helper, or `null` before {@link attachRoving} / after disconnect. */
+  protected get roving(): Roving | null {
+    return this.#roving;
+  }
+
+  /** Create the helper unless one already exists. Call it from `wire`. */
+  protected attachRoving() {
+    this.#roving ??= roving(this.rovingContainer, this.rovingOptions());
+  }
+
+  override connectedCallback() {
+    if (this.wired) this.attachRoving();
+    super.connectedCallback();
+  }
+
+  disconnectedCallback() {
+    this.#roving?.destroy();
+    this.#roving = null;
+  }
 }

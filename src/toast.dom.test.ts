@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { UIToast, UIToastViewport } from "./toast.ts";
-import { toast } from "./toast.ts";
+import { toast, updateToast } from "./toast.ts";
 import "./elements.ts";
 
 async function mount() {
@@ -64,15 +64,33 @@ describe("ui-toast-viewport", () => {
     expect(t.isConnected).toBe(true);
   });
 
-  it("pauses the timer on hover and resumes on leave", async () => {
+  it("pauses the timer on hover and resumes with only the time it had left", async () => {
     const { viewport } = await mount();
     const t = viewport.add({ title: "Hover me", duration: 3000 });
     vi.advanceTimersByTime(2000);
-    t.dispatchEvent(new Event("pointerenter")); // pause
+    t.dispatchEvent(new Event("pointerenter")); // pause with 1000ms owed
     vi.advanceTimersByTime(10_000);
     expect(t.isConnected).toBe(true); // still here — timer paused
-    t.dispatchEvent(new Event("pointerleave")); // resume (full duration)
-    vi.advanceTimersByTime(3000);
+    t.dispatchEvent(new Event("pointerleave")); // resume
+    vi.advanceTimersByTime(999);
+    expect(t.isConnected).toBe(true);
+    vi.advanceTimersByTime(1); // exactly the 1000ms that remained, not a fresh 3000
+    expect(t.isConnected).toBe(false);
+  });
+
+  it("accumulates across repeated pauses, so hovering never extends the lifetime", async () => {
+    const { viewport } = await mount();
+    const t = viewport.add({ title: "Hover me twice", duration: 3000 });
+    for (let i = 0; i < 3; i++) {
+      vi.advanceTimersByTime(900); // 2700ms served in total
+      t.dispatchEvent(new Event("pointerenter"));
+      vi.advanceTimersByTime(5000); // parked — time here is not served
+      t.dispatchEvent(new Event("pointerleave"));
+    }
+    expect(t.isConnected).toBe(true);
+    vi.advanceTimersByTime(299);
+    expect(t.isConnected).toBe(true);
+    vi.advanceTimersByTime(1); // the last 300ms of the original 3000
     expect(t.isConnected).toBe(false);
   });
 
@@ -251,6 +269,44 @@ describe("ui-toast-viewport", () => {
     // on a toast hands the gesture to the browser: `pointercancel` arrives and
     // `pointerup` never does. The swipe must still end, or the toast is
     // stranded mid-swipe with its auto-dismiss timer paused forever.
+    // The toast sits in a scrollable stack, so a diagonal thumb-scroll must not
+    // translate it sideways by its incidental horizontal component the whole
+    // way down. The vertical axis wins the stroke, and it never becomes a swipe.
+    it("yields a dominantly vertical stroke to the scroller", async () => {
+      const { viewport } = await mount();
+      const t = viewport.add({ title: "A", duration: 1000 });
+      t.dispatchEvent(pointer("pointerdown", 0));
+      t.dispatchEvent(
+        new PointerEvent("pointermove", {
+          bubbles: true,
+          pointerId: 1,
+          clientX: 4,
+          clientY: 40,
+        }),
+      );
+      expect(t.hasAttribute("data-swiping")).toBe(false);
+      // Having lost the stroke it stays out of it, however far the thumb drifts.
+      t.dispatchEvent(pointer("pointermove", 200));
+      expect(t.style.getPropertyValue("--swipe-x")).toBe("");
+
+      // The press paused the auto-dismiss timer; the release must hand it back.
+      t.dispatchEvent(pointer("pointerup", 200));
+      expect(t.hasAttribute("data-open")).toBe(true);
+      vi.advanceTimersByTime(1000);
+      expect(t.hasAttribute("data-open")).toBe(false);
+    });
+
+    it("ignores a press that never clears the slop, so a tap is not a swipe", async () => {
+      const { viewport } = await mount();
+      const t = viewport.add({ title: "A", duration: 1000 });
+      t.dispatchEvent(pointer("pointerdown", 0));
+      t.dispatchEvent(pointer("pointermove", 4)); // under the 8px slop
+      expect(t.hasAttribute("data-swiping")).toBe(false);
+      expect(t.style.getPropertyValue("--swipe-x")).toBe("");
+      t.dispatchEvent(pointer("pointerup", 4));
+      expect(t.hasAttribute("data-open")).toBe(true);
+    });
+
     it("ends the swipe when the browser cancels the pointer", async () => {
       const { viewport } = await mount();
       const t = viewport.add({ title: "A", duration: 1000 });
@@ -264,5 +320,75 @@ describe("ui-toast-viewport", () => {
       vi.advanceTimersByTime(1000);
       expect(t.hasAttribute("data-open")).toBe(false);
     });
+  });
+});
+
+describe("ui-toast-viewport update", () => {
+  it("amends a live toast in place", async () => {
+    const { viewport } = await mount();
+    const t = viewport.add({ title: "Uploading", description: "0%", duration: 5000 });
+
+    const same = viewport.update(t.id, { description: "100%" });
+    expect(same).toBe(t); // the same element, not a replacement
+    expect(t.querySelector("[data-toast-title]")!.textContent).toBe("Uploading");
+    expect(t.querySelector("[data-toast-description]")!.textContent).toBe("100%");
+  });
+
+  it("derives the patch from what the toast currently shows", async () => {
+    const { viewport } = await mount();
+    const t = viewport.add({ title: "Saving" });
+
+    viewport.update(t.id, (current) => ({ title: `${current.title!} — done` }));
+    expect(t.querySelector("[data-toast-title]")!.textContent).toBe("Saving — done");
+  });
+
+  it("adds a missing part ahead of the close button, and removes one", async () => {
+    const { viewport } = await mount();
+    const t = viewport.add({ title: "Saved" });
+    expect(t.querySelector("[data-toast-description]")).toBe(null);
+
+    viewport.update(t.id, { description: "3 files" });
+    const parts = [...t.children].map((c) => c.getAttribute("data-toast-description") ?? c.tagName);
+    // The close button stays last.
+    expect(t.lastElementChild!.hasAttribute("data-toast-close")).toBe(true);
+    expect(parts).toContain("");
+
+    viewport.update(t.id, { description: undefined });
+    expect(t.querySelector("[data-toast-description]")).toBe(null);
+  });
+
+  it("re-announces assertively when the type is promoted", async () => {
+    const { viewport } = await mount();
+    const t = viewport.add({ title: "Working" });
+    expect(t.getAttribute("role")).toBe("status");
+    expect(t.getAttribute("aria-live")).toBe("polite");
+
+    viewport.update(t.id, { type: "error", title: "Failed" });
+    expect(t.getAttribute("role")).toBe("alert");
+    expect(t.getAttribute("aria-live")).toBe("assertive");
+  });
+
+  it("restarts the dismiss countdown so the new text can be read", async () => {
+    const { viewport } = await mount();
+    const t = viewport.add({ title: "Working", duration: 1000 });
+    vi.advanceTimersByTime(900); // nearly expired
+
+    viewport.update(t.id, { title: "Still working" });
+    vi.advanceTimersByTime(900);
+    expect(t.hasAttribute("data-open")).toBe(true); // the old timer did not fire
+    vi.advanceTimersByTime(200);
+    expect(t.hasAttribute("data-open")).toBe(false);
+  });
+
+  it("returns null for an id no live toast holds", async () => {
+    const { viewport } = await mount();
+    expect(viewport.update("nope", { title: "x" })).toBe(null);
+  });
+
+  it("updates through the document-level helper", async () => {
+    const { viewport } = await mount();
+    const t = viewport.add({ title: "One", id: "fixed" });
+    updateToast("fixed", { title: "Two" });
+    expect(t.querySelector("[data-toast-title]")!.textContent).toBe("Two");
   });
 });

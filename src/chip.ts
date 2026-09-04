@@ -9,41 +9,40 @@
  * `disabled` suppresses removal. Purely presentational otherwise.
  */
 import { define } from "./define.ts";
-import { connectLightDom } from "./lifecycle.ts";
+import { LightDomElement } from "./lifecycle.ts";
 import { ensureButton } from "./parts.ts";
+import { isDisabled } from "./roving.ts";
 import { runExit, setOpenState } from "./transitions.ts";
 
 export interface ChipRemoveDetail {
   readonly value: string | null;
 }
 
-export class UIChip extends HTMLElement {
+export class UIChip extends LightDomElement {
   static observedAttributes = ["removable", "disabled"];
-  #wired = false;
   #closing = false;
 
+  /** {@link isDisabled}, not a bare attribute check: a custom element that is
+   * not form-associated can only *announce* itself disabled, so `aria-disabled`
+   * counts too — the same rule every composite in the library applies. */
   get disabled() {
-    return this.hasAttribute("disabled");
+    return isDisabled(this);
   }
   get removable() {
     return this.hasAttribute("removable");
   }
 
-  connectedCallback() {
+  override connectedCallback() {
     setOpenState(this, true);
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
+    super.connectedCallback();
   }
 
   attributeChangedCallback() {
-    if (this.#wired) this.#syncRemove();
+    if (this.wired) this.#syncRemove();
   }
 
-  #wire() {
-    this.#wired = true;
+  protected override wire() {
+    this.wired = true;
     this.addEventListener("keydown", this.#onKeydown);
     this.#syncRemove();
   }

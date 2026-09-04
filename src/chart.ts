@@ -72,17 +72,17 @@ import {
   type StackedValue,
   getSeriesType,
   isNumberValue,
-  numberAttribute,
   parseTable,
   stackSeries,
   toNumeric,
 } from "./chart-core.ts";
 import { DEFAULT_TICK_COUNT, axisScale, categoryRows } from "./chart-domain.ts";
+import { numberAttribute } from "./math.ts";
 import { ChartPlot, type GridSpec } from "./chart-plot.ts";
 import { isDiscreteScale, type Scale } from "./chart-scale.ts";
 import { round } from "./chart-shape.ts";
 import { define } from "./define.ts";
-import { connectLightDom } from "./lifecycle.ts";
+import { LightDomElement } from "./lifecycle.ts";
 
 export interface UIChartSelectDetail {
   readonly series: string;
@@ -140,7 +140,7 @@ function groupSlots(visible: readonly SeriesRegistration[]) {
   return slots;
 }
 
-export class UIChart extends HTMLElement {
+export class UIChart extends LightDomElement {
   static observedAttributes = ["width", "height", "label", "stack-offset"];
 
   #store = new ChartStore();
@@ -149,7 +149,6 @@ export class UIChart extends HTMLElement {
   #table: HTMLTableElement | null = null;
   #tableObserver: MutationObserver | null = null;
   #childObserver: MutationObserver | null = null;
-  #wired = false;
   /** A full render is queued on a microtask — see {@link #invalidate}. */
   #renderQueued = false;
   /** Set once a consumer assigns `.data`, which (as documented) wins over the authored `<table>` — so neither the initial ingest nor a later table mutation overwrites it. */
@@ -182,13 +181,9 @@ export class UIChart extends HTMLElement {
     return this.getAttribute("stack-offset") === "diverging" ? "diverging" : "none";
   }
 
-  connectedCallback() {
+  override connectedCallback() {
     this.setAttribute("role", "figure");
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
+    super.connectedCallback();
   }
 
   disconnectedCallback() {
@@ -196,7 +191,7 @@ export class UIChart extends HTMLElement {
   }
 
   attributeChangedCallback(name: string) {
-    if (!this.#wired) return;
+    if (!this.wired) return;
     if (name === "label") this.#syncLabel();
     else if (name === "width" || name === "height") this.#measure();
     else this.#scheduleRender();
@@ -296,8 +291,8 @@ export class UIChart extends HTMLElement {
   // wiring
   // -------------------------------------------------------------------------
 
-  #wire() {
-    this.#wired = true;
+  protected override wire() {
+    this.wired = true;
     if (!this.#plot || this.#plot.svg.parentNode !== this) {
       this.#plot = new ChartPlot();
       this.append(this.#plot.svg);
@@ -319,7 +314,7 @@ export class UIChart extends HTMLElement {
     // `connectLightDom` would consider the element already wired and never
     // restore them, leaving a chart that paints once and then ignores resize,
     // pointer and keyboard forever.
-    this.#wired = false;
+    this.wired = false;
     this.#resizeObserver?.disconnect();
     this.#resizeObserver = null;
     this.#tableObserver?.disconnect();
@@ -496,7 +491,7 @@ export class UIChart extends HTMLElement {
 
   #render() {
     const plot = this.#plot;
-    if (!this.#wired || !plot) return;
+    if (!this.wired || !plot) return;
     const state = this.#store.state;
     const { data } = state;
     // Rounded once, here: a measured box arrives with sub-pixel fractions, and

@@ -1,33 +1,25 @@
 /**
  * `ui-form` — validation orchestration over its `ui-field`s (Base UI's Form). On
- * submit it validates every field; if any is invalid it blocks the submit,
+ * submit it validates every field once, through each field's `reportValidity()`
+ * — one pass, so an implicit submit (Enter in a text field) does not validate
+ * twice; if any is invalid it blocks the submit,
  * moves focus to the first invalid control, fills an optional
  * `[data-form-error-summary]`, and dispatches a `form-invalid` event. A clean
  * submit dispatches `form-valid` and proceeds. Wraps a native `<form>` when
  * present so real submission and `FormData` keep working.
  */
 import { define } from "./define.ts";
-import { connectLightDom } from "./lifecycle.ts";
+import { LightDomElement } from "./lifecycle.ts";
 import type { UIField } from "./field.ts";
 
-export class UIForm extends HTMLElement {
-  #wired = false;
-
-  connectedCallback() {
-    connectLightDom(
-      this,
-      () => this.#wired,
-      () => this.#wire(),
-    );
-  }
-
-  #wire() {
+export class UIForm extends LightDomElement {
+  protected override wire() {
     const form = this.querySelector("form");
     (form ?? this).addEventListener("submit", this.#onSubmit as EventListener);
     // Marked wired only once the listener is attached. The native <form> is a
     // genuinely optional part — `submit` bubbles, so the host-level fallback
     // listener covers a form even if one parses in later — hence no retry.
-    this.#wired = true;
+    this.wired = true;
   }
 
   #fields() {
@@ -37,7 +29,7 @@ export class UIForm extends HTMLElement {
   #onSubmit = (e: Event) => {
     const invalid: UIField[] = [];
     for (const field of this.#fields()) {
-      if (!field.validate()) invalid.push(field);
+      if (!field.reportValidity()) invalid.push(field);
     }
 
     const summary = this.querySelector<HTMLElement>("[data-form-error-summary]");

@@ -42,6 +42,50 @@ export function connectLightDom(host: HTMLElement, isWired: () => boolean, wire:
   });
 }
 
+/**
+ * The base for a light-DOM component that wires itself from its authored
+ * children — nearly every element in the library.
+ *
+ * Each of them used to carry the same five lines: a `#wired` flag, a
+ * `connectedCallback` that forwarded to {@link connectLightDom}, and a private
+ * `#wire`. The base owns the flag and the forwarding; a subclass implements
+ * {@link wire} and sets `this.wired = true` at the point it knows the parts it
+ * needs are present — the same place the private version set its own flag, so
+ * a component that cannot wire yet simply leaves it `false` and is retried on
+ * the next light-DOM mutation.
+ *
+ * A component with more to do on connect overrides `connectedCallback`, does
+ * its own work, and calls `super.connectedCallback()`. The `wired` setter is
+ * protected for the few components that tear their wiring down on disconnect
+ * (`ui-chart`, `ui-table`) and need the next connect to run {@link wire} again.
+ */
+export abstract class LightDomElement extends HTMLElement {
+  #wired = false;
+
+  /** Whether {@link wire} has run far enough to consider the component live. */
+  protected get wired() {
+    return this.#wired;
+  }
+  protected set wired(next: boolean) {
+    this.#wired = next;
+  }
+
+  connectedCallback() {
+    connectLightDom(
+      this,
+      () => this.#wired,
+      () => this.wire(),
+    );
+  }
+
+  /**
+   * Adopt the authored parts and attach behaviour. Set `this.wired = true` once
+   * the required parts are present; returning with it still `false` asks to be
+   * retried when the light DOM next changes.
+   */
+  protected abstract wire(): void;
+}
+
 function stopWaiting(host: HTMLElement) {
   const state = pending.get(host);
   state?.observer?.disconnect();

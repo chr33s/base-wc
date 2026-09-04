@@ -30,6 +30,7 @@
  * retired native can also key off `:defined`, e.g.
  * `ui-select:not(:defined) > select { … }`.
  */
+import { scopedFirst } from "./query.ts";
 
 /**
  * The authored native control this element should adopt as its value source, or
@@ -40,11 +41,7 @@
  * another's markup never adopts the wrong control.
  */
 export function adoptedControl<T extends Element = HTMLElement>(host: Element, selector: string) {
-  for (const el of host.querySelectorAll<T>(selector)) {
-    // Ignore controls that belong to a nested custom element rather than `host`.
-    if (el.closest(host.localName) === host) return el;
-  }
-  return null;
+  return scopedFirst<T>(host, selector);
 }
 
 /**
@@ -69,4 +66,32 @@ export function retireNative(el: HTMLElement) {
 export function fireNativeChange(el: HTMLElement) {
   el.dispatchEvent(new Event("input", { bubbles: true }));
   el.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+/**
+ * One-way managed `disabled` for an adopted native control.
+ *
+ * A host's `disabled` attribute (or a form-driven disable) must disable the
+ * inner control — but removing it may only re-enable a control **we** disabled.
+ * An input the author disabled directly is left alone, the same ownership rule
+ * `ui-fieldset` applies when it propagates. That needs a bit of state (did we
+ * disable it?), and `ui-autocomplete`, `ui-combobox` and `ui-number-field` each
+ * carried an identical `#managedDisabled` flag and branch for it.
+ *
+ * Returns the setter; the flag lives in the closure, so the component keeps no
+ * field of its own. Create it once the control is adopted, in `wire`.
+ */
+export function managedDisabled(control: HTMLInputElement) {
+  let managed = false;
+  return (disabled: boolean) => {
+    if (disabled) {
+      if (!control.disabled) {
+        control.disabled = true;
+        managed = true;
+      }
+    } else if (managed) {
+      control.disabled = false;
+      managed = false;
+    }
+  };
 }
