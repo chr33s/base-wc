@@ -95,6 +95,54 @@ test.describe("ui — real browser", () => {
     });
   });
 
+  for (const multiple of [false, true]) {
+    test(`native select owns selection, submission and reset (multiple=${multiple})`, async ({
+      page,
+    }) => {
+      await mount(
+        page,
+        `<form id="native-form">
+        <ui-select name="fruit"><select name="fruit" ${multiple ? "multiple" : ""}>
+          <option value="apple">Apple</option><option value="banana" selected>Banana</option>
+          <option value="cherry">Cherry</option>
+        </select></ui-select>
+      </form>`,
+      );
+      const result = await page.evaluate((multi) => {
+        const host = document.querySelector("ui-select")!;
+        const native = host.querySelector("select")!;
+        const form = document.querySelector<HTMLFormElement>("#native-form")!;
+        let inputEvents = 0;
+        let changeEvents = 0;
+        native.addEventListener("input", () => inputEvents++);
+        native.addEventListener("change", () => changeEvents++);
+        if (multi) {
+          for (const option of native.options) option.selected = option.value !== "banana";
+        } else native.value = "cherry";
+        native.dispatchEvent(new Event("change", { bubbles: true }));
+        return {
+          value: host.value,
+          label: host.querySelector("[data-select-value]")?.textContent,
+          submitted: new FormData(form).getAll("fruit"),
+          inputEvents,
+          changeEvents,
+        };
+      }, multiple);
+      expect(result).toEqual({
+        value: multiple ? ["apple", "cherry"] : "cherry",
+        label: multiple ? "Apple, Cherry" : "Cherry",
+        submitted: multiple ? ["apple", "cherry"] : ["cherry"],
+        inputEvents: 0,
+        changeEvents: 1,
+      });
+      await page.evaluate(() => document.querySelector<HTMLFormElement>("#native-form")!.reset());
+      await expect(page.locator("[data-select-value]")).toHaveText("Banana");
+      expect(await page.evaluate(() => document.querySelector("ui-select")!.value)).toEqual(
+        multiple ? ["banana"] : "banana",
+      );
+    });
+  }
+
   test("dialog opens in the top layer with scroll lock and a focus trap", async ({ page }) => {
     await mount(
       page,

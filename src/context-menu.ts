@@ -17,19 +17,20 @@ export class UIContextMenu extends LightDomElement {
   #target: HTMLElement | null = null;
   #pressTimer = 0;
 
-  protected override wire() {
+  protected override initialize() {
     this.#menu = this.querySelector<UIMenu>("ui-menu");
     this.#target = this.querySelector<HTMLElement>("[data-context-target]") ?? this;
-    if (!this.#menu) return;
-    this.wired = true;
+    if (!this.#menu) return false;
     this.#target.addEventListener("contextmenu", this.#onContextMenu);
     this.#target.addEventListener("pointerdown", this.#onPointerDown);
     this.#target.addEventListener("pointerup", this.#cancelPress);
     this.#target.addEventListener("pointermove", this.#cancelPress);
     this.#target.addEventListener("pointercancel", this.#cancelPress);
+    return true;
   }
 
-  disconnectedCallback() {
+  override disconnectedCallback() {
+    super.disconnectedCallback();
     // Drop a long-press in flight: its timer would otherwise fire after the
     // element left the document and open a menu nothing can dismiss.
     this.#cancelPress();

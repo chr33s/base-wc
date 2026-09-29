@@ -15,16 +15,15 @@ export class UIAvatar extends LightDomElement {
     return (this.getAttribute("data-state") as AvatarState | null) ?? "loading";
   }
 
-  protected override wire() {
+  protected override initialize() {
     // Only wire once one of the authored slots exists, so a wiring pass that
     // beats the parser sees connectLightDom retry on the next light-DOM
     // mutation instead of settling on `error` against an empty host.
-    if (!this.querySelector("[data-avatar-image], [data-avatar-fallback]")) return;
-    this.wired = true;
+    if (!this.querySelector("[data-avatar-image], [data-avatar-fallback]")) return false;
     const img = this.querySelector<HTMLImageElement>("[data-avatar-image]");
     if (!img || !img.getAttribute("src")) {
       this.#setState("error");
-      return;
+      return true;
     }
     // Fast-path an already-decoded image; otherwise wait for load/error. We do
     // NOT treat `complete && naturalWidth === 0` as an immediate error — that
@@ -32,11 +31,12 @@ export class UIAvatar extends LightDomElement {
     // starts), so the `error` listener is the source of truth for failure.
     if (img.complete && img.naturalWidth > 0) {
       this.#setState("loaded");
-      return;
+      return true;
     }
     this.#setState("loading");
     img.addEventListener("load", () => this.#setState("loaded"), { once: true });
     img.addEventListener("error", () => this.#setState("error"), { once: true });
+    return true;
   }
 
   #setState(state: AvatarState) {

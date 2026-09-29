@@ -55,6 +55,36 @@ export interface SelectChangeDetail {
   readonly reason: ChangeReason;
 }
 
+/** The selected values have one owner, chosen when the native control is adopted. */
+interface SelectValue {
+  read(): ReadonlySet<string>;
+  write(values: ReadonlySet<string>): void;
+}
+
+function standaloneValue(): SelectValue {
+  let selected: ReadonlySet<string> = new Set();
+  return {
+    read: () => selected,
+    write: (values) => {
+      selected = new Set(values);
+    },
+  };
+}
+
+function nativeValue(select: HTMLSelectElement): SelectValue {
+  return {
+    read: () =>
+      new Set(
+        [...select.options].filter((option) => option.selected).map((option) => option.value),
+      ),
+    write: (values) => {
+      for (const option of select.options) option.selected = values.has(option.value);
+      // A single select re-selects its first option when all are cleared.
+      if (!select.multiple && values.size === 0) select.selectedIndex = -1;
+    },
+  };
+}
+
 export class UISelect extends FormAssociatedElement {
   protected override formControlOptions(): FormControlOptions {
     return {
@@ -77,7 +107,7 @@ export class UISelect extends FormAssociatedElement {
   /** An adopted native `<select>` (progressive-enhancement mode), else `null`. */
   #native: HTMLSelectElement | null = null;
   #activeIndex = -1;
-  #selected = new Set<string>();
+  #selection: SelectValue = standaloneValue();
   #placeholder = "";
   #overlay: Overlay | null = null;
   /** Whether the currently-open popup was opened by a press, not a click. */
@@ -127,18 +157,17 @@ export class UISelect extends FormAssociatedElement {
   set value(next: string | string[] | null) {
     // Wire synchronously if the value is set in the same task as connection so
     // the trigger label reflects it (the imperative entry-point guard).
-    if (!this.wired) this.wire();
+    this.ensureInitialized();
     const arr = next == null ? [] : Array.isArray(next) ? next : [next];
     this.#applySelection(new Set(this.multiple ? arr : arr.slice(0, 1)));
   }
 
-  protected override wire() {
+  protected override initialize() {
     this.#adoptNative();
     this.#trigger = this.querySelector<HTMLElement>("[data-select-trigger]");
     this.#valueEl = this.querySelector<HTMLElement>("[data-select-value]");
     this.#popup = this.querySelector<HTMLElement>("ui-select-popup");
-    if (!this.#trigger || !this.#popup) return;
-    this.wired = true;
+    if (!this.#trigger || !this.#popup) return false;
 
     this.#popup.setAttribute("role", "listbox");
     if (this.multiple) this.#popup.setAttribute("aria-multiselectable", "true");
@@ -187,9 +216,11 @@ export class UISelect extends FormAssociatedElement {
     if (preselected.length) {
       this.#applySelection(new Set(this.multiple ? preselected : preselected.slice(0, 1)));
     }
+    return true;
   }
 
-  disconnectedCallback() {
+  override disconnectedCallback() {
+    super.disconnectedCallback();
     this.#close({ restoreFocus: false });
   }
 
@@ -204,6 +235,9 @@ export class UISelect extends FormAssociatedElement {
     const select = adoptedControl<HTMLSelectElement>(this, "select");
     if (!select || this.querySelector("[data-select-trigger]")) return;
     this.#native = select;
+    this.#selection = nativeValue(select);
+    select.addEventListener("input", this.#onNativeEvent);
+    select.addEventListener("change", this.#onNativeEvent);
     if (select.multiple) this.setAttribute("multiple", "");
 
     const trigger = document.createElement("button");
@@ -270,10 +304,8 @@ export class UISelect extends FormAssociatedElement {
     return el;
   }
 
-  /** Reflect the current selection onto the adopted native `<select>`. */
-  #writeNativeState() {
-    if (!this.#native) return;
-    for (const opt of this.#native.options) opt.selected = this.#selected.has(opt.value);
+  protected override connectResources() {
+    if (this.#native) this.#reflectSelection();
   }
 
   /** Mirror `readonly` onto the host, the trigger and the listbox. */
@@ -303,16 +335,19 @@ export class UISelect extends FormAssociatedElement {
   }
   /** Selected values in DOM order. */
   #selectedInOrder() {
+    const selected = this.#selection.read();
     return this.#allOptions()
       .map((o) => this.#valueOf(o))
-      .filter((v) => this.#selected.has(v));
+      .filter((v) => selected.has(v));
   }
 
   #open(reason: ChangeReason = "none") {
     if (!this.#overlay?.show(reason)) return;
     this.#popup?.focus();
+    this.#reflectSelection();
     const options = this.#options();
-    const current = options.findIndex((o) => this.#selected.has(this.#valueOf(o)));
+    const selected = this.#selection.read();
+    const current = options.findIndex((o) => selected.has(this.#valueOf(o)));
     this.#setActive(current >= 0 ? current : 0);
   }
 
@@ -346,21 +381,32 @@ export class UISelect extends FormAssociatedElement {
 
   /** Reflect the given selection onto the options, form value and trigger. */
   #applySelection(next: Set<string>) {
-    this.#selected = next;
+    this.#selection.write(next);
+    this.#reflectSelection();
+  }
+
+  /** Read the value owner once, then project it onto the enhanced UI. */
+  #reflectSelection = () => {
+    const selected = this.#selection.read();
     this.#allOptions().forEach((o) => {
-      const sel = next.has(this.#valueOf(o));
+      const sel = selected.has(this.#valueOf(o));
       o.setAttribute("aria-selected", String(sel));
       o.toggleAttribute("data-selected", sel); // item-indicator hook
     });
-    this.#writeNativeState();
     this.#syncFormValue();
     if (this.#valueEl) {
       const labels = this.#allOptions()
-        .filter((o) => this.#selected.has(this.#valueOf(o)))
+        .filter((o) => selected.has(this.#valueOf(o)))
         .map((o) => this.#labelOf(o));
       this.#valueEl.textContent = labels.length ? labels.join(", ") : this.#placeholder;
     }
-  }
+  };
+
+  /** Skips the events this element dispatches itself — it already reflected. */
+  #firingNative = false;
+  #onNativeEvent = () => {
+    if (!this.#firingNative) this.#reflectSelection();
+  };
 
   #syncFormValue() {
     // In native-adoption mode the retired `<select>` is the form value — the
@@ -381,12 +427,7 @@ export class UISelect extends FormAssociatedElement {
   #onFormReset() {
     if (!this.wired) return;
     if (this.#native) {
-      queueMicrotask(() => {
-        const native = this.#native;
-        if (!native) return;
-        const values = [...native.selectedOptions].map((o) => o.value);
-        this.#applySelection(new Set(this.multiple ? values : values.slice(0, 1)));
-      });
+      queueMicrotask(this.#reflectSelection);
       return;
     }
     const preselected = this.#allOptions()
@@ -404,7 +445,7 @@ export class UISelect extends FormAssociatedElement {
     if (!option || this.readOnly) return;
     const v = this.#valueOf(option);
     if (this.multiple) {
-      const next = new Set(this.#selected);
+      const next = new Set(this.#selection.read());
       if (next.has(v)) next.delete(v);
       else next.add(v);
       this.#applySelection(next);
@@ -415,7 +456,14 @@ export class UISelect extends FormAssociatedElement {
     // Mirror a real <select>: a user selection fires `input` *and* `change` on
     // the native control (programmatic `.value =` fires neither — see the value
     // setter), so listeners bound to the adopted <select> are notified.
-    if (this.#native) fireNativeChange(this.#native);
+    if (this.#native) {
+      this.#firingNative = true;
+      try {
+        fireNativeChange(this.#native);
+      } finally {
+        this.#firingNative = false;
+      }
+    }
     this.dispatchEvent(
       new CustomEvent<SelectChangeDetail>("change", {
         bubbles: true,

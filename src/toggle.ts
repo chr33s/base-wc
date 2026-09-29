@@ -83,17 +83,17 @@ export class UIToggleGroup extends RovingElement {
     return this.multiple ? pressed : (pressed[0] ?? null);
   }
 
-  protected override wire() {
+  protected override initialize() {
     // Only wire once at least one toggle exists, so a wiring pass that beats
     // the parser sees connectLightDom retry on the next light-DOM mutation
     // instead of silently claiming an empty host.
-    if (this.#allToggles().length === 0) return;
-    this.wired = true;
+    if (this.#allToggles().length === 0) return false;
     this.setAttribute("role", "group");
 
     this.attachRoving();
     this.addEventListener("click", this.#onClick);
     this.roving?.refresh(0);
+    return true;
   }
 
   protected override rovingOptions(): RovingOptions {

@@ -26,25 +26,21 @@ export class UIToolbar extends RovingElement {
     return this.getAttribute("orientation") === "vertical" ? "vertical" : "horizontal";
   }
 
-  protected override wire() {
+  protected override initialize() {
     // Only wire once at least one item exists (disabled ones count — they still
     // prove the children are parsed), so a wiring pass that beats the parser
     // sees connectLightDom retry on the next light-DOM mutation instead of
     // silently claiming an empty host.
-    if (scopedQuery(this, TOOLBAR_ITEMS).length === 0) return;
-    this.wired = true;
+    if (scopedQuery(this, TOOLBAR_ITEMS).length === 0) return false;
     this.setAttribute("role", "toolbar");
     this.setAttribute("aria-orientation", this.orientation);
     this.attachRoving();
     this.roving?.refresh(0);
+    return true;
   }
 
   protected override rovingOptions(): RovingOptions {
-    return {
-      items: () => this.#items(),
-      orientation: this.orientation,
-      loop: true,
-    };
+    return { items: () => this.#items(), orientation: this.orientation, loop: true };
   }
 
   // Stable membership regardless of the roving tab stop — do NOT filter on

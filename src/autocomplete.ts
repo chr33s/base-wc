@@ -87,13 +87,13 @@ export class UIAutocomplete extends FormAssociatedElement {
     if (this.wired && this.#controller?.open) this.#filter(this.#input.value);
   }
 
-  protected override wire() {
+  protected override initialize() {
     const input =
       this.querySelector<HTMLInputElement>("[data-autocomplete-input]") ??
       this.querySelector<HTMLInputElement>("input");
     const popup = this.querySelector<HTMLElement>("ui-autocomplete-popup");
     const list = this.querySelector<HTMLElement>("ui-autocomplete-list");
-    if (!input || !popup || !list) return;
+    if (!input || !popup || !list) return false;
 
     this.#input = input;
     this.#setInputDisabled = managedDisabled(input);
@@ -114,11 +114,12 @@ export class UIAutocomplete extends FormAssociatedElement {
     });
 
     this.#syncReadOnly();
-    this.wired = true;
     this.formControl.setValue(input.value);
+    return true;
   }
 
-  disconnectedCallback() {
+  override disconnectedCallback() {
+    super.disconnectedCallback();
     this.#close();
   }
 

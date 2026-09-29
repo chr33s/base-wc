@@ -254,25 +254,9 @@ export function roving(container: HTMLElement, options: RovingOptions) {
 }
 
 /**
- * The base for a composite that **owns a roving helper** — `ui-tabs`,
- * `ui-toggle-group`, `ui-toolbar`, `ui-menubar`, `ui-navigation-menu`.
- *
- * All five carried the same three members: a `#roving` field, a
- * `disconnectedCallback` that destroys it, and a `connectedCallback` that
- * rebuilds it when an already-wired host is re-inserted. That last one is the
- * subtle half — {@link connectLightDom} deliberately skips a host it has
- * already wired, so nothing else would recreate the helper `disconnectedCallback`
- * dropped, and a moved composite would silently lose its arrow keys. The new
- * helper adopts the tab stop still marked in the DOM (see {@link Roving.refresh}),
- * so the round trip costs the user nothing.
- *
- * A subclass supplies {@link rovingOptions}, calls {@link attachRoving} from its
- * `wire`, and overrides {@link rovingContainer} when the keydown listener belongs
- * on an inner list element rather than the host.
- *
- * `ui-radio-group` is the one composite that does *not* extend this: it is
- * form-associated, so it already extends `FormAssociatedElement` and keeps its
- * own copy of the three members.
+ * Compatibility base for roving composites. Its helper uses the same
+ * connection lifetime as resources composed by form-associated elements.
+ * Existing subclasses may attach it during initialize() to apply an initial tab stop.
  */
 export abstract class RovingElement extends LightDomElement {
   #roving: Roving | null = null;
@@ -290,18 +274,16 @@ export abstract class RovingElement extends LightDomElement {
     return this.#roving;
   }
 
-  /** Create the helper unless one already exists. Call it from `wire`. */
+  /** Create the helper unless one already exists. Call it from `initialize`. */
   protected attachRoving() {
     this.#roving ??= roving(this.rovingContainer, this.rovingOptions());
   }
 
-  override connectedCallback() {
-    if (this.wired) this.attachRoving();
-    super.connectedCallback();
-  }
-
-  disconnectedCallback() {
-    this.#roving?.destroy();
-    this.#roving = null;
+  protected override connectResources() {
+    this.attachRoving();
+    return () => {
+      this.#roving?.destroy();
+      this.#roving = null;
+    };
   }
 }

@@ -57,41 +57,37 @@ export class UIRadioGroup extends FormAssociatedElement {
     }
   }
 
-  override connectedCallback() {
-    // A re-inserted group keeps its wiring (connectLightDom skips a wired host)
-    // but not its roving helper, which `disconnectedCallback` dropped; the new
-    // one adopts the tab stop still marked in the DOM. Native-adoption mode
-    // never had one — the browser's own radios do the roving.
-    if (this.wired && !this.#native) this.#attachRoving();
-    super.connectedCallback();
-  }
-
-  disconnectedCallback() {
-    this.#roving?.destroy();
-    this.#roving = null;
-  }
-
-  protected override wire() {
-    this.wired = true;
+  protected override initialize() {
+    if (this.#allRadios().length === 0) return false;
     this.#native = adoptedControl(this, 'input[type="radio"]') != null;
-    if (this.#native) return this.#wireNative();
+    if (this.#native) {
+      this.#wireNative();
+      return true;
+    }
 
     this.setAttribute("role", "radiogroup");
     if (!this.id) this.id = nextId("ui-radio-group");
 
-    this.#attachRoving();
     this.addEventListener("click", this.#onClick);
     this.#applyPreset();
+    return true;
   }
 
-  #attachRoving() {
-    this.#roving ??= roving(this, {
+  protected override connectResources() {
+    if (this.#native) return;
+    this.#roving = roving(this, {
       items: () => this.#radios(),
       orientation: "both",
       loop: true,
       onMove: (item) => this.#selectByUser(item as UIRadio),
       onActivate: (item) => this.#selectByUser(item as UIRadio),
     });
+    const selected = this.#selected();
+    this.#roving.refresh(selected ? Math.max(0, this.#radios().indexOf(selected)) : undefined);
+    return () => {
+      this.#roving?.destroy();
+      this.#roving = null;
+    };
   }
 
   /**
@@ -217,14 +213,13 @@ export class UIRadio extends LightDomElement {
     super.connectedCallback();
   }
 
-  protected override wire() {
-    this.wired = true;
+  protected override initialize() {
     const native = this.nativeInput();
     if (native) {
       // Native-first: the input is the radio; only mirror its state for the pip.
       this.setAttribute("data-state", native.checked ? "checked" : "unchecked");
       this.toggleAttribute("data-disabled", native.disabled);
-      return;
+      return true;
     }
     this.setAttribute("role", "radio");
     if (!this.hasAttribute("aria-checked")) {
@@ -232,6 +227,7 @@ export class UIRadio extends LightDomElement {
     }
     this.setAttribute("aria-disabled", String(this.disabled));
     if (!this.hasAttribute("tabindex")) this.tabIndex = -1;
+    return true;
   }
 
   attributeChangedCallback() {

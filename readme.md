@@ -69,8 +69,8 @@ assumptions):
 - **CSS anchor positioning** with a viewport-aware JS fallback
   (`anchor.ts`) behind `@supports (anchor-name: --a)`.
 - **Shared DOM controllers**, not framework context, coordinate behavior. The
-  DOM remains the source of truth for order, while `connectLightDom()` waits for
-  late-authored light-DOM parts and shared controllers own composite state.
+  DOM remains the source of truth for order, while `LightDomElement` waits for
+  late-authored light-DOM parts and scopes connection resources; shared controllers own composite state.
 
 ## Native-first form controls (the default contract)
 
@@ -163,6 +163,50 @@ ui-select:not(:defined) > select {
 | `ui-menu`, `ui-popover`, `ui-dialog`, `ui-drawer`, `ui-context-menu` | Authored trigger/content         | Popover top layer + JS positioning/dismissal                  |
 | `ui-meter`, `ui-progress`                                            | —                                | Custom ARIA elements with CSS variable fill hooks             |
 | `ui-toast`, `ui-scroll-area`, `ui-preview-card`, `ui-tooltip`        | —                                | JS enhancement-only; `ui-tooltip` can degrade to `title`      |
+
+## API boundaries and component lifecycle
+
+Use `@chr33s/base-wc/components` for component classes, component helpers
+(`createItems`, `toast`) and their event types. Use `@chr33s/base-wc/advanced`
+for supported controllers, base classes, chart data/geometry types and other
+low-level composition tools. Both entries support tree shaking. Import
+`@chr33s/base-wc/elements` when classes are not referenced and all tags must
+be registered.
+
+The root entry continues to export both APIs for compatibility. Existing
+component and helper subpaths also remain available; direct helper subpaths
+are legacy aliases, with `/advanced` preferred for new code. Removing those
+aliases requires a future major release. New implementation modules live in
+`src/internal/` and are blocked from package subpath imports.
+
+`LightDomElement` separates persistent enhancement from connection resources:
+
+- `initialize(): boolean` discovers authored parts and builds generated DOM
+  once. Return `false` while required children are absent; the base retries on
+  child mutations. Return `true` when ready.
+- `connectResources(): (() => void) | void` starts observers, listeners and
+  controllers after initialization and on every reconnect. Return one cleanup
+  function to release those resources on disconnect. Store component state
+  separately so a DOM move preserves values and generated nodes.
+- Subclasses that override browser lifecycle callbacks must call `super`.
+  Existing `wire()`/`wired` subclasses remain supported as a compatibility
+  path; new components should use `initialize()` and `connectResources()`.
+
+Roving behavior uses that same resource contract in form-associated radio
+and toolbar, and through the existing `RovingElement` compatibility base.
+Chart and table also reconnect their resources without repeating initialization.
+
+Select chooses its value owner once: an adopted native `<select>` or standalone
+selection state. The enhanced UI is a projection of that value. After changing
+the native control externally, dispatch `input` or `change` to refresh the UI;
+the component's value getter reads the native selection immediately. Reopening
+or reconnecting also refreshes the UI. Programmatic component value writes
+remain silent; user picks still emit the existing events.
+
+Combobox's private options renderer owns its recycled rows, grid cells and
+scroll geometry. Chart's private frame preparation resolves scales, stacking
+and render contexts together; drawing and pointer interaction share the last
+rendered frame. Neither implementation is part of the public API.
 
 ## Shared infrastructure (`build once, reuse everywhere`)
 

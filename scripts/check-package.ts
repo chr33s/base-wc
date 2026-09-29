@@ -47,24 +47,38 @@ function definitions(output: string) {
   return output.match(/\(["'`]ui-[a-z-]+["'`],/g)?.length ?? 0;
 }
 
-const [rootSwitch, subpathSwitch, sourceSwitch, registerAll, sourceRegisterAll] = await Promise.all(
-  [
-    bundle(
-      'import { UISwitch } from "@chr33s/base-wc"; document.body.append(new UISwitch());',
-      "root-switch.js",
-    ),
-    bundle(
-      'import { UISwitch } from "@chr33s/base-wc/switch"; document.body.append(new UISwitch());',
-      "subpath-switch.js",
-    ),
-    bundle(
-      'import { UISwitch } from "@chr33s/base-wc/src"; document.body.append(new UISwitch());',
-      "source-switch.js",
-    ),
-    bundle('import "@chr33s/base-wc/elements";', "register-all.js"),
-    bundle('import "@chr33s/base-wc/src/elements";', "source-register-all.js"),
-  ],
-);
+const [
+  rootSwitch,
+  subpathSwitch,
+  sourceSwitch,
+  registerAll,
+  sourceRegisterAll,
+  componentSwitch,
+  advancedClamp,
+] = await Promise.all([
+  bundle(
+    'import { UISwitch } from "@chr33s/base-wc"; document.body.append(new UISwitch());',
+    "root-switch.js",
+  ),
+  bundle(
+    'import { UISwitch } from "@chr33s/base-wc/switch"; document.body.append(new UISwitch());',
+    "subpath-switch.js",
+  ),
+  bundle(
+    'import { UISwitch } from "@chr33s/base-wc/src"; document.body.append(new UISwitch());',
+    "source-switch.js",
+  ),
+  bundle('import "@chr33s/base-wc/elements";', "register-all.js"),
+  bundle('import "@chr33s/base-wc/src/elements";', "source-register-all.js"),
+  bundle(
+    'import { UISwitch } from "@chr33s/base-wc/components"; document.body.append(new UISwitch());',
+    "components-switch.js",
+  ),
+  bundle(
+    'import { clamp } from "@chr33s/base-wc/advanced"; globalThis.clamped = clamp(Math.random(), 0, 1);',
+    "advanced-clamp.js",
+  ),
+]);
 
 assert.match(
   import.meta.resolve("@chr33s/base-wc/styles.css"),
@@ -81,10 +95,20 @@ for (const [entry, output] of [
   ["root barrel", rootSwitch],
   ["component subpath", subpathSwitch],
   ["source barrel", sourceSwitch],
+  ["component API", componentSwitch],
 ] as const) {
   assert.ok(output.length < 5_000, `${entry} pulled ${output.length} bytes for UISwitch`);
   assert.equal(definitions(output), 1, `${entry} registered unrelated custom elements`);
   assert.match(output, /ui-switch/, `${entry} omitted the requested element registration`);
+}
+
+assert.equal(definitions(advancedClamp), 0, "advanced helper imports registered components");
+assert.ok(advancedClamp.length < 1_000, "advanced helper imported unrelated machinery");
+for (const specifier of [
+  "@chr33s/base-wc/internal/chart-frame",
+  "@chr33s/base-wc/src/internal/combobox-options",
+]) {
+  assert.throws(() => import.meta.resolve(specifier), { code: "ERR_PACKAGE_PATH_NOT_EXPORTED" });
 }
 
 // The exact roster size, not a floor: a floor cannot catch a *single* element

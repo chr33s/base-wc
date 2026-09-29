@@ -64,23 +64,18 @@ export class UINavigationMenu extends RovingElement {
     return numberAttribute(this, "delay", 200);
   }
 
-  override connectedCallback() {
-    // The base rebuilds the roving helper for a re-inserted host; this menu's
-    // item observer, dropped by the same `disconnectedCallback`, needs the
-    // same treatment.
-    if (this.wired) this.#observeItems();
-    super.connectedCallback();
+  protected override connectResources() {
+    const stopRoving = super.connectResources();
+    this.#observeItems();
+    return () => {
+      stopRoving();
+      this.#intent.cancel();
+      this.#observer?.disconnect();
+      this.#observer = null;
+    };
   }
 
-  override disconnectedCallback() {
-    super.disconnectedCallback();
-    this.#intent.cancel();
-    this.#observer?.disconnect();
-    this.#observer = null;
-  }
-
-  protected override wire() {
-    this.wired = true;
+  protected override initialize() {
     const list = this.querySelector<HTMLElement>("ui-nav-list") ?? this;
     this.#syncItems();
 
@@ -90,8 +85,7 @@ export class UINavigationMenu extends RovingElement {
 
     this.addEventListener("pointerenter", this.#cancelClose);
     this.addEventListener("pointerleave", this.#scheduleClose);
-
-    this.#observeItems();
+    return true;
   }
 
   protected override get rovingContainer(): HTMLElement {

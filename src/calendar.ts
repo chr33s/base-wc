@@ -122,8 +122,11 @@ export class UICalendar extends FormAssociatedElement {
     this.#render();
   }
 
-  protected override wire() {
-    this.wired = true;
+  /** True once initialize() has begun building; `wired` only flips when it returns. */
+  #ready = false;
+
+  protected override initialize() {
+    this.#ready = true;
     this.#default = this.getAttribute("value");
     this.#selected = parseISO(this.#default);
     this.#focus = this.#selected ?? this.#clampToRange(today());
@@ -148,6 +151,7 @@ export class UICalendar extends FormAssociatedElement {
 
     this.append(header, this.#grid);
     this.#render();
+    return true;
   }
 
   #navButton(dir: "prev" | "next", label: string, glyph: string) {
@@ -177,7 +181,7 @@ export class UICalendar extends FormAssociatedElement {
 
   /** Rebuild the weekday header row + day cells for the focused month. */
   #render() {
-    if (!this.wired) return;
+    if (!this.#ready) return;
     // `timeZone: "UTC"` on both formatters here: every date this component
     // handles is a UTC instant (`Date.UTC` throughout, so the arithmetic is
     // free of DST), and formatting one in the *viewer's* zone would read it
@@ -302,7 +306,7 @@ export class UICalendar extends FormAssociatedElement {
         }
       }
     }
-    if (this.wired) this.#render();
+    this.#render();
     if (emit) {
       this.dispatchEvent(
         new CustomEvent<CalendarChangeDetail>("change", {

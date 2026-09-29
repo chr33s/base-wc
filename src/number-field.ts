@@ -52,13 +52,15 @@ export class UINumberField extends FormAssociatedElement {
   protected override formControlOptions(): FormControlOptions {
     return {
       adopted: () => this.#nativeMode,
-      value: () => (this.wired ? this.#input.value : null),
+      value: () => (this.#ready ? this.#input.value : null),
       onReset: () => this.#onFormReset(),
     };
   }
   protected override onFormDisabled() {
-    if (this.wired) this.#applyDisabled();
+    if (this.#ready) this.#applyDisabled();
   }
+  /** True once the input is adopted; `wired` only flips when initialize() returns. */
+  #ready = false;
   #input!: HTMLInputElement;
   #inc: HTMLElement | null = null;
   #dec: HTMLElement | null = null;
@@ -136,19 +138,19 @@ export class UINumberField extends FormAssociatedElement {
     return numberAttribute(this, "scrub-sensitivity", 8) || 8;
   }
 
-  protected override wire() {
+  protected override initialize() {
     // Adoption-scoped queries: an input (or part) belonging to a *nested*
     // component inside our light DOM must never be wired as ours.
     const input =
       adoptedControl<HTMLInputElement>(this, "[data-number-input]") ??
       adoptedControl<HTMLInputElement>(this, "input");
-    if (!input) return;
+    if (!input) return false;
     this.#input = input;
     this.#setInputDisabled = managedDisabled(input);
     this.#inc = scopedQuery(this, "[data-number-increment]")[0] ?? null;
     this.#dec = scopedQuery(this, "[data-number-decrement]")[0] ?? null;
     this.#scrub = scopedQuery(this, "[data-number-scrub]")[0] ?? null;
-    this.wired = true;
+    this.#ready = true;
     this.#wireScrub();
 
     // Native-first: a `type="number"` input is the control (typing/arrows/spinner
@@ -156,7 +158,8 @@ export class UINumberField extends FormAssociatedElement {
     this.#nativeMode = input.type === "number";
     if (this.#nativeMode) {
       this.#mode = this.#nativeStrategy(input);
-      return this.#wireNative();
+      this.#wireNative();
+      return true;
     }
 
     input.setAttribute("role", "spinbutton");
@@ -176,6 +179,7 @@ export class UINumberField extends FormAssociatedElement {
     this.#dec?.addEventListener("click", () => this.#stepBy(-1, false));
 
     this.#commit(this.#parse(this.getAttribute("value") ?? input.value), false);
+    return true;
   }
 
   /**
@@ -203,7 +207,8 @@ export class UINumberField extends FormAssociatedElement {
     fireNativeChange(this.#input);
   }
 
-  disconnectedCallback() {
+  override disconnectedCallback() {
+    super.disconnectedCallback();
     this.#disposeScrub?.();
   }
 
@@ -271,7 +276,7 @@ export class UINumberField extends FormAssociatedElement {
   }
 
   #commit(n: number | null, emit: boolean) {
-    if (!this.wired) return;
+    if (!this.#ready) return;
     if (n == null) {
       this.#value = null;
       this.#input.value = "";

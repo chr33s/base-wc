@@ -32,6 +32,7 @@
  * and {@link createItems} maps application records into the store while keeping
  * each one attached for the `change` event to hand back.
  */
+import { ComboboxOptions } from "./internal/combobox-options.ts";
 import { AriaCombobox } from "./combobox-core.ts";
 import { define } from "./define.ts";
 import { isRTL } from "./direction.ts";
@@ -111,11 +112,6 @@ export interface ComboboxChangeDetail {
   readonly item?: unknown;
 }
 
-// Nominal row height, used until a pooled row has real layout to measure
-// (the first open re-measures, so consumer CSS may use any fixed row height).
-const ROW_H = 36;
-const OVERSCAN = 4; // rows rendered beyond each edge of the viewport
-
 export class UICombobox extends FormAssociatedElement {
   protected override formControlOptions(): FormControlOptions {
     return {
@@ -132,17 +128,13 @@ export class UICombobox extends FormAssociatedElement {
 
   #input!: HTMLInputElement;
   #viewport!: HTMLElement;
-  #spacer!: HTMLElement;
   #empty: HTMLElement | null = null;
   #chips: HTMLElement | null = null;
   #clear: HTMLElement | null = null;
   /** Set the inner input's `disabled`, re-enabling only what we disabled. */
   #setInputDisabled: ((disabled: boolean) => void) | null = null;
 
-  #rows: HTMLDivElement[] = []; // recycled pool — options (list) or rows (grid)
-  /** Per pooled row, its cells. Empty outside grid mode, where a row *is* the cell. */
-  #cells: HTMLDivElement[][] = [];
-  #rowH = ROW_H; // measured from the first pooled row on open; ROW_H until then
+  #options: ComboboxOptions | null = null;
   #all: ComboboxItem[] = []; // full data set (the store)
   #normalizedLabels: string[] = []; // normalize(#all[i].label), cached for filtering
   #byValue = new Map<string, ComboboxItem>(); // value → item, cached for lookups
@@ -156,14 +148,14 @@ export class UICombobox extends FormAssociatedElement {
     onActive: (i) => this.#setActive(i),
     loop: true,
     onCommit: (i) => this.#selectIndex(i),
-    page: () => Math.max(1, Math.floor(this.#viewport.clientHeight / this.#rowH) - 1),
+    page: () => this.#options?.pageSize ?? 1,
   });
   #selectedValue: string | null = null; // single-select
   #selected = new Map<string, string>(); // multi-select: value → label, in order
 
   static observedAttributes = ["readonly", "columns"];
   attributeChangedCallback(name: string) {
-    if (name === "columns") this.#rebuildPool();
+    if (name === "columns") this.#renderWindow();
     else this.#syncReadOnly();
   }
 
@@ -214,7 +206,11 @@ export class UICombobox extends FormAssociatedElement {
     if (this.#controller?.open) this.#renderWindow();
   }
   get counts() {
-    return { total: this.#all.length, matched: this.#filtered.length, domRows: this.#rows.length };
+    return {
+      total: this.#all.length,
+      matched: this.#filtered.length,
+      domRows: this.#options?.rowCount ?? 0,
+    };
   }
 
   #labelFor(value: string) {
@@ -253,28 +249,26 @@ export class UICombobox extends FormAssociatedElement {
     super.connectedCallback();
   }
 
-  protected override wire() {
+  protected override initialize() {
     const input =
       this.querySelector<HTMLInputElement>("[data-combobox-input]") ??
       this.querySelector<HTMLInputElement>("input");
     const popup = this.querySelector<HTMLElement>("ui-combobox-popup");
     const viewport = this.querySelector<HTMLElement>("ui-combobox-viewport");
     const spacer = this.querySelector<HTMLElement>("ui-combobox-spacer");
-    if (!input || !popup || !viewport || !spacer) return; // markup incomplete
+    if (!input || !popup || !viewport || !spacer) return false; // markup incomplete
 
     this.#input = input;
     this.#setInputDisabled = managedDisabled(input);
     this.#viewport = viewport;
-    this.#spacer = spacer;
+    this.#options = new ComboboxOptions(input, viewport, spacer, (index) => this.#optId(index));
     this.#empty = this.querySelector<HTMLElement>("ui-combobox-empty");
     this.#chips = this.querySelector<HTMLElement>("ui-combobox-chips");
     this.#clear = this.querySelector<HTMLElement>("[data-combobox-clear]");
     input.addEventListener("click", () => this.#openForBrowsing("input-press"));
 
     if (this.multiple) viewport.setAttribute("aria-multiselectable", "true");
-    spacer.setAttribute("role", "presentation");
-    this.#applyGridSemantics();
-    this.#ensurePool();
+    this.#renderWindow();
 
     // Chip removal (delegated — chips are recycled) and the clear control.
     this.#chips?.addEventListener("click", this.#onChipClick);
@@ -310,85 +304,13 @@ export class UICombobox extends FormAssociatedElement {
     });
 
     this.#syncReadOnly();
-    this.wired = true;
     if (this.#all.length) this.#applyFilter("");
+    return true;
   }
 
-  disconnectedCallback() {
+  override disconnectedCallback() {
+    super.disconnectedCallback();
     this.#close();
-  }
-
-  // ---- recycled DOM pool ------------------------------------------------
-  // Grow the pool to cover the current viewport height plus overscan. Built
-  // once at wire time (when the popup is `display:none`, clientHeight is 0 so we
-  // fall back to a nominal 9 visible rows) and re-run on open once the popup has
-  // real layout — a taller popup than the fallback then gets enough rows to fill
-  // it instead of leaving its lower rows permanently unrendered.
-  #ensurePool() {
-    const visible = this.#viewport.clientHeight
-      ? Math.ceil(this.#viewport.clientHeight / this.#rowH)
-      : 9;
-    const needed = visible + OVERSCAN * 2;
-    const grid = this.#grid;
-    const columns = this.columns;
-    for (let i = this.#rows.length; i < needed; i++) {
-      const row = document.createElement("div");
-      row.className = "cb-row";
-      // In a grid the pooled element is the row and its cells hold the options;
-      // in a list the pooled element *is* the option.
-      row.setAttribute("role", grid ? "row" : "option");
-      row.hidden = true;
-      if (grid) {
-        const cells: HTMLDivElement[] = [];
-        for (let c = 0; c < columns; c++) {
-          const cell = document.createElement("div");
-          cell.className = "cb-cell";
-          // `option` is not an allowed child of `row`; a grid's selectable unit
-          // is the `gridcell`, which carries `aria-selected` just the same.
-          cell.setAttribute("role", "gridcell");
-          cell.hidden = true;
-          row.appendChild(cell);
-          cells.push(cell);
-        }
-        this.#cells.push(cells);
-      }
-      this.#spacer.appendChild(row);
-      this.#rows.push(row);
-    }
-  }
-
-  /**
-   * Discard and re-create the pool. Only `columns` needs this: it changes what
-   * each pooled element *is* — an option, or a row of cells — so the existing
-   * elements cannot be re-labelled in place.
-   */
-  #rebuildPool() {
-    if (!this.wired) return;
-    this.#spacer.textContent = "";
-    this.#rows = [];
-    this.#cells = [];
-    this.#applyGridSemantics();
-    this.#ensurePool();
-    this.#renderWindow();
-  }
-
-  /** Announce the popup's shape: a grid publishes its column and row counts. */
-  #applyGridSemantics() {
-    const viewport = this.#viewport;
-    viewport.setAttribute("role", this.#grid ? "grid" : "listbox");
-    this.#input.setAttribute("aria-haspopup", this.#grid ? "grid" : "listbox");
-    if (this.#grid) {
-      viewport.setAttribute("aria-colcount", String(this.columns));
-      viewport.setAttribute("aria-rowcount", String(this.#rowCount()));
-    } else {
-      viewport.removeAttribute("aria-colcount");
-      viewport.removeAttribute("aria-rowcount");
-    }
-  }
-
-  /** Rows the current filter result occupies — every item in list mode. */
-  #rowCount() {
-    return Math.ceil(this.#filtered.length / this.columns);
   }
 
   // ---- store operations -------------------------------------------------
@@ -396,8 +318,6 @@ export class UICombobox extends FormAssociatedElement {
     const q = normalize(query, localeOf(this));
     this.#filtered =
       q === "" ? this.#all : this.#all.filter((_, i) => this.#normalizedLabels[i].includes(q));
-    this.#spacer.style.height = `${this.#rowCount() * this.#rowH}px`; // full virtual height
-    if (this.#grid) this.#viewport.setAttribute("aria-rowcount", String(this.#rowCount()));
     this.#viewport.scrollTop = 0;
     this.#empty?.toggleAttribute("hidden", this.#filtered.length > 0);
     this.#renderWindow();
@@ -406,71 +326,13 @@ export class UICombobox extends FormAssociatedElement {
     );
   }
 
-  /** Project the currently-scrolled slice of #filtered onto the fixed pool. */
   #renderWindow = () => {
-    const total = this.#filtered.length;
-    const columns = this.columns;
-    const rowCount = this.#rowCount();
-    const scrollTop = this.#viewport.scrollTop;
-    const maxFirst = Math.max(0, rowCount - this.#rows.length);
-    const first = clamp(Math.floor(scrollTop / this.#rowH) - OVERSCAN, 0, maxFirst);
-    const active = this.#controller?.activeIndex ?? -1;
-
-    for (let p = 0; p < this.#rows.length; p++) {
-      const row = this.#rows[p];
-      const rowIndex = first + p;
-      if (rowIndex >= rowCount) {
-        row.hidden = true;
-        this.#clearSlot(row);
-        for (const cell of this.#cells[p] ?? []) {
-          cell.hidden = true;
-          this.#clearSlot(cell);
-        }
-        continue;
-      }
-      row.hidden = false;
-      row.style.transform = `translateY(${rowIndex * this.#rowH}px)`;
-
-      if (!this.#grid) {
-        this.#fillSlot(row, rowIndex, total, active);
-        continue;
-      }
-      row.setAttribute("aria-rowindex", String(rowIndex + 1));
-      const cells = this.#cells[p] ?? [];
-      for (let c = 0; c < cells.length; c++) {
-        const cell = cells[c];
-        const index = rowIndex * columns + c;
-        if (index >= total) {
-          // The last row of a grid is usually short; its spare cells leave the
-          // accessibility tree rather than announcing themselves as empty ones.
-          cell.hidden = true;
-          this.#clearSlot(cell);
-          continue;
-        }
-        cell.hidden = false;
-        cell.setAttribute("aria-colindex", String(c + 1));
-        this.#fillSlot(cell, index, total, active);
-      }
-    }
+    this.#options?.render(this.#filtered, {
+      columns: this.columns,
+      activeIndex: this.#controller?.activeIndex ?? -1,
+      isSelected: (value) => this.#isSelected(value),
+    });
   };
-
-  /** Render item `index` into a pooled option or grid cell. */
-  #fillSlot(el: HTMLElement, index: number, total: number, active: number) {
-    const item = this.#filtered[index];
-    el.textContent = item.label;
-    el.id = this.#optId(index);
-    el.dataset.index = String(index);
-    el.setAttribute("aria-posinset", String(index + 1)); // virtualization a11y:
-    el.setAttribute("aria-setsize", String(total)); // "row 4,213 of 10,000"
-    el.setAttribute("aria-selected", String(this.#isSelected(item.value)));
-    el.toggleAttribute("data-highlighted", index === active);
-  }
-
-  /** Retire a pooled element so nothing addresses the item it used to hold. */
-  #clearSlot(el: HTMLElement) {
-    el.removeAttribute("id");
-    el.removeAttribute("data-index");
-  }
 
   // ---- active option (must be in the window to own an id) ---------------
   #setActive(index: number, { scroll = true }: { scroll?: boolean } = {}) {
@@ -481,14 +343,7 @@ export class UICombobox extends FormAssociatedElement {
     }
     index = clamp(index, 0, total - 1);
     this.#controller?.setActive(index, this.#optId(index));
-    if (scroll) {
-      // Scroll by row: in a grid several items share one scroll position.
-      const top = Math.floor(index / this.columns) * this.#rowH;
-      const bottom = top + this.#rowH;
-      const vh = this.#viewport.clientHeight;
-      if (top < this.#viewport.scrollTop) this.#viewport.scrollTop = top;
-      else if (bottom > this.#viewport.scrollTop + vh) this.#viewport.scrollTop = bottom - vh;
-    }
+    if (scroll) this.#options?.scrollTo(index);
     this.#renderWindow(); // now the active row is in the pool…
   }
 
@@ -508,7 +363,7 @@ export class UICombobox extends FormAssociatedElement {
     const total = this.#filtered.length;
     if (total === 0) return false;
     const columns = this.columns;
-    const rows = this.#rowCount();
+    const rows = Math.ceil(total / columns);
     const current = Math.max(0, this.#controller?.activeIndex ?? -1);
     const row = Math.floor(current / columns);
     const column = current % columns;
@@ -552,15 +407,8 @@ export class UICombobox extends FormAssociatedElement {
   // ---- open / close -----------------------------------------------------
   #open(reason: ChangeReason = "none") {
     if (!this.#controller?.show(reason)) return;
-    // The popup now has real layout — grow the row pool to fill its height and
-    // measure the true row height (consumer CSS owns it; ROW_H is a fallback).
-    this.#ensurePool();
-    const measured = this.#rows[0]?.offsetHeight || ROW_H;
-    if (measured !== this.#rowH) {
-      this.#rowH = measured;
-      this.#spacer.style.height = `${this.#rowCount() * this.#rowH}px`;
-      this.#renderWindow();
-    }
+    this.#options?.measure();
+    this.#renderWindow();
   }
 
   #openForBrowsing(reason: ChangeReason = "none") {

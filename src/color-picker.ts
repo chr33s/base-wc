@@ -119,7 +119,8 @@ export class UIColorPicker extends FormAssociatedElement {
     if (rgb) this.#setHsv(rgbToHsv(...rgb), false);
   }
 
-  disconnectedCallback() {
+  override disconnectedCallback() {
+    super.disconnectedCallback();
     this.#disposeDrag?.();
   }
 
@@ -129,8 +130,7 @@ export class UIColorPicker extends FormAssociatedElement {
     if (name === "disabled") this.#reflectDisabled();
   }
 
-  protected override wire() {
-    this.wired = true;
+  protected override initialize() {
     const rgb = parseHex(this.getAttribute("value")) ?? [0, 0, 0];
     this.#hsv = rgbToHsv(...rgb);
 
@@ -165,6 +165,7 @@ export class UIColorPicker extends FormAssociatedElement {
 
     this.formControl.setValue(this.value);
     this.#render();
+    return true;
   }
 
   #buildArea() {
@@ -289,10 +290,9 @@ export class UIColorField extends LightDomElement {
   #input!: HTMLInputElement;
   #field: PopoverField | null = null;
 
-  protected override wire() {
+  protected override initialize() {
     const input = adoptedControl<HTMLInputElement>(this, 'input[type="color"]');
-    if (!input) return;
-    this.wired = true;
+    if (!input) return false;
     this.#input = input;
 
     const picker = document.createElement("ui-color-picker") as UIColorPicker;
@@ -316,6 +316,7 @@ export class UIColorField extends LightDomElement {
     });
     picker.addEventListener("change", this.#onPick as EventListener);
     this.#syncSwatch();
+    return true;
   }
 
   #syncSwatch() {
@@ -329,7 +330,8 @@ export class UIColorField extends LightDomElement {
     this.#syncSwatch();
   };
 
-  disconnectedCallback() {
+  override disconnectedCallback() {
+    super.disconnectedCallback();
     this.#field?.close(false);
   }
 }

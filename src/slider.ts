@@ -97,20 +97,23 @@ export class UISlider extends FormAssociatedElement {
     return this.getAttribute("orientation") === "vertical" ? "vertical" : "horizontal";
   }
 
-  protected override wire() {
+  /** True once initialize() has chosen a mode; `wired` only flips when it returns. */
+  #ready = false;
+
+  protected override initialize() {
     // Native-first: a `type="range"` input is the control (thumb / keyboard /
     // drag / submission are native); we only publish the fill fractions.
     this.#native = adoptedControl<HTMLInputElement>(this, 'input[type="range"]');
     if (this.#native) {
-      this.wired = true;
+      this.#ready = true;
       this.#native.addEventListener("input", this.#reflectNative);
       this.#reflectNative();
-      return;
+      return true;
     }
 
     const track = this.querySelector<HTMLElement>("ui-slider-track");
     const thumbs = [...this.querySelectorAll<HTMLElement>("ui-slider-thumb")];
-    if (!track || thumbs.length === 0) return;
+    if (!track || thumbs.length === 0) return false;
     this.#track = track;
     this.#thumbs = thumbs;
     this.#values = thumbs.map(() => this.min);
@@ -139,11 +142,13 @@ export class UISlider extends FormAssociatedElement {
       },
     });
 
-    this.wired = true;
+    this.#ready = true;
     this.#applyValues(this.#initialValues(), false);
+    return true;
   }
 
-  disconnectedCallback() {
+  override disconnectedCallback() {
+    super.disconnectedCallback();
     this.#disposeDrag?.();
   }
 
@@ -186,7 +191,7 @@ export class UISlider extends FormAssociatedElement {
 
   /** Bulk-set every thumb value: snap, order ascending, keep min-distance. */
   #applyValues(next: number[], emit: boolean) {
-    if (!this.wired) return;
+    if (!this.#ready) return;
     const n = this.#thumbs.length;
     const vals = this.#values.slice();
     for (let i = 0; i < n; i++) {

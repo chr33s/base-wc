@@ -20,10 +20,9 @@ export class UIDateField extends LightDomElement {
   #input!: HTMLInputElement;
   #field: PopoverField | null = null;
 
-  protected override wire() {
+  protected override initialize() {
     const input = adoptedControl<HTMLInputElement>(this, 'input[type="date"]');
-    if (!input) return;
-    this.wired = true;
+    if (!input) return false;
     this.#input = input;
 
     // `new UICalendar()` / `new UICalendarPopup()` (rather than createElement)
@@ -54,6 +53,7 @@ export class UIDateField extends LightDomElement {
       if (!this.#field?.open) calendar.value = input.value || null;
     });
     calendar.addEventListener("change", this.#onPick as EventListener);
+    return true;
   }
 
   #onPick = (e: CustomEvent<CalendarChangeDetail>) => {
@@ -63,7 +63,8 @@ export class UIDateField extends LightDomElement {
     this.#field?.close(true);
   };
 
-  disconnectedCallback() {
+  override disconnectedCallback() {
+    super.disconnectedCallback();
     this.#field?.close(false);
   }
 }

@@ -45,15 +45,15 @@ export class UICollapsible extends LightDomElement {
     this.toggleAttribute("open", next);
   }
 
-  protected override wire() {
+  protected override initialize() {
     this.#trigger = this.querySelector<HTMLElement>("[data-collapsible-trigger]");
     this.#content = this.querySelector<HTMLElement>("[data-collapsible-content]");
-    if (!this.#trigger || !this.#content) return;
-    this.wired = true;
+    if (!this.#trigger || !this.#content) return false;
     if (!this.#content.id) this.#content.id = nextId("ui-collapsible-content");
     this.#trigger.setAttribute("aria-controls", this.#content.id);
     this.#trigger.addEventListener("click", this.#toggle);
     this.#sync();
+    return true;
   }
 
   attributeChangedCallback() {

@@ -23,8 +23,7 @@ export class UIFieldset extends LightDomElement {
 
   #managed = new Set<Element>();
 
-  protected override wire() {
-    this.wired = true;
+  protected override initialize() {
     this.setAttribute("role", "group");
     const legend = this.querySelector<HTMLElement>("[data-fieldset-legend]");
     if (legend) {
@@ -32,6 +31,7 @@ export class UIFieldset extends LightDomElement {
       this.setAttribute("aria-labelledby", legend.id);
     }
     this.#propagateDisabled();
+    return true;
   }
 
   attributeChangedCallback() {

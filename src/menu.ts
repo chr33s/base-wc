@@ -109,16 +109,15 @@ export class UIMenu extends LightDomElement {
     super.connectedCallback();
   }
 
-  protected override wire() {
+  protected override initialize() {
     this.#trigger = this.querySelector<HTMLElement>("[data-menu-trigger]");
     this.#popup = this.querySelector<HTMLElement>("ui-menu-popup");
-    if (!this.#popup) return;
+    if (!this.#popup) return false;
     if (this.orientation === "horizontal") {
       this.#popup.setAttribute("aria-orientation", "horizontal");
     } else {
       this.#popup.removeAttribute("aria-orientation");
     }
-    this.wired = true;
 
     if (this.#trigger) {
       if (this.#isSubmenu) {
@@ -178,6 +177,7 @@ export class UIMenu extends LightDomElement {
     });
 
     this.#reflectDisabled();
+    return true;
   }
 
   attributeChangedCallback() {
@@ -186,7 +186,8 @@ export class UIMenu extends LightDomElement {
     if (this.#rootDisabled) this.#close({ restoreFocus: false });
   }
 
-  disconnectedCallback() {
+  override disconnectedCallback() {
+    super.disconnectedCallback();
     this.#graceClose.cancel();
     this.#close({ restoreFocus: false });
   }
@@ -212,7 +213,7 @@ export class UIMenu extends LightDomElement {
   show(reason: ChangeReason = "none") {
     // Wire synchronously if called in the same task as connection, before the
     // deferred wiring microtask has run — otherwise the open silently no-ops.
-    if (!this.wired) this.wire();
+    this.ensureInitialized();
     this.#open(reason);
   }
   /** Close the popup without restoring focus (the caller owns focus). */
@@ -221,7 +222,7 @@ export class UIMenu extends LightDomElement {
   }
   /** Open at a viewport point (context menu) and focus the first item. */
   openAt(x: number, y: number, reason: ChangeReason = "none") {
-    if (!this.wired) this.wire();
+    this.ensureInitialized();
     this.#pointRef = { getBoundingClientRect: () => rectAt(x, y) };
     this.#open(reason);
     this.focusFirst();

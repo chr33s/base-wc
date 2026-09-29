@@ -41,10 +41,10 @@ export class UIChip extends LightDomElement {
     if (this.wired) this.#syncRemove();
   }
 
-  protected override wire() {
-    this.wired = true;
+  protected override initialize() {
     this.addEventListener("keydown", this.#onKeydown);
     this.#syncRemove();
+    return true;
   }
 
   #syncRemove() {

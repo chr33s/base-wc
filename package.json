@@ -21,14 +21,26 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./components": {
+      "types": "./dist/components.d.ts",
+      "import": "./dist/components.js"
+    },
+    "./advanced": {
+      "types": "./dist/advanced.d.ts",
+      "import": "./dist/advanced.js"
+    },
     "./elements": {
       "types": "./dist/elements.d.ts",
       "import": "./dist/elements.js"
     },
     "./styles.css": "./dist/styles.css",
     "./src": "./src/index.ts",
+    "./src/components": "./src/components.ts",
+    "./src/advanced": "./src/advanced.ts",
     "./src/elements": "./src/elements.ts",
     "./src/*.css": "./src/*.css",
+    "./src/internal/*": null,
+    "./internal/*": null,
     "./src/*": "./src/*.ts",
     "./*": {
       "types": "./dist/*.d.ts",

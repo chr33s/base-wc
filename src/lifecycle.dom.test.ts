@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vite-plus/test";
-import { connectLightDom } from "./lifecycle.ts";
+import { connectLightDom, LightDomElement } from "./lifecycle.ts";
 import "./elements.ts";
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -116,5 +116,85 @@ describe("connectLightDom", () => {
     await flush();
 
     expect(enhanced(host)).toBe(true);
+  });
+});
+
+describe("LightDomElement resource lifetime", () => {
+  it("initializes once and cleans up/restarts resources across moves", async () => {
+    let initialized = 0;
+    let connected = 0;
+    let cleaned = 0;
+    let handled = 0;
+    class ResourceProbe extends LightDomElement {
+      protected override initialize() {
+        if (!this.querySelector("button")) return false;
+        initialized++;
+        return true;
+      }
+      protected override connectResources() {
+        connected++;
+        const onClick = () => handled++;
+        this.addEventListener("click", onClick);
+        return () => {
+          cleaned++;
+          this.removeEventListener("click", onClick);
+        };
+      }
+    }
+    customElements.define("ui-resource-probe", ResourceProbe);
+    const host = document.createElement("ui-resource-probe");
+    document.body.append(host);
+    await flush();
+    expect(connected).toBe(0);
+    host.innerHTML = "<button>Action</button>";
+    await flush();
+    expect(initialized).toBe(1);
+    expect(connected).toBe(1);
+    host.click();
+    expect(handled).toBe(1);
+    host.remove();
+    host.click();
+    expect(cleaned).toBe(1);
+    expect(handled).toBe(1);
+    document.body.append(host);
+    await flush();
+    host.click();
+    expect(initialized).toBe(1);
+    expect(connected).toBe(2);
+    expect(handled).toBe(2);
+    host.remove();
+    expect(cleaned).toBe(2);
+  });
+
+  it("cancels pending initialization on detach and resumes with fresh parts", async () => {
+    let attempts = 0;
+    let connections = 0;
+    class PendingProbe extends LightDomElement {
+      protected override initialize() {
+        attempts++;
+        return this.querySelector("button") !== null;
+      }
+      protected override connectResources() {
+        connections++;
+      }
+    }
+    customElements.define("ui-pending-probe", PendingProbe);
+    const host = document.createElement("ui-pending-probe");
+    document.body.append(host);
+    await flush();
+    expect(attempts).toBe(1);
+    host.remove();
+    host.innerHTML = "<button>Late</button>";
+    await flush();
+    expect(attempts).toBe(1);
+    expect(connections).toBe(0);
+    document.body.append(host);
+    // Detach/reconnect before the scheduled work runs: the stale attempt must cancel.
+    host.remove();
+    document.body.append(host);
+    await flush();
+    expect(attempts).toBe(2);
+    expect(connections).toBe(1);
+    host.remove();
   });
 });

@@ -13,13 +13,13 @@ import { LightDomElement } from "./lifecycle.ts";
 import type { UIField } from "./field.ts";
 
 export class UIForm extends LightDomElement {
-  protected override wire() {
+  protected override initialize() {
     const form = this.querySelector("form");
     (form ?? this).addEventListener("submit", this.#onSubmit as EventListener);
     // Marked wired only once the listener is attached. The native <form> is a
     // genuinely optional part — `submit` bubbles, so the host-level fallback
     // listener covers a form even if one parses in later — hence no retry.
-    this.wired = true;
+    return true;
   }
 
   #fields() {

@@ -44,12 +44,12 @@ export class UICheckbox extends NativeCheckboxElement {
 export class UICheckboxGroup extends LightDomElement {
   #master: UICheckbox | null = null;
 
-  protected override wire() {
-    this.wired = true;
+  protected override initialize() {
     this.setAttribute("role", "group");
     this.#master = this.querySelector<UICheckbox>("ui-checkbox[data-checkbox-all]");
     this.addEventListener("change", this.#onChange);
     this.#syncMaster();
+    return true;
   }
 
   /** Child checkboxes (everything except the "select all" master). */

@@ -38,11 +38,10 @@ export class UIDialog extends LightDomElement {
     return this.hasAttribute("static") || this.hasAttribute("alert");
   }
 
-  protected override wire() {
+  protected override initialize() {
     this.#trigger = this.querySelector<HTMLElement>("[data-dialog-trigger]");
     this.#popup = this.querySelector<HTMLElement>("ui-dialog-popup");
-    if (!this.#popup) return;
-    this.wired = true;
+    if (!this.#popup) return false;
 
     // Alert dialogs force an explicit action: role=alertdialog + no dismissal.
     if (this.hasAttribute("alert")) this.#popup.setAttribute("role", "alertdialog");
@@ -74,9 +73,11 @@ export class UIDialog extends LightDomElement {
       },
       events: this,
     });
+    return true;
   }
 
-  disconnectedCallback() {
+  override disconnectedCallback() {
+    super.disconnectedCallback();
     this.#overlay?.hide({ restoreFocus: false });
   }
 
@@ -84,7 +85,7 @@ export class UIDialog extends LightDomElement {
     // Wire synchronously if `show()` is called in the same task as connection,
     // before the deferred wiring microtask has run — otherwise #popup is still
     // null and the open would silently no-op.
-    if (!this.wired) this.wire();
+    this.ensureInitialized();
     this.#overlay?.show(reason);
   }
 

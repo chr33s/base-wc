@@ -276,6 +276,37 @@ describe("ui-select — adopts an authored native <select> (no-JS fallback)", ()
     expect(host.value).toBe("banana");
   });
 
+  it.each(["input", "change"])(
+    "reflects native %s without emitting another change",
+    async (eventType) => {
+      const { host, native, form } = await mount();
+      const onChange = vi.fn();
+      host.addEventListener("change", onChange);
+      native.value = "apple";
+      // Reads come from the native control even before an event updates the UI.
+      expect(host.value).toBe("apple");
+      native.dispatchEvent(new Event(eventType, { bubbles: true }));
+      expect(host.querySelector("[data-select-value]")?.textContent).toBe("Apple");
+      expect(host.querySelector('[value="apple"][aria-selected="true"]')).not.toBeNull();
+      expect(new FormData(form).getAll("fruit")).toEqual(["apple"]);
+      expect(onChange).toHaveBeenCalledTimes(eventType === "change" ? 1 : 0);
+    },
+  );
+
+  it("reads multiple native selections and refreshes after a disconnected edit", async () => {
+    const { host, native } = await mount("multiple");
+    host.remove();
+    for (const option of native.options) option.selected = option.value !== "banana";
+    expect(host.value).toEqual(["apple", "cherry"]);
+    document.body.append(host);
+    await Promise.resolve();
+    expect(host.querySelector("[data-select-value]")?.textContent).toBe("Apple, Cherry");
+    host.value = ["banana"];
+    expect(
+      [...native.options].filter((option) => option.selected).map((option) => option.value),
+    ).toEqual(["banana"]);
+  });
+
   it("writes a new choice back to the native control so the form submits it", async () => {
     const { form, host } = await mount();
     const trigger = host.querySelector<HTMLButtonElement>("[data-select-trigger]")!;

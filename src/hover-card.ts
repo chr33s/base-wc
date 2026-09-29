@@ -62,10 +62,9 @@ export abstract class HoverCardElement extends LightDomElement {
   /** Build the anchored overlay for the surface. */
   protected abstract createOverlay(trigger: HTMLElement, surface: HTMLElement): Overlay;
 
-  protected override wire() {
+  protected override initialize() {
     const parts = this.parts();
-    if (!parts) return;
-    this.wired = true;
+    if (!parts) return false;
     const [trigger, surface] = parts;
     this.prepare(trigger, surface);
     this.#intent = hoverIntent({
@@ -80,9 +79,11 @@ export abstract class HoverCardElement extends LightDomElement {
     });
     this.listen(trigger, surface);
     this.#overlay = this.createOverlay(trigger, surface);
+    return true;
   }
 
-  disconnectedCallback() {
+  override disconnectedCallback() {
+    super.disconnectedCallback();
     this.#intent?.cancel();
     this.hide();
   }

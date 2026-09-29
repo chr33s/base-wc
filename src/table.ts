@@ -139,20 +139,6 @@ export class UITable extends LightDomElement {
       .map((box) => box.value);
   }
 
-  override connectedCallback() {
-    this.addEventListener("click", this.#onClick);
-    this.addEventListener("change", this.#onChange);
-    super.connectedCallback();
-  }
-
-  disconnectedCallback() {
-    this.removeEventListener("click", this.#onClick);
-    this.removeEventListener("change", this.#onChange);
-    this.#mutation?.disconnect();
-    this.#mutation = null;
-    this.wired = false;
-  }
-
   attributeChangedCallback() {
     this.#sync();
   }
@@ -168,22 +154,28 @@ export class UITable extends LightDomElement {
     });
   }
 
-  protected override wire() {
-    // Only wire once the authored <table> exists, so a wiring pass that beats
-    // the parser — or a renderer that appends the table after upgrade — sees
-    // connectLightDom retry on the next light-DOM mutation instead of silently
-    // claiming a table-less host that nothing would ever enhance.
-    if (!this.querySelector("table")) return;
-    this.wired = true;
+  protected override initialize() {
+    return this.querySelector("table") !== null;
+  }
+
+  protected override connectResources() {
+    this.addEventListener("click", this.#onClick);
+    this.addEventListener("change", this.#onChange);
     this.refresh();
     this.#mutation = new MutationObserver(() => this.refresh());
     this.#observe();
+    return () => {
+      this.removeEventListener("click", this.#onClick);
+      this.removeEventListener("change", this.#onChange);
+      this.#mutation?.disconnect();
+      this.#mutation = null;
+    };
   }
 
   #observe() {
-    if (this.#mutation && this.#table) {
-      this.#mutation.observe(this.#table, { childList: true, subtree: true });
-    }
+    // With no table yet (or after it was replaced while detached), watch the
+    // host so a table that arrives later is picked up.
+    this.#mutation?.observe(this.#table ?? this, { childList: true, subtree: true });
   }
 
   /**

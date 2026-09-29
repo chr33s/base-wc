@@ -60,11 +60,11 @@ export class UIOtpField extends FormAssociatedElement {
     this.#syncFormValue(); // a `length` change can change the concatenated value
   }
 
-  protected override wire() {
-    this.wired = true;
+  protected override initialize() {
     this.setAttribute("role", "group");
     this.#syncCells();
     this.#syncFormValue();
+    return true;
   }
 
   /**

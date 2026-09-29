@@ -32,7 +32,7 @@ export class UIBanner extends LightDomElement {
     super.connectedCallback();
   }
 
-  protected override wire() {
+  protected override initialize() {
     const title = this.querySelector("[data-banner-title]");
     if (title) {
       if (!title.id) title.id = nextId("ui-banner-title");
@@ -55,7 +55,7 @@ export class UIBanner extends LightDomElement {
     // Marked wired only after the parts pass. Every part is genuinely optional
     // (title/description are skipped, the dismiss button is generated), so a
     // completed pass is a completed wire — no retry needed.
-    this.wired = true;
+    return true;
   }
 
   /** Dismiss the banner, playing its exit animation before removal. */

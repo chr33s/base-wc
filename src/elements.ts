@@ -19,7 +19,7 @@
  * consumed by a call no bundler can prove pure (see the bottom of this file),
  * or both it and the component modules are shaken out again.
  */
-import * as ui from "./index.ts";
+import * as ui from "./components.ts";
 
 const constructors: readonly CustomElementConstructor[] = [
   ui.UIAccordion,

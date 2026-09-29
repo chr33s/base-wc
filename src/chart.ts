@@ -64,23 +64,18 @@ import {
   type ChartInvalidation,
   type ChartListener,
   type ChartRow,
-  type ChartState,
   ChartStore,
   type HighlightState,
   type SeriesRegistration,
-  type SeriesRenderContext,
-  type StackedValue,
   getSeriesType,
   isNumberValue,
   parseTable,
-  stackSeries,
   toNumeric,
 } from "./chart-core.ts";
-import { DEFAULT_TICK_COUNT, axisScale, categoryRows } from "./chart-domain.ts";
+import { prepareChartFrame, type ChartFrame } from "./internal/chart-frame.ts";
 import { numberAttribute } from "./math.ts";
-import { ChartPlot, type GridSpec } from "./chart-plot.ts";
-import { isDiscreteScale, type Scale } from "./chart-scale.ts";
-import { round } from "./chart-shape.ts";
+import { ChartPlot } from "./chart-plot.ts";
+import { isDiscreteScale } from "./chart-scale.ts";
 import { define } from "./define.ts";
 import { LightDomElement } from "./lifecycle.ts";
 
@@ -105,47 +100,13 @@ function byDocumentOrder(a: SeriesRegistration, b: SeriesRegistration) {
   return 0;
 }
 
-/**
- * Each visible series' slot among the siblings of its own type that share a
- * band: one slot per stack group, plus one per unstacked series, in document
- * order. This is what lets `ui-chart-bar` split a band into side-by-side
- * columns without knowing anything about its siblings — and, because it is
- * derived from the *visible* series on every render, hiding one bar re-splits
- * the band across the rest instead of leaving its column empty.
- */
-function groupSlots(visible: readonly SeriesRegistration[]) {
-  const byType = new Map<string, SeriesRegistration[]>();
-  for (const registration of visible) {
-    const siblings = byType.get(registration.type);
-    if (siblings) siblings.push(registration);
-    else byType.set(registration.type, [registration]);
-  }
-
-  const slots = new Map<SeriesRegistration, { index: number; count: number }>();
-  for (const siblings of byType.values()) {
-    // A stack group occupies one slot however many series are in it; an
-    // unstacked series stands for itself (hence the registration as its key).
-    const order: Array<string | SeriesRegistration> = [];
-    for (const registration of siblings) {
-      const slot = registration.stack ?? registration;
-      if (!order.includes(slot)) order.push(slot);
-    }
-    for (const registration of siblings) {
-      slots.set(registration, {
-        index: order.indexOf(registration.stack ?? registration),
-        count: order.length,
-      });
-    }
-  }
-  return slots;
-}
-
 export class UIChart extends LightDomElement {
   static observedAttributes = ["width", "height", "label", "stack-offset"];
 
   #store = new ChartStore();
   #plot: ChartPlot | null = null;
   #resizeObserver: ResizeObserver | null = null;
+  #resizeFrame = 0;
   #table: HTMLTableElement | null = null;
   #tableObserver: MutationObserver | null = null;
   #childObserver: MutationObserver | null = null;
@@ -156,12 +117,8 @@ export class UIChart extends LightDomElement {
 
   /** Registrant count per dimension, so two `ui-chart-grid axis="y"` elements don't leave the y grid lines switched off when only one of them is removed. */
   #grids = new Map<"x" | "y", number>();
-  #xScale: Scale | undefined;
-  #yScale: Scale | undefined;
-  #indexAxis: AxisRegistration | undefined;
-  #valueAxis: AxisRegistration | undefined;
-  /** The rounded box the plot was last drawn at — `undefined` while unmeasured. Interaction reads this rather than the store's raw (sub-pixel) `width`/`height`, so the pointer is mapped into the same coordinate space `#render` actually drew into. */
-  #plotSize: { width: number; height: number } | undefined;
+  /** Geometry from the last rendered frame, shared by drawing and interaction. */
+  #frame: ChartFrame | null = null;
 
   get data() {
     return this.#store.state.data;
@@ -186,12 +143,8 @@ export class UIChart extends LightDomElement {
     super.connectedCallback();
   }
 
-  disconnectedCallback() {
-    this.#teardown();
-  }
-
   attributeChangedCallback(name: string) {
-    if (!this.wired) return;
+    if (!this.wired || !this.isConnected) return;
     if (name === "label") this.#syncLabel();
     else if (name === "width" || name === "height") this.#measure();
     else this.#scheduleRender();
@@ -291,30 +244,28 @@ export class UIChart extends LightDomElement {
   // wiring
   // -------------------------------------------------------------------------
 
-  protected override wire() {
-    this.wired = true;
-    if (!this.#plot || this.#plot.svg.parentNode !== this) {
-      this.#plot = new ChartPlot();
-      this.append(this.#plot.svg);
-    }
+  protected override initialize() {
+    this.#plot = new ChartPlot();
+    this.append(this.#plot.svg);
+    if (!this.hasAttribute("tabindex")) this.tabIndex = 0;
+    return true;
+  }
+
+  protected override connectResources() {
+    this.#ensurePlot();
     this.#syncLabel();
     this.#syncTable();
     this.#observeChildren();
     this.#measure();
     this.#observeResize();
     this.#attachListeners();
-    if (!this.hasAttribute("tabindex")) this.tabIndex = 0;
     this.#scheduleRender();
+    return () => this.#teardown();
   }
 
   #teardown() {
-    // Reset `#wired` so a reconnection re-wires (`table.ts`'s precedent): this
-    // element keeps its DOM and its store across a move, but every listener,
-    // observer and subscription below is dropped here — and without the reset
-    // `connectLightDom` would consider the element already wired and never
-    // restore them, leaving a chart that paints once and then ignores resize,
-    // pointer and keyboard forever.
-    this.wired = false;
+    if (this.#resizeFrame) cancelAnimationFrame(this.#resizeFrame);
+    this.#resizeFrame = 0;
     this.#resizeObserver?.disconnect();
     this.#resizeObserver = null;
     this.#tableObserver?.disconnect();
@@ -323,6 +274,7 @@ export class UIChart extends LightDomElement {
     this.#childObserver = null;
     // Forget which table was being watched, so re-wiring re-attaches to it.
     this.#table = null;
+    this.#frame = null;
     this.#detachListeners();
   }
 
@@ -463,13 +415,12 @@ export class UIChart extends LightDomElement {
     const explicit =
       numberAttribute(this, "width") !== undefined && numberAttribute(this, "height") !== undefined;
     if (explicit || !globalThis.ResizeObserver || !this.#plot) return;
-    let frame = 0;
     this.#resizeObserver = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (!entry) return;
-      if (frame) return;
-      frame = requestAnimationFrame(() => {
-        frame = 0;
+      if (this.#resizeFrame) return;
+      this.#resizeFrame = requestAnimationFrame(() => {
+        this.#resizeFrame = 0;
         const box = entry.contentBoxSize?.[0];
         const width = box ? box.inlineSize : entry.contentRect.width;
         const height = box ? box.blockSize : entry.contentRect.height;
@@ -491,125 +442,32 @@ export class UIChart extends LightDomElement {
 
   #render() {
     const plot = this.#plot;
-    if (!this.wired || !plot) return;
+    if (!this.isConnected || !this.wired || !plot) return;
     const state = this.#store.state;
     const { data } = state;
-    // Rounded once, here: a measured box arrives with sub-pixel fractions, and
-    // every coordinate derived from it — the viewBox, grid line ends, band
-    // heights, a reference line's span — goes into the DOM as a string.
-    const width = round(state.width);
-    const height = round(state.height);
-
     this.setAttribute("data-state", data.length === 0 ? "empty" : "rendered");
-    if (width <= 0 || height <= 0) {
-      this.#plotSize = undefined;
-      return;
+    const frame = prepareChartFrame(state, this.stackOffset, this.#grids);
+    this.#frame = frame;
+    if (!frame) return;
+    const { box, xScale, yScale, indexAxis, valueAxis } = frame;
+    plot.resize(box.width, box.height);
+    for (const axis of state.axes) {
+      axis.render(axis === indexAxis ? xScale : axis === valueAxis ? yScale : undefined);
     }
-    this.#plotSize = { width, height };
-    plot.resize(width, height);
-
-    const box = { x: 0, y: 0, width, height };
-    const visible = state.series.filter((s) => !s.hidden);
-    // Stacks for every stacked series at once — one pass per render, shared by
-    // the domain aggregation below and by each series' own marks.
-    const stacks = this.#stacks(data, visible);
-    this.#buildScales(state, box, visible, stacks);
-
-    plot.renderGrid(this.#gridSpecs(), width, height);
-    plot.renderBands(this.#xScale, height, this.#bandRows(data));
-
-    const palette = this.getSeries();
-    const slots = groupSlots(visible);
-    plot.retainSeries(visible);
-    for (const registration of visible) {
+    plot.renderGrid(frame.gridSpecs, box.width, box.height);
+    plot.renderBands(xScale, box.height, frame.bandRows);
+    plot.retainSeries(frame.visible);
+    for (const [registration, context] of frame.contexts) {
       const type = getSeriesType(registration.type);
       if (!type) continue;
-      const slot = slots.get(registration) ?? { index: 0, count: 1 };
-      const context: SeriesRenderContext = {
-        config: registration,
-        data,
-        xScale: this.#xScale,
-        yScale: this.#yScale,
-        categoryKey: this.#indexAxis?.key,
-        stacked: stacks.get(registration),
-        plot: box,
-        groupIndex: slot.index,
-        groupCount: slot.count,
-      };
       plot.renderSeries(
         registration,
         context,
         type.computeMarks(context),
-        palette.indexOf(registration),
+        frame.palette.indexOf(registration),
       );
     }
-
     plot.applyHighlight(state.highlight);
-  }
-
-  /** Resolve both axes' scales, and hand each axis the one it draws its own ticks from. */
-  #buildScales(
-    state: ChartState,
-    box: { x: number; y: number; width: number; height: number },
-    visible: readonly SeriesRegistration[],
-    stacks: ReadonlyMap<SeriesRegistration, StackedValue[]>,
-  ) {
-    this.#indexAxis = state.axes.find((a) => a.position === "bottom" || a.position === "top");
-    this.#valueAxis = state.axes.find((a) => a.position === "left" || a.position === "right");
-    const common = { data: state.data, series: visible, stacks };
-    this.#xScale = this.#indexAxis
-      ? axisScale({
-          ...common,
-          axis: this.#indexAxis,
-          range: [box.x, box.x + box.width],
-          dim: "x",
-        })
-      : undefined;
-    this.#yScale = this.#valueAxis
-      ? axisScale({
-          ...common,
-          axis: this.#valueAxis,
-          range: [box.y + box.height, box.y],
-          dim: "y",
-        })
-      : undefined;
-
-    // Every registered axis is told what to draw, including the ones that are
-    // not in use — an axis that loses its slot clears its ticks rather than
-    // leaving a stale set of them on the page.
-    for (const axis of state.axes) {
-      if (axis === this.#indexAxis) axis.render(this.#xScale);
-      else if (axis === this.#valueAxis) axis.render(this.#yScale);
-      else axis.render(undefined);
-    }
-  }
-
-  /** The data row each band stands for, positionally — see `categoryRows`. Empty unless the index axis is discrete and names a column. */
-  #bandRows(data: readonly ChartRow[]) {
-    const scale = this.#xScale;
-    const key = this.#indexAxis?.key;
-    if (!scale || !isDiscreteScale(scale) || !key) return [];
-    return categoryRows(data, key, scale.domain());
-  }
-
-  /** Each dimension that both opted into grid lines and has a continuous scale to tick. */
-  #gridSpecs() {
-    const specs: GridSpec[] = [];
-    for (const dim of ["x", "y"] as const) {
-      if (!this.#grids.has(dim)) continue;
-      const scale = dim === "x" ? this.#xScale : this.#yScale;
-      if (!scale || isDiscreteScale(scale)) continue;
-      const axis = dim === "x" ? this.#indexAxis : this.#valueAxis;
-      specs.push({ dim, scale, tickCount: axis?.tickCount ?? DEFAULT_TICK_COUNT });
-    }
-    return specs;
-  }
-
-  /** Each stacked series' `[y0, y1]` per row. Only a series that both stacks *and* declares a `stack` group participates — everything else plots its raw values. */
-  #stacks(data: readonly ChartRow[], visible: readonly SeriesRegistration[]) {
-    const stackable = visible.filter((s) => s.stack !== undefined && getSeriesType(s.type)?.stacks);
-    const stacked = stackSeries(data, stackable, this.stackOffset);
-    return new Map(stackable.map((registration, i) => [registration, stacked[i]!]));
   }
 
   // -------------------------------------------------------------------------
@@ -648,16 +506,16 @@ export class UIChart extends LightDomElement {
   };
 
   #onPointerMove = (event: PointerEvent) => {
-    const xScale = this.#xScale;
+    const xScale = this.#frame?.xScale;
     if (!xScale || isDiscreteScale(xScale)) return;
     const point = this.#localPoint(event);
     // Only the plot drives the plot: this listener is on the host, so it also
     // sees the pointer crossing the legend, the axis chrome and the tooltip —
     // none of which should pull the highlight away from what they are showing.
-    // `#localPoint` returns non-null only when `#plotSize` is set, so this box
+    // `#localPoint` returns non-null only when `#frame` is set, so this box
     // is the same one that pointer was just mapped into.
-    if (!point || !this.#plotSize) return;
-    const { width, height } = this.#plotSize;
+    if (!point || !this.#frame?.box) return;
+    const { width, height } = this.#frame.box;
     if (point.x < 0 || point.x > width || point.y < 0 || point.y > height) return;
 
     // A series that plots its own coordinates (scatter) knows its geometry
@@ -671,12 +529,12 @@ export class UIChart extends LightDomElement {
     if (index !== null) this.setHighlight({ index, series: null });
   };
 
-  /** The pointer in local (viewBox) coordinates, or `null` when the plot has no laid-out box to map through. Maps into `#plotSize` — the same rounded box `#render` drew the viewBox and every mark at — not the store's raw sub-pixel measurement, so a pointer at the plot's own edge is never (by up to half a rounding unit) reported as outside it. */
+  /** The pointer in local (viewBox) coordinates, or `null` when the plot has no laid-out box to map through. Maps into `#frame` — the same rounded box `#render` drew the viewBox and every mark at — not the store's raw sub-pixel measurement, so a pointer at the plot's own edge is never (by up to half a rounding unit) reported as outside it. */
   #localPoint(event: PointerEvent) {
-    if (!this.#plot || !this.#plotSize) return null;
+    if (!this.#plot || !this.#frame?.box) return null;
     const rect = this.#plot.svg.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return null;
-    const { width, height } = this.#plotSize;
+    const { width, height } = this.#frame.box;
     return {
       x: ((event.clientX - rect.left) / rect.width) * width,
       y: ((event.clientY - rect.top) / rect.height) * height,
@@ -699,8 +557,8 @@ export class UIChart extends LightDomElement {
 
   /** The data row whose index-axis value is closest to `value` — the axis-trigger fallback for a continuous axis with a `key`. A row with no plottable value in that column (`toNumeric` → `NaN`; `Number(null)` would have been 0, parking a null row at the origin) never competes, and `null` comes back when no row does. */
   #nearestIndex(value: number) {
-    const { data } = this.#store.state;
-    const key = this.#indexAxis?.key;
+    const data = this.#store.state.data;
+    const key = this.#frame?.indexAxis?.key;
     if (!key || data.length === 0) return null;
     let best: number | null = null;
     let bestDistance = Number.POSITIVE_INFINITY;

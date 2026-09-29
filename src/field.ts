@@ -117,12 +117,11 @@ export class UIField extends LightDomElement {
     return this.#pending;
   }
 
-  protected override wire() {
+  protected override initialize() {
     this.#control =
       this.querySelector<Validatable>("[data-field-control]") ??
       this.querySelector<Validatable>("input, select, textarea");
-    if (!this.#control) return;
-    this.wired = true;
+    if (!this.#control) return false;
     if (!this.#control.id) this.#control.id = nextId("ui-field-control");
     this.#initialValue = this.#value();
 
@@ -155,9 +154,11 @@ export class UIField extends LightDomElement {
     this.#control.addEventListener("focus", this.#onFocus);
     this.#control.addEventListener("blur", this.#onBlur);
     this.#refresh();
+    return true;
   }
 
-  disconnectedCallback() {
+  override disconnectedCallback() {
+    super.disconnectedCallback();
     clearTimeout(this.#debounceTimer);
     // Retire any in-flight run: its result would publish onto a detached field.
     this.#run++;

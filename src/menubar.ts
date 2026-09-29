@@ -27,8 +27,7 @@ export class UIMenubar extends RovingElement {
     return this.getAttribute("orientation") === "vertical" ? "vertical" : "horizontal";
   }
 
-  protected override wire() {
-    this.wired = true;
+  protected override initialize() {
     this.setAttribute("role", "menubar");
     this.setAttribute("aria-orientation", this.orientation);
     // `menubar` constrains its children to menuitem/menuitemcheckbox/
@@ -55,6 +54,7 @@ export class UIMenubar extends RovingElement {
     this.addEventListener("keydown", this.#onPopupCrossKeydown);
     // A ui-menu's `open` event bubbles here; move the tab stop to follow it.
     this.addEventListener("open", this.#onMenuOpen);
+    return true;
   }
 
   protected override rovingOptions(): RovingOptions {

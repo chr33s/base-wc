@@ -8,7 +8,13 @@ export default defineConfig({
   pack: {
     clean: true,
     dts: true,
-    entry: ["src/index.ts", "src/elements.ts", "src/styles.css"],
+    entry: [
+      "src/index.ts",
+      "src/components.ts",
+      "src/advanced.ts",
+      "src/elements.ts",
+      "src/styles.css",
+    ],
     platform: "browser",
     root: "src",
     sourcemap: true,

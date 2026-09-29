@@ -326,10 +326,9 @@ export class NativeCheckboxElement extends LightDomElement {
     super.connectedCallback();
   }
 
-  protected override wire() {
+  protected override initialize() {
     const input = adoptedControl<HTMLInputElement>(this, 'input[type="checkbox"]');
-    if (!input) return; // no control to enhance
-    this.wired = true;
+    if (!input) return false; // no control to enhance
     this.#input = input;
     this.adopt(input);
     // `change` covers user toggles; `input` lets a host that mutates the control
@@ -339,6 +338,7 @@ export class NativeCheckboxElement extends LightDomElement {
     input.addEventListener("change", this.sync);
     input.addEventListener("input", this.sync);
     this.sync();
+    return true;
   }
 
   /** One-time adoption hook (e.g. announce `role="switch"`). */

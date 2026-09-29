@@ -27,15 +27,14 @@ export class UIAccordion extends LightDomElement {
     return this.multiple ? open : (open[0] ?? null);
   }
 
-  protected override wire() {
+  protected override initialize() {
     // Only wire once at least one complete trigger+content pair exists, so a
     // wiring pass that beats the parser sees connectLightDom retry on the next
     // light-DOM mutation instead of silently claiming an empty host.
     const pairs = this.#items()
       .map((item) => ({ item, ...this.#parts(item) }))
       .filter((pair) => pair.trigger && pair.content);
-    if (pairs.length === 0) return;
-    this.wired = true;
+    if (pairs.length === 0) return false;
 
     for (const { item, trigger, content } of pairs) {
       if (!trigger || !content) continue;
@@ -56,6 +55,7 @@ export class UIAccordion extends LightDomElement {
         .forEach((item) => item.toggleAttribute("open", false));
     }
     for (const item of this.#items()) this.#syncItem(item);
+    return true;
   }
 
   // Child queries are scoped so an accordion nested inside an item's content

@@ -49,12 +49,11 @@ export class UITabs extends RovingElement {
     return this.getAttribute("activation") !== "manual";
   }
 
-  protected override wire() {
+  protected override initialize() {
     // Only wire once at least one tab exists, so a wiring pass that beats the
     // parser sees connectLightDom retry on the next light-DOM mutation instead
     // of silently claiming an empty host.
-    if (this.#tabs().length === 0) return;
-    this.wired = true;
+    if (this.#tabs().length === 0) return false;
     this.#list = scopedQuery(this, "ui-tab-list, [data-tab-list]")[0] ?? null;
     this.#list?.setAttribute("role", "tablist");
     this.#list?.setAttribute("aria-orientation", this.orientation);
@@ -77,7 +76,6 @@ export class UITabs extends RovingElement {
 
     this.#indicator =
       scopedQuery<HTMLElement>(this, "ui-tab-indicator, [data-tab-indicator]")[0] ?? null;
-    this.#observeResize();
 
     const preset = this.getAttribute("value");
     const initial =
@@ -85,18 +83,16 @@ export class UITabs extends RovingElement {
       this.#navTabs()[0] ??
       this.#tabs()[0];
     if (initial) this.#select(initial, false);
+    return true;
   }
 
-  override connectedCallback() {
-    // `RovingElement.disconnectedCallback` drops this element's observer along
-    // with the roving helper, so a re-inserted host rebuilds both.
-    if (this.wired) this.#observeResize();
-    super.connectedCallback();
-  }
-
-  override disconnectedCallback() {
-    super.disconnectedCallback();
-    this.#resize?.disconnect();
+  protected override connectResources() {
+    const stopRoving = super.connectResources();
+    this.#observeResize();
+    return () => {
+      stopRoving();
+      this.#resize?.disconnect();
+    };
   }
 
   // Child queries are scoped so a `ui-tabs` nested inside a panel keeps

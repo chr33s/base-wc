@@ -42,14 +42,13 @@ export class UISearchField extends LightDomElement {
     return Number.isFinite(n) && n >= 0 ? n : 250;
   }
 
-  protected override wire() {
+  protected override initialize() {
     // Adoption-scoped: an input belonging to a *nested* component inside our
     // light DOM must never be wired as ours.
     const input =
       adoptedControl<HTMLInputElement>(this, 'input[type="search"]') ??
       adoptedControl<HTMLInputElement>(this, "input");
-    if (!input) return;
-    this.wired = true;
+    if (!input) return false;
     this.#input = input;
     if (!input.type) input.type = "search";
 
@@ -63,6 +62,7 @@ export class UISearchField extends LightDomElement {
     input.addEventListener("input", this.#onInput);
     input.addEventListener("keydown", this.#onKeydown);
     this.#reflect();
+    return true;
   }
 
   #reflect() {
@@ -107,7 +107,8 @@ export class UISearchField extends LightDomElement {
     );
   }
 
-  disconnectedCallback() {
+  override disconnectedCallback() {
+    super.disconnectedCallback();
     clearTimeout(this.#timer);
   }
 }

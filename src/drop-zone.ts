@@ -30,10 +30,9 @@ export class UIDropZone extends LightDomElement {
     return this.#input?.files ? Array.from(this.#input.files) : [];
   }
 
-  protected override wire() {
+  protected override initialize() {
     const input = adoptedControl<HTMLInputElement>(this, 'input[type="file"]');
-    if (!input) return;
-    this.wired = true;
+    if (!input) return false;
     this.#input = input;
     this.#target = this.querySelector<HTMLElement>("[data-drop-target]") ?? this.#buildTarget();
 
@@ -55,6 +54,7 @@ export class UIDropZone extends LightDomElement {
     input.addEventListener("input", (e) => e.stopPropagation());
 
     retireNative(input);
+    return true;
   }
 
   #buildTarget() {

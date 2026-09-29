@@ -71,11 +71,10 @@ export class UIDrawer extends LightDomElement {
     return this.side === "right" || this.side === "bottom" ? 1 : -1;
   }
 
-  protected override wire() {
+  protected override initialize() {
     this.#trigger = this.querySelector<HTMLElement>("[data-drawer-trigger]");
     this.#popup = this.querySelector<HTMLElement>("ui-drawer-popup");
-    if (!this.#popup) return;
-    this.wired = true;
+    if (!this.#popup) return false;
 
     // role/aria-modal/popover/tabindex come from `UIDrawerPopup` itself.
     this.#popup.setAttribute("data-side", this.side);
@@ -108,9 +107,11 @@ export class UIDrawer extends LightDomElement {
       },
       events: this,
     });
+    return true;
   }
 
-  disconnectedCallback() {
+  override disconnectedCallback() {
+    super.disconnectedCallback();
     this.#teardown({ restoreFocus: false });
     // `#teardown` bails on a closed drawer, so end the gestures explicitly:
     // a press armed on the edge swipe zone would otherwise leave its window
@@ -122,7 +123,7 @@ export class UIDrawer extends LightDomElement {
     // Wire synchronously if `show()` is called in the same task as connection,
     // before the deferred wiring microtask has run — otherwise #popup is still
     // null and the open would silently no-op.
-    if (!this.wired) this.wire();
+    this.ensureInitialized();
     if (!this.#overlay?.show(reason)) return;
     this.#applyOffset(0);
     this.#trackKeyboard();

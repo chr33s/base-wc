@@ -42,7 +42,8 @@ export class UIScrollArea extends LightDomElement {
     super.connectedCallback();
   }
 
-  disconnectedCallback() {
+  override disconnectedCallback() {
+    super.disconnectedCallback();
     this.#observer?.disconnect();
     // End an in-flight thumb drag so its window listeners don't leak if the
     // element is removed mid-drag (pointerup would otherwise never fire). The
@@ -53,10 +54,9 @@ export class UIScrollArea extends LightDomElement {
   // Child queries are scoped so a scroll area nested inside another's viewport
   // keeps ownership of its own viewport, scrollbars and thumbs — an unscoped
   // search would let the outer one drive the inner one's scroller.
-  protected override wire() {
+  protected override initialize() {
     this.#viewport = scopedQuery<HTMLElement>(this, "ui-scroll-viewport")[0] ?? null;
-    if (!this.#viewport) return;
-    this.wired = true;
+    if (!this.#viewport) return false;
     this.#viewport.addEventListener("scroll", this.#update, { passive: true });
 
     this.#bars = scopedQuery<HTMLElement>(this, "ui-scroll-scrollbar");
@@ -78,6 +78,7 @@ export class UIScrollArea extends LightDomElement {
       this.#observeResize();
     }
     this.#update();
+    return true;
   }
 
   #observeResize() {

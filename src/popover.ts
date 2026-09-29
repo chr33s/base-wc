@@ -32,11 +32,10 @@ export class UIPopover extends LightDomElement {
     return this.#overlay?.open ?? false;
   }
 
-  protected override wire() {
+  protected override initialize() {
     this.#trigger = this.querySelector<HTMLElement>("[data-popover-trigger]");
     this.#popup = this.querySelector<HTMLElement>("ui-popover-popup");
-    if (!this.#trigger || !this.#popup) return;
-    this.wired = true;
+    if (!this.#trigger || !this.#popup) return false;
     this.#arrow = this.#popup.querySelector<HTMLElement>("ui-arrow");
 
     // Label/describe the dialog from its title/description so assistive tech
@@ -74,9 +73,11 @@ export class UIPopover extends LightDomElement {
       trigger: { element: this.#trigger, haspopup: "dialog", controls: "ui-popover-popup" },
       events: this,
     });
+    return true;
   }
 
-  disconnectedCallback() {
+  override disconnectedCallback() {
+    super.disconnectedCallback();
     this.#close({ restoreFocus: false });
   }
 
@@ -84,7 +85,7 @@ export class UIPopover extends LightDomElement {
     // Wire synchronously if `show()` is called in the same task as connection,
     // before the deferred wiring microtask has run — otherwise the overlay is
     // still missing and the open would silently no-op.
-    if (!this.wired) this.wire();
+    this.ensureInitialized();
     if (!this.#overlay?.show(reason)) return;
     // Focus the popup itself when it holds no focusable content, so Escape
     // still reaches the host instead of dying on the (blurred) page.
