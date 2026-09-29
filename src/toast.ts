@@ -471,7 +471,7 @@ function readToastOptions(toast: UIToast): ToastOptions {
     const text = toast.querySelector(`[${attribute}]`)?.textContent;
     if (text) options[key] = text;
   }
-  if (toast.dataset.type) options.type = toast.dataset.type as ToastOptions["type"];
+  if (toast.dataset.type) options.type = toast.dataset.type as NonNullable<ToastOptions["type"]>;
   if (toast.hasAttribute("duration")) options.duration = toast.duration;
   return options;
 }
