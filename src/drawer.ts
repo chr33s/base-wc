@@ -251,8 +251,7 @@ export class UIDrawer extends LightDomElement {
         // position, so return to the last committed state instead of measuring
         // it against the threshold.
         if (e.type === "pointercancel") {
-          if (mode === "close")
-            this.#applyOffset(0); // stay open, snap back
+          if (mode === "close") this.#applyOffset(0); // stay open, snap back
           else this.#close("swipe"); // opening never committed — dismiss
           return;
         }
@@ -261,8 +260,7 @@ export class UIDrawer extends LightDomElement {
           if (this.#closingDistance(e.clientX, e.clientY) > threshold) this.#close("swipe");
           else this.#applyOffset(0); // snap back open
         } else {
-          if (this.#openingDistance(e.clientX, e.clientY) > threshold)
-            this.#applyOffset(0); // commit open
+          if (this.#openingDistance(e.clientX, e.clientY) > threshold) this.#applyOffset(0); // commit open
           else this.#close(); // abort — dismiss
         }
       },
