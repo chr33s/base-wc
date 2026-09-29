@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import "./elements.ts";
+import { must } from "./test-utils.ts";
 
+/** Narrow a lookup the fixture guarantees is present. */
 afterEach(() => {
   document.body.innerHTML = "";
 });
@@ -9,20 +11,20 @@ afterEach(() => {
 describe("ui-separator", () => {
   it("defaults to a horizontal separator", () => {
     document.body.innerHTML = "<ui-separator></ui-separator>";
-    const el = document.querySelector("ui-separator")!;
+    const el = must(document.querySelector("ui-separator"));
     expect(el.getAttribute("role")).toBe("separator");
     expect(el.getAttribute("aria-orientation")).toBe("horizontal");
   });
 
   it("reflects a vertical orientation", () => {
     document.body.innerHTML = '<ui-separator orientation="vertical"></ui-separator>';
-    const el = document.querySelector("ui-separator")!;
+    const el = must(document.querySelector("ui-separator"));
     expect(el.getAttribute("aria-orientation")).toBe("vertical");
   });
 
   it("drops out of the a11y tree when decorative", () => {
     document.body.innerHTML = "<ui-separator decorative></ui-separator>";
-    const el = document.querySelector("ui-separator")!;
+    const el = must(document.querySelector("ui-separator"));
     expect(el.getAttribute("role")).toBe("none");
     expect(el.hasAttribute("aria-orientation")).toBe(false);
   });
@@ -41,8 +43,8 @@ describe("ui-separator — role-constrained containers", () => {
       </ui-select>`;
     await Promise.resolve();
     await Promise.resolve(); // the root's deferred wiring, then the separator's re-read
-    const popup = document.querySelector("ui-select-popup")!;
-    const separator = document.querySelector("ui-separator")!;
+    const popup = must(document.querySelector("ui-select-popup"));
+    const separator = must(document.querySelector("ui-separator"));
     expect(popup.getAttribute("role")).toBe("listbox");
     // A `separator` child makes the listbox invalid; the rule stays visible,
     // the semantics go.
@@ -62,6 +64,6 @@ describe("ui-separator — role-constrained containers", () => {
       </ui-menu>`;
     await Promise.resolve();
     await Promise.resolve();
-    expect(document.querySelector("ui-separator")!.getAttribute("role")).toBe("separator");
+    expect(must(document.querySelector("ui-separator")).getAttribute("role")).toBe("separator");
   });
 });

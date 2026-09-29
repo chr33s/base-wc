@@ -2,9 +2,9 @@
 import { describe, expect, it } from "vite-plus/test";
 import { connectLightDom, LightDomElement } from "./lifecycle.ts";
 import "./elements.ts";
+import { flush, must } from "./test-utils.ts";
 
-const flush = () => new Promise((r) => setTimeout(r, 0));
-
+/** The value, or a failure naming the missing element. */
 describe("connectLightDom", () => {
   it("wires on the next microtask when the host is already complete", async () => {
     const host = document.createElement("div");
@@ -91,23 +91,25 @@ describe("connectLightDom", () => {
     [
       "ui-table",
       `<table><thead><tr><th data-sort-key="n">N</th></tr></thead><tbody><tr><td>b</td></tr></tbody></table>`,
-      (host: Element) => host.querySelector("th")!.hasAttribute("data-sortable"),
+      (host: Element) => must(host.querySelector("th")).hasAttribute("data-sortable"),
     ],
     [
       "ui-select",
       `<button data-select-trigger><span data-select-value>Pick</span></button>
        <ui-select-popup><ui-select-option value="a">A</ui-select-option></ui-select-popup>`,
-      (host: Element) => host.querySelector("[data-select-trigger]")!.hasAttribute("aria-haspopup"),
+      (host: Element) =>
+        must(host.querySelector("[data-select-trigger]")).hasAttribute("aria-haspopup"),
     ],
     [
       "ui-scroll-area",
       `<ui-scroll-viewport><div></div></ui-scroll-viewport>
        <ui-scroll-scrollbar data-orientation="vertical"><ui-scroll-thumb></ui-scroll-thumb></ui-scroll-scrollbar>`,
-      (host: Element) => host.querySelector<HTMLElement>("ui-scroll-thumb")!.style.height !== "",
+      (host: Element) =>
+        must(host.querySelector<HTMLElement>("ui-scroll-thumb")).style.height !== "",
     ],
   ])("%s enhances parts appended after connection", async (tag, markup, enhanced) => {
     document.body.innerHTML = `<${tag}></${tag}>`;
-    const host = document.querySelector(tag)!;
+    const host = must(document.querySelector(tag));
     await flush();
     await flush();
 

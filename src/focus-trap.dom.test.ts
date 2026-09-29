@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { getFocusable, trapFocus } from "./focus-trap.ts";
+import { must } from "./test-utils.ts";
 
+/** The value, or a failure naming the missing element. */
 const tab = (shiftKey = false) =>
   document.dispatchEvent(
     new KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true, cancelable: true }),
@@ -15,10 +17,10 @@ function mount() {
       <button id="b">b</button>
       <button id="c">c</button>
     </div>`;
-  const before = document.querySelector<HTMLButtonElement>("#before")!;
-  const container = document.querySelector<HTMLElement>("#trap")!;
-  const [a, , c] = [...container.querySelectorAll<HTMLButtonElement>("button")];
-  return { before, container, a, c };
+  const before = must(document.querySelector<HTMLButtonElement>("#before"));
+  const container = must(document.querySelector<HTMLElement>("#trap"));
+  const buttons = [...container.querySelectorAll<HTMLButtonElement>("button")];
+  return { before, container, a: must(buttons[0]), c: must(buttons[2]) };
 }
 
 afterEach(() => {
@@ -35,7 +37,7 @@ describe("focus trap", () => {
         <div inert><button>no</button></div>
         <input />
       </div>`;
-    const labels = getFocusable(document.querySelector("#r")!).map((el) =>
+    const labels = getFocusable(must(document.querySelector("#r"))).map((el) =>
       el.tagName.toLowerCase(),
     );
     expect(labels).toEqual(["button", "input"]);

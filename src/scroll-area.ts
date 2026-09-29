@@ -27,6 +27,7 @@ import { scopedQuery } from "./query.ts";
 /** Shortest a thumb may get, so it stays grabbable in a very long scroller. */
 const MIN_THUMB_SIZE = 20;
 
+/** Scroll container whose overlay scrollbars are sized and positioned from the viewport/content ratio. */
 export class UIScrollArea extends LightDomElement {
   #viewport: HTMLElement | null = null;
   #bars: HTMLElement[] = [];
@@ -70,7 +71,7 @@ export class UIScrollArea extends LightDomElement {
       // is the focus shift.
       bar.addEventListener("mousedown", preventDefault);
       const thumb = scopedQuery<HTMLElement>(bar, "ui-scroll-thumb")[0];
-      if (thumb) this.#armThumb(thumb, bar, orientation === "vertical");
+      if (thumb) this.#armThumb(thumb, bar, orientation);
     }
 
     if (typeof ResizeObserver !== "undefined") {
@@ -94,8 +95,8 @@ export class UIScrollArea extends LightDomElement {
    * (`contentLen - viewLen`). One copy, used by both the thumb placement in
    * `#update` and its inverse, the drag mapping in `#onThumbDown`.
    */
-  #metrics(bar: HTMLElement, vertical: boolean) {
-    const vp = this.#viewport!;
+  #metrics(vp: HTMLElement, bar: HTMLElement, orientation: Orientation) {
+    const vertical = orientation === "vertical";
     const trackLen = vertical ? bar.clientHeight : bar.clientWidth;
     const contentLen = vertical ? vp.scrollHeight : vp.scrollWidth;
     const viewLen = vertical ? vp.clientHeight : vp.clientWidth;
@@ -120,11 +121,13 @@ export class UIScrollArea extends LightDomElement {
     this.toggleAttribute("data-overflow-x", overflowX);
 
     for (const bar of this.#bars) {
-      const vertical = bar.getAttribute("data-orientation") !== "horizontal";
+      const orientation: Orientation =
+        bar.getAttribute("data-orientation") === "horizontal" ? "horizontal" : "vertical";
+      const vertical = orientation === "vertical";
       bar.toggleAttribute("hidden", !(vertical ? overflowY : overflowX));
       const thumb = bar.querySelector<HTMLElement>("ui-scroll-thumb");
       if (!thumb) continue;
-      const { thumbLen, dragRange, maxScroll, contentLen } = this.#metrics(bar, vertical);
+      const { thumbLen, dragRange, maxScroll, contentLen } = this.#metrics(vp, bar, orientation);
       // RTL scrolls from 0 down to `-maxScroll`. Measure from the inline start
       // edge so the overscroll arithmetic is direction-agnostic, then flip the
       // resulting offset back when placing the thumb.
@@ -150,7 +153,8 @@ export class UIScrollArea extends LightDomElement {
    * on the `pointercancel` a touch interrupted by a system gesture fires
    * instead of `pointerup`.
    */
-  #armThumb(thumb: HTMLElement, bar: HTMLElement, vertical: boolean) {
+  #armThumb(thumb: HTMLElement, bar: HTMLElement, orientation: Orientation) {
+    const vertical = orientation === "vertical";
     let start = 0;
     let startScroll = 0;
     let scale = 0; // scroll px per pointer px
@@ -162,7 +166,7 @@ export class UIScrollArea extends LightDomElement {
           e.preventDefault();
           start = vertical ? e.clientY : e.clientX;
           startScroll = vertical ? vp.scrollTop : vp.scrollLeft;
-          const { dragRange, maxScroll } = this.#metrics(bar, vertical);
+          const { dragRange, maxScroll } = this.#metrics(vp, bar, orientation);
           scale = dragRange > 0 ? maxScroll / dragRange : 0;
           this.#suspendSnap();
         },
@@ -208,6 +212,12 @@ function preventDefault(event: Event) {
   event.preventDefault();
 }
 
+/** Length and offset of a scrollbar thumb along its track. */
+interface ThumbPlacement {
+  size: number;
+  pos: number;
+}
+
 /**
  * Thumb size and offset for one axis, including WebKit's rubber-band overscroll.
  *
@@ -225,7 +235,7 @@ function overscrollThumb(
   contentLen: number,
   thumbLen: number,
   dragRange: number,
-) {
+): ThumbPlacement {
   const clamped = clamp(scroll, 0, Math.max(maxScroll, 0));
   const overscroll = scroll - clamped;
   const size = overscroll
@@ -235,6 +245,7 @@ function overscrollThumb(
   return { size, pos: pos + (overscroll > 0 ? thumbLen - size : 0) };
 }
 
+/** Custom element `ui-scroll-viewport`: the element that actually scrolls. */
 export class UIScrollViewport extends HTMLElement {}
 
 /**
@@ -248,7 +259,9 @@ class DecorativeElement extends HTMLElement {
     this.setAttribute("aria-hidden", "true");
   }
 }
+/** Custom element `ui-scroll-scrollbar`: a track for one axis (`data-orientation`), hidden when nothing overflows. */
 export class UIScrollScrollbar extends DecorativeElement {}
+/** Custom element `ui-scroll-thumb`: the draggable handle inside a scrollbar. */
 export class UIScrollThumb extends DecorativeElement {}
 
 define("ui-scroll-area", UIScrollArea);

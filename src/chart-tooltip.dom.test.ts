@@ -7,6 +7,7 @@ import "./chart-tooltip.ts";
 import type { UIChart } from "./chart.ts";
 import type { UIChartHighlightDetail } from "./chart.ts";
 import type { UIChartTooltip } from "./chart-tooltip.ts";
+import { flush, must } from "./test-utils.ts";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -17,14 +18,10 @@ afterEach(() => {
 // and any later mutation defers its re-render the same way. A zero-delay
 // macrotask drains all of it (wiring, registrations, observer deliveries and
 // the coalesced render), so tests assert on settled DOM.
-function flush() {
-  return new Promise((resolve) => setTimeout(resolve));
-}
-
 async function mountChart(inner: string, size = true) {
   document.body.innerHTML = `<ui-chart${size ? ' width="400" height="200"' : ""}>${inner}</ui-chart>`;
   await flush();
-  return document.querySelector("ui-chart")!;
+  return must(document.querySelector("ui-chart"));
 }
 
 const TABLE = `
@@ -89,11 +86,11 @@ describe("ui-chart-tooltip", () => {
 
     const rows = [...tooltip.querySelectorAll('[data-part="row"]')];
     expect(rows.length).toBe(2);
-    expect(rows[0]!.getAttribute("data-series")).toBe("Revenue");
-    expect(rows[0]!.querySelector('[data-part="label"]')!.textContent).toBe("Revenue");
-    expect(rows[0]!.querySelector('[data-part="value"]')!.textContent).toBe("132");
-    expect(rows[1]!.getAttribute("data-series")).toBe("Cost");
-    expect(rows[1]!.querySelector('[data-part="value"]')!.textContent).toBe("90");
+    expect(must(rows[0]).getAttribute("data-series")).toBe("Revenue");
+    expect(must(must(rows[0]).querySelector('[data-part="label"]')).textContent).toBe("Revenue");
+    expect(must(must(rows[0]).querySelector('[data-part="value"]')).textContent).toBe("132");
+    expect(must(rows[1]).getAttribute("data-series")).toBe("Cost");
+    expect(must(must(rows[1]).querySelector('[data-part="value"]')).textContent).toBe("90");
   });
 
   it("excludes a hidden series from the generated table", async () => {
@@ -101,13 +98,13 @@ describe("ui-chart-tooltip", () => {
     const tooltip = await mountTooltip(chart);
     const [, line] = [...chart.querySelectorAll<HTMLElement>("ui-chart-bar, ui-chart-line")];
 
-    chart.setSeriesHidden(line!, true);
+    chart.setSeriesHidden(must(line), true);
     fireHighlight(chart, { index: 2, series: null, seriesIndex: null });
 
     const rows = [...tooltip.querySelectorAll('[data-part="row"]')];
     expect(rows.length).toBe(1);
-    expect(rows[0]!.getAttribute("data-series")).toBe("Revenue");
-    expect(rows[0]!.querySelector('[data-part="value"]')!.textContent).toBe("101");
+    expect(must(rows[0]).getAttribute("data-series")).toBe("Revenue");
+    expect(must(must(rows[0]).querySelector('[data-part="value"]')).textContent).toBe("101");
   });
 
   it("trigger=item shows only the specifically-highlighted series", async () => {
@@ -118,9 +115,9 @@ describe("ui-chart-tooltip", () => {
 
     const rows = [...tooltip.querySelectorAll('[data-part="row"]')];
     expect(rows.length).toBe(1);
-    expect(rows[0]!.getAttribute("data-series")).toBe("Cost");
-    expect(rows[0]!.querySelector('[data-part="label"]')!.textContent).toBe("Cost");
-    expect(rows[0]!.querySelector('[data-part="value"]')!.textContent).toBe("70");
+    expect(must(rows[0]).getAttribute("data-series")).toBe("Cost");
+    expect(must(must(rows[0]).querySelector('[data-part="label"]')).textContent).toBe("Cost");
+    expect(must(must(rows[0]).querySelector('[data-part="value"]')).textContent).toBe("70");
   });
 
   it("clears content when a highlight event reports both index and series null", async () => {
@@ -151,7 +148,7 @@ describe("ui-chart-tooltip", () => {
     // to be enough to open the popover, leaving an empty bordered box.
     const chart = await mountChart(`${TABLE}${SERIES}`);
     const tooltip = await mountTooltip(chart, "item");
-    const bar = chart.querySelector<HTMLElement>("ui-chart-bar")!;
+    const bar = must(chart.querySelector<HTMLElement>("ui-chart-bar"));
     chart.setSeriesHidden(bar, true);
 
     fireHighlight(chart, { index: 1, series: "Revenue", seriesIndex: 0 });
@@ -186,8 +183,8 @@ describe("ui-chart-tooltip", () => {
     expect(tooltip.querySelector('[data-part="table"]')).toBeNull();
     const clones = [...tooltip.querySelectorAll("[data-row]")];
     expect(clones.length).toBe(2);
-    expect(clones[0]!.textContent).toBe("Revenue: 120 (index 0)");
-    expect(clones[1]!.textContent).toBe("Cost: 80 (index 0)");
+    expect(must(clones[0]).textContent).toBe("Revenue: 120 (index 0)");
+    expect(must(clones[1]).textContent).toBe("Cost: 80 (index 0)");
     // The template itself must survive (it's re-cloned on every highlight).
     expect(tooltip.querySelector("template")).not.toBeNull();
   });
@@ -232,7 +229,7 @@ describe("ui-chart-tooltip", () => {
 
     // Rows used to be numbered by their position among the *visible* series,
     // so hiding the first one recoloured the second.
-    chart.setSeriesHidden(chart.querySelector<HTMLElement>("ui-chart-bar")!, true);
+    chart.setSeriesHidden(must(chart.querySelector<HTMLElement>("ui-chart-bar")), true);
     fireHighlight(chart, { index: 0, series: null, seriesIndex: null });
     expect(slots()).toEqual(["1"]);
   });
@@ -281,7 +278,7 @@ describe("ui-chart-tooltip", () => {
     // Teardown drops the listeners it put on the *chart*, so a reconnection
     // has to re-wire — a moved tooltip that never shows again is the bug here.
     chart.append(document.createElement("div"));
-    chart.querySelector("div")!.append(tooltip);
+    must(chart.querySelector("div")).append(tooltip);
     await flush();
 
     fireHighlight(chart, { index: 1, series: null, seriesIndex: null });

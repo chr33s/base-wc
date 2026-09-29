@@ -1,10 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import "./elements.ts";
+import { key, must } from "./test-utils.ts";
 
-const key = (target: EventTarget, k: string) =>
-  target.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
-
+/** Narrow an indexed lookup the fixture guarantees is present. */
 async function mount() {
   document.body.innerHTML = `
     <ui-radio-group name="plan">
@@ -14,7 +13,7 @@ async function mount() {
       <ui-radio value="ent">Enterprise</ui-radio>
     </ui-radio-group>`;
   await Promise.resolve();
-  const group = document.querySelector("ui-radio-group")!;
+  const group = must(document.querySelector("ui-radio-group"));
   const radios = [...document.querySelectorAll("ui-radio")];
   return { group, radios };
 }
@@ -28,34 +27,34 @@ describe("ui-radio-group", () => {
     const { group, radios } = await mount();
     expect(group.getAttribute("role")).toBe("radiogroup");
     expect(radios.every((r) => r.getAttribute("role") === "radio")).toBe(true);
-    expect(radios[1].getAttribute("aria-checked")).toBe("true"); // Pro
+    expect(must(radios[1]).getAttribute("aria-checked")).toBe("true"); // Pro
     expect(group.value).toBe("pro");
   });
 
   it("puts the single roving tab stop on the checked radio", async () => {
     const { radios } = await mount();
-    expect(radios[1].tabIndex).toBe(0); // Pro
-    expect(radios[0].tabIndex).toBe(-1);
-    expect(radios[3].tabIndex).toBe(-1);
+    expect(must(radios[1]).tabIndex).toBe(0); // Pro
+    expect(must(radios[0]).tabIndex).toBe(-1);
+    expect(must(radios[3]).tabIndex).toBe(-1);
   });
 
   it("selects on click and emits change", async () => {
     const { group, radios } = await mount();
     const onChange = vi.fn<(detail: { value: string }) => void>();
     group.addEventListener("change", (e) => onChange((e as CustomEvent<{ value: string }>).detail));
-    radios[3].click(); // Enterprise
-    expect(radios[3].getAttribute("aria-checked")).toBe("true");
-    expect(radios[1].getAttribute("aria-checked")).toBe("false");
+    must(radios[3]).click(); // Enterprise
+    expect(must(radios[3]).getAttribute("aria-checked")).toBe("true");
+    expect(must(radios[1]).getAttribute("aria-checked")).toBe("false");
     expect(group.value).toBe("ent");
-    expect(onChange.mock.calls[0][0]).toEqual({ value: "ent" });
+    expect(must(onChange.mock.calls[0])[0]).toEqual({ value: "ent" });
   });
 
   it("moves selection with the arrow keys, skipping disabled radios", async () => {
     const { group, radios } = await mount();
-    radios[1].focus(); // Pro (index 1 of DOM; enabled list is [free, pro, ent])
+    must(radios[1]).focus(); // Pro (index 1 of DOM; enabled list is [free, pro, ent])
     key(group, "ArrowDown"); // → Enterprise (skips disabled Team)
     expect(document.activeElement).toBe(radios[3]);
-    expect(radios[3].getAttribute("aria-checked")).toBe("true");
+    expect(must(radios[3]).getAttribute("aria-checked")).toBe("true");
     expect(group.value).toBe("ent");
     key(group, "ArrowDown"); // wraps → Free
     expect(group.value).toBe("free");
@@ -63,9 +62,9 @@ describe("ui-radio-group", () => {
 
   it("selects the focused radio with Space", async () => {
     const { group, radios } = await mount();
-    radios[0].focus();
+    must(radios[0]).focus();
     key(group, " ");
-    expect(radios[0].getAttribute("aria-checked")).toBe("true");
+    expect(must(radios[0]).getAttribute("aria-checked")).toBe("true");
     expect(group.value).toBe("free");
   });
 
@@ -74,18 +73,18 @@ describe("ui-radio-group", () => {
     const onChange = vi.fn<(e: Event) => void>();
     group.addEventListener("change", onChange);
     group.value = "ent";
-    expect(radios[3].getAttribute("aria-checked")).toBe("true");
+    expect(must(radios[3]).getAttribute("aria-checked")).toBe("true");
     expect(onChange).not.toHaveBeenCalled();
   });
 
   it("formResetCallback restores the preset (checked-attribute) selection", async () => {
     const { group, radios } = await mount();
-    radios[3].click(); // Enterprise
+    must(radios[3]).click(); // Enterprise
     expect(group.value).toBe("ent");
     group.formResetCallback();
     expect(group.value).toBe("pro"); // back to the authored `checked` radio
-    expect(radios[1].getAttribute("aria-checked")).toBe("true");
-    expect(radios[3].getAttribute("aria-checked")).toBe("false");
+    expect(must(radios[1]).getAttribute("aria-checked")).toBe("true");
+    expect(must(radios[3]).getAttribute("aria-checked")).toBe("false");
   });
 
   it("reports valueMissing while required with no selection", async () => {
@@ -95,10 +94,10 @@ describe("ui-radio-group", () => {
         <ui-radio value="pro">Pro</ui-radio>
       </ui-radio-group>`;
     await Promise.resolve();
-    const group = document.querySelector("ui-radio-group")!;
+    const group = must(document.querySelector("ui-radio-group"));
     expect(group.validity.valueMissing).toBe(true);
     expect(group.checkValidity()).toBe(false);
-    group.querySelectorAll("ui-radio")[1].click();
+    must(group.querySelectorAll("ui-radio")[1]).click();
     expect(group.validity.valid).toBe(true);
     expect(group.checkValidity()).toBe(true);
   });
@@ -115,10 +114,14 @@ describe("ui-radio-group — adopts native radios (no-JS fallback)", () => {
         </ui-radio-group>
       </form>`;
     await Promise.resolve();
-    const form = document.querySelector("form")!;
-    const group = document.querySelector<HTMLElement & { value: string | null }>("ui-radio-group")!;
+    const form = must(document.querySelector("form"));
+    const group = must(
+      document.querySelector<HTMLElement & { value: string | null; formResetCallback(): void }>(
+        "ui-radio-group",
+      ),
+    );
     const radios = [...document.querySelectorAll("ui-radio")];
-    const inputOf = (r: Element) => r.querySelector<HTMLInputElement>("input")!;
+    const inputOf = (r: Element) => must(r.querySelector<HTMLInputElement>("input"));
     return { form, group, radios, inputOf };
   }
 
@@ -130,39 +133,39 @@ describe("ui-radio-group — adopts native radios (no-JS fallback)", () => {
   it("mirrors checked state onto data-state and leaves the radios' roles to the inputs", async () => {
     const { group, radios } = await mountNative();
     expect(group.getAttribute("role")).toBe("radiogroup");
-    expect(radios[1].getAttribute("data-state")).toBe("checked");
-    expect(radios[0].getAttribute("data-state")).toBe("unchecked");
+    expect(must(radios[1]).getAttribute("data-state")).toBe("checked");
+    expect(must(radios[0]).getAttribute("data-state")).toBe("unchecked");
     expect(radios.every((r) => r.getAttribute("role") === null)).toBe(true);
     expect(group.value).toBe("pro");
   });
 
   it("re-syncs every radio's data-state when the selection changes", async () => {
     const { group, radios, inputOf } = await mountNative();
-    inputOf(radios[2]).click(); // select ent → native unchecks pro (which fires no event)
-    expect(radios[2].getAttribute("data-state")).toBe("checked");
-    expect(radios[1].getAttribute("data-state")).toBe("unchecked");
+    inputOf(must(radios[2])).click(); // select ent → native unchecks pro (which fires no event)
+    expect(must(radios[2]).getAttribute("data-state")).toBe("checked");
+    expect(must(radios[1]).getAttribute("data-state")).toBe("unchecked");
     expect(group.value).toBe("ent");
   });
 
   it("selects programmatically via the value setter", async () => {
     const { group, radios, inputOf } = await mountNative();
     group.value = "free";
-    expect(inputOf(radios[0]).checked).toBe(true);
-    expect(radios[0].getAttribute("data-state")).toBe("checked");
+    expect(inputOf(must(radios[0])).checked).toBe(true);
+    expect(must(radios[0]).getAttribute("data-state")).toBe("checked");
     expect(group.value).toBe("free");
   });
 
   it("formResetCallback re-syncs data-state after the browser restores the radios", async () => {
     const { group, radios, inputOf } = await mountNative();
-    inputOf(radios[2]).click(); // select ent
-    expect(radios[2].getAttribute("data-state")).toBe("checked");
+    inputOf(must(radios[2])).click(); // select ent
+    expect(must(radios[2]).getAttribute("data-state")).toBe("checked");
     // Emulate `form.reset()`: the browser restores each input's defaultChecked,
     // then invokes the host's formResetCallback.
-    inputOf(radios[2]).checked = false;
-    inputOf(radios[1]).checked = true;
-    (group as unknown as { formResetCallback(): void }).formResetCallback();
+    inputOf(must(radios[2])).checked = false;
+    inputOf(must(radios[1])).checked = true;
+    group.formResetCallback();
     await Promise.resolve(); // the re-sync waits for the reset pass to finish
-    expect(radios[1].getAttribute("data-state")).toBe("checked");
-    expect(radios[2].getAttribute("data-state")).toBe("unchecked");
+    expect(must(radios[1]).getAttribute("data-state")).toBe("checked");
+    expect(must(radios[2]).getAttribute("data-state")).toBe("unchecked");
   });
 });

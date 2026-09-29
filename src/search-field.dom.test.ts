@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import "./elements.ts";
+import { flush, must } from "./test-utils.ts";
 
-const flush = () => new Promise((r) => setTimeout(r, 0));
-
+/** Narrow a lookup the fixture guarantees is present. */
 afterEach(() => {
   document.body.innerHTML = "";
 });
@@ -11,9 +11,9 @@ afterEach(() => {
 async function mount(attrs = 'debounce="0"') {
   document.body.innerHTML = `<ui-search-field ${attrs}><input type="search" name="q" /></ui-search-field>`;
   await flush();
-  const el = document.querySelector("ui-search-field")!;
-  const input = document.querySelector<HTMLInputElement>("input")!;
-  const clear = el.querySelector<HTMLButtonElement>("[data-search-clear]")!;
+  const el = must(document.querySelector("ui-search-field"));
+  const input = must(document.querySelector<HTMLInputElement>("input"));
+  const clear = must(el.querySelector<HTMLButtonElement>("[data-search-clear]"));
   return { el, input, clear };
 }
 
@@ -62,8 +62,8 @@ describe("ui-search-field", () => {
         <ui-search-field id="inner" debounce="0"><input type="search" /></ui-search-field>
       </ui-search-field>`;
     await flush();
-    const outer = document.querySelector<HTMLElement>("#outer")!;
-    const inner = document.querySelector<HTMLElement>("#inner")!;
+    const outer = must(document.querySelector<HTMLElement>("#outer"));
+    const inner = must(document.querySelector<HTMLElement>("#inner"));
     // Only the inner field wires its own input (one clear button, owned by it).
     expect(document.querySelectorAll("[data-search-clear]").length).toBe(1);
     expect(inner.querySelector("[data-search-clear]")).toBeTruthy();
@@ -73,8 +73,8 @@ describe("ui-search-field", () => {
   it("debounces at the default 250ms when no debounce attribute is authored", async () => {
     document.body.innerHTML = `<ui-search-field><input type="search" /></ui-search-field>`;
     await flush();
-    const el = document.querySelector("ui-search-field")!;
-    const input = document.querySelector<HTMLInputElement>("input")!;
+    const el = must(document.querySelector("ui-search-field"));
+    const input = must(document.querySelector<HTMLInputElement>("input"));
     let count = 0;
     el.addEventListener("search", () => count++);
     input.value = "a";
@@ -88,8 +88,8 @@ describe("ui-search-field", () => {
   it("debounces the search event when debounce > 0", async () => {
     document.body.innerHTML = `<ui-search-field debounce="30"><input type="search" /></ui-search-field>`;
     await flush();
-    const el = document.querySelector("ui-search-field")!;
-    const input = document.querySelector<HTMLInputElement>("input")!;
+    const el = must(document.querySelector("ui-search-field"));
+    const input = must(document.querySelector<HTMLInputElement>("input"));
     let count = 0;
     el.addEventListener("search", () => count++);
     input.value = "a";

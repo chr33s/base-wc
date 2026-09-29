@@ -23,13 +23,17 @@
  * `<ui-checkbox><input type="checkbox" /></ui-checkbox>` needs no extra child.
  */
 import { define } from "./define.ts";
+import { closestFrom } from "./internal/closest.ts";
 import { NativeCheckboxElement } from "./form-control.ts";
 import { LightDomElement } from "./lifecycle.ts";
 
+/** Native-checkbox enhancer that adds a tri-state `indeterminate` mirror to the shared base. */
 export class UICheckbox extends NativeCheckboxElement {
-  get indeterminate() {
+  /** Whether the adopted input is in the indeterminate (partially selected) state. */
+  get indeterminate(): boolean {
     return this.input?.indeterminate ?? false;
   }
+  /** Set the indeterminate state and re-mirror the `data-state` hook. */
   set indeterminate(next: boolean) {
     if (!this.input) return;
     this.input.indeterminate = next;
@@ -41,6 +45,7 @@ export class UICheckbox extends NativeCheckboxElement {
   }
 }
 
+/** Coordinates child checkboxes and drives a "select all" master from their combined state. */
 export class UICheckboxGroup extends LightDomElement {
   #master: UICheckbox | null = null;
 
@@ -60,7 +65,7 @@ export class UICheckboxGroup extends LightDomElement {
   #onChange = (e: Event) => {
     // A native checkbox's `change` fires on the inner `<input>`; resolve it to the
     // enclosing `<ui-checkbox>` host before comparing against the master.
-    const host = (e.target as Element).closest?.("ui-checkbox") as UICheckbox | null;
+    const host = closestFrom<UICheckbox>(e, "ui-checkbox");
     if (this.#master && host === this.#master) {
       // Master toggled → drive every enabled child to the master's new state.
       const next = this.#master.checked;

@@ -1,10 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import "./elements.ts";
+import { key, must } from "./test-utils.ts";
 
-const key = (target: EventTarget, k: string) =>
-  target.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
-
+/** Narrow a lookup the fixture guarantees is present. */
 async function mount(attrs = "") {
   document.body.innerHTML = `
     <ui-toolbar ${attrs} aria-label="Formatting">
@@ -14,10 +13,10 @@ async function mount(attrs = "") {
       <button id="u">U</button>
     </ui-toolbar>`;
   await Promise.resolve();
-  const toolbar = document.querySelector("ui-toolbar")!;
-  const b = document.querySelector<HTMLButtonElement>("#b")!;
-  const i = document.querySelector<HTMLButtonElement>("#i")!;
-  const u = document.querySelector<HTMLButtonElement>("#u")!;
+  const toolbar = must(document.querySelector("ui-toolbar"));
+  const b = must(document.querySelector<HTMLButtonElement>("#b"));
+  const i = must(document.querySelector<HTMLButtonElement>("#i"));
+  const u = must(document.querySelector<HTMLButtonElement>("#u"));
   return { toolbar, b, i, u };
 }
 
@@ -86,13 +85,13 @@ describe("ui-toolbar", () => {
 
   it("wires items that arrive after the connect microtask", async () => {
     document.body.innerHTML = '<ui-toolbar aria-label="Late"></ui-toolbar>';
-    const toolbar = document.querySelector("ui-toolbar")!;
+    const toolbar = must(document.querySelector("ui-toolbar"));
     await Promise.resolve(); // wiring attempt runs against the empty host
     toolbar.innerHTML = '<button id="one">One</button><button id="two">Two</button>';
     await new Promise((r) => setTimeout(r, 0)); // MutationObserver retry
 
-    const one = document.querySelector<HTMLButtonElement>("#one")!;
-    const two = document.querySelector<HTMLButtonElement>("#two")!;
+    const one = must(document.querySelector<HTMLButtonElement>("#one"));
+    const two = must(document.querySelector<HTMLButtonElement>("#two"));
     expect(toolbar.getAttribute("role")).toBe("toolbar");
     expect(one.tabIndex).toBe(0);
     expect(two.tabIndex).toBe(-1);

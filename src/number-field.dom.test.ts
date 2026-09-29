@@ -1,10 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import "./elements.ts";
+import { key, must } from "./test-utils.ts";
 
-const key = (target: EventTarget, k: string) =>
-  target.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
-
+/** Narrow a lookup the fixture guarantees is present. */
 async function mount(attrs = 'value="3" min="0" max="10" step="1"') {
   document.body.innerHTML = `
     <ui-number-field name="qty" ${attrs}>
@@ -13,10 +12,10 @@ async function mount(attrs = 'value="3" min="0" max="10" step="1"') {
       <button data-number-increment>+</button>
     </ui-number-field>`;
   await Promise.resolve();
-  const field = document.querySelector("ui-number-field")!;
-  const input = document.querySelector<HTMLInputElement>("[data-number-input]")!;
-  const inc = document.querySelector<HTMLButtonElement>("[data-number-increment]")!;
-  const dec = document.querySelector<HTMLButtonElement>("[data-number-decrement]")!;
+  const field = must(document.querySelector("ui-number-field"));
+  const input = must(document.querySelector<HTMLInputElement>("[data-number-input]"));
+  const inc = must(document.querySelector<HTMLButtonElement>("[data-number-increment]"));
+  const dec = must(document.querySelector<HTMLButtonElement>("[data-number-decrement]"));
   return { field, input, inc, dec };
 }
 
@@ -100,12 +99,12 @@ describe("ui-number-field", () => {
   it("does not adopt a nested component's input (late or otherwise)", async () => {
     document.body.innerHTML = `<ui-number-field id="outer"></ui-number-field>`;
     await Promise.resolve();
-    const outer = document.querySelector<HTMLElement & { value: number | null }>("#outer")!;
+    const outer = must(document.querySelector<HTMLElement & { value: number | null }>("#outer"));
     // The inner field (and its input) arrive after the outer's first wiring
     // attempt; the retry must still refuse to adopt across the nested boundary.
     outer.innerHTML = `<ui-number-field id="inner"><input type="number" value="3" /></ui-number-field>`;
     await new Promise((r) => setTimeout(r, 0));
-    const inner = document.querySelector<HTMLElement & { value: number | null }>("#inner")!;
+    const inner = must(document.querySelector<HTMLElement & { value: number | null }>("#inner"));
     expect(inner.value).toBe(3); // the inner field owns its input
     expect(outer.value).toBe(null); // the outer stays unwired
   });
@@ -122,11 +121,11 @@ describe("ui-number-field — adopts a native type=number input (no-JS fallback)
         </ui-number-field>
       </form>`;
     await Promise.resolve();
-    const form = document.querySelector("form")!;
-    const field = document.querySelector("ui-number-field")!;
-    const input = document.querySelector<HTMLInputElement>("input")!;
-    const inc = document.querySelector<HTMLButtonElement>("[data-number-increment]")!;
-    const dec = document.querySelector<HTMLButtonElement>("[data-number-decrement]")!;
+    const form = must(document.querySelector("form"));
+    const field = must(document.querySelector("ui-number-field"));
+    const input = must(document.querySelector<HTMLInputElement>("input"));
+    const inc = must(document.querySelector<HTMLButtonElement>("[data-number-increment]"));
+    const dec = must(document.querySelector<HTMLButtonElement>("[data-number-decrement]"));
     return { form, field, input, inc, dec };
   }
 
@@ -199,8 +198,8 @@ describe("ui-number-field — scrub area", () => {
         <input data-number-input />
       </ui-number-field>`;
     await Promise.resolve();
-    const field = document.querySelector("ui-number-field")!;
-    const scrub = document.querySelector<HTMLElement>("[data-number-scrub]")!;
+    const field = must(document.querySelector("ui-number-field"));
+    const scrub = must(document.querySelector<HTMLElement>("[data-number-scrub]"));
     return { field, scrub };
   }
 
@@ -224,7 +223,7 @@ describe("ui-number-field — scrub area", () => {
 
   it("accumulates sub-step movement until a full step is reached", async () => {
     const { field } = await mount();
-    const scrub = document.querySelector<HTMLElement>("[data-number-scrub]")!;
+    const scrub = must(document.querySelector<HTMLElement>("[data-number-scrub]"));
     scrub.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true }));
     move(5); // not enough for a step (needs 8)
     expect(field.value).toBe(10);

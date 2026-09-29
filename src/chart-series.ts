@@ -36,15 +36,16 @@
  * and add its own on top.
  */
 import { ChartChildElement } from "./chart-child.ts";
-import type { HighlightScope, SeriesRegistration } from "./chart-core.ts";
+import type { BuiltInSeriesType, HighlightScope, SeriesRegistration } from "./chart-core.ts";
 import type { UIChart } from "./chart.ts";
 
 /** The attributes {@link UIChartSeries} itself reads — spread into each subclass's `observedAttributes`. */
 export const SERIES_ATTRIBUTES = ["key", "label", "highlight", "fade", "hidden"] as const;
 
+/** Shared base of every series element: registers itself (as its own registration) with the owning chart. */
 export abstract class UIChartSeries extends ChartChildElement implements SeriesRegistration {
   /** The `registerSeriesType` name whose renderer draws this series. */
-  abstract readonly type: string;
+  abstract readonly type: BuiltInSeriesType;
 
   /**
    * The registration's visibility flag *is* the element's native `hidden` —
@@ -55,18 +56,21 @@ export abstract class UIChartSeries extends ChartChildElement implements SeriesR
   declare hidden: boolean;
 
   /** The registration's DOM handle — this element itself. */
-  get element() {
+  get element(): this {
     return this;
   }
 
-  get key() {
+  /** The dataset column this series plots (`key` attribute). */
+  get key(): string {
     return this.getAttribute("key") ?? "";
   }
 
-  get label() {
+  /** Display name for legend/tooltip text (`label` attribute); `undefined` falls back to `key`. */
+  get label(): string | undefined {
     return this.getAttribute("label") ?? undefined;
   }
 
+  /** Highlight/fade behaviour from the `highlight` and `fade` attributes. */
   get highlightScope(): HighlightScope {
     const highlight = this.getAttribute("highlight");
     const fade = this.getAttribute("fade");
@@ -76,7 +80,7 @@ export abstract class UIChartSeries extends ChartChildElement implements SeriesR
     };
   }
 
-  protected override register(chart: UIChart) {
+  protected override register(chart: UIChart): () => void {
     return chart.registerSeries(this);
   }
 }

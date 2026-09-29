@@ -1,8 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import "./elements.ts";
-
-const flush = () => new Promise((r) => setTimeout(r, 0));
+import { flush, must } from "./test-utils.ts";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -12,7 +11,7 @@ describe("ui-calendar", () => {
   async function mount(attrs = 'value="2026-07-15"') {
     document.body.innerHTML = `<ui-calendar ${attrs}></ui-calendar>`;
     await flush();
-    return document.querySelector("ui-calendar")!;
+    return must(document.querySelector("ui-calendar"));
   }
 
   it("renders a labelled month grid with weekday headers and day buttons", async () => {
@@ -27,7 +26,7 @@ describe("ui-calendar", () => {
   it("marks the value as selected and exposes it via .value", async () => {
     const el = await mount();
     expect(el.value).toBe("2026-07-15");
-    const selected = el.querySelector('[data-calendar-day="2026-07-15"]')!;
+    const selected = must(el.querySelector('[data-calendar-day="2026-07-15"]'));
     expect(selected.getAttribute("aria-selected")).toBe("true");
     // Only the selected/focused day is tabbable (roving).
     expect(selected.getAttribute("tabindex")).toBe("0");
@@ -37,15 +36,15 @@ describe("ui-calendar", () => {
     const el = await mount();
     let detail: string | null = "unset";
     el.addEventListener("change", (e) => (detail = (e as CustomEvent).detail.value));
-    el.querySelector<HTMLButtonElement>('[data-calendar-day="2026-07-20"]')!.click();
+    must(el.querySelector<HTMLButtonElement>('[data-calendar-day="2026-07-20"]')).click();
     expect(detail).toBe("2026-07-20");
     expect(el.value).toBe("2026-07-20");
   });
 
   it("syncs selection, focus, and form value when the value attribute changes", async () => {
     const setFormValue = vi.fn<ElementInternals["setFormValue"]>();
-    const internals = { setFormValue, form: null } as unknown as ElementInternals;
-    const attachInternals = vi.fn<() => ElementInternals>(() => internals);
+    const internals: Pick<ElementInternals, "setFormValue" | "form"> = { setFormValue, form: null };
+    const attachInternals = vi.fn(() => internals);
     const originalAttachInternals = Object.getOwnPropertyDescriptor(
       HTMLElement.prototype,
       "attachInternals",
@@ -59,7 +58,7 @@ describe("ui-calendar", () => {
       form.innerHTML = `<ui-calendar name="date" value="2026-07-15"></ui-calendar>`;
       document.body.append(form);
       await flush();
-      const el = form.querySelector("ui-calendar")!;
+      const el = must(form.querySelector("ui-calendar"));
 
       el.setAttribute("value", "2026-08-03");
       expect(el.value).toBe("2026-08-03");
@@ -83,17 +82,17 @@ describe("ui-calendar", () => {
 
   it("ArrowRight moves the roving tab stop to the next day", async () => {
     const el = await mount();
-    const day15 = el.querySelector<HTMLButtonElement>('[data-calendar-day="2026-07-15"]')!;
+    const day15 = must(el.querySelector<HTMLButtonElement>('[data-calendar-day="2026-07-15"]'));
     day15.focus();
     day15.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
-    expect(el.querySelector('[data-calendar-day="2026-07-16"]')!.getAttribute("tabindex")).toBe(
-      "0",
-    );
+    expect(
+      must(el.querySelector('[data-calendar-day="2026-07-16"]')).getAttribute("tabindex"),
+    ).toBe("0");
   });
 
   it("formResetCallback restores the wire-time value", async () => {
     const el = await mount('value="2026-07-15"');
-    el.querySelector<HTMLButtonElement>('[data-calendar-day="2026-07-20"]')!.click();
+    must(el.querySelector<HTMLButtonElement>('[data-calendar-day="2026-07-20"]')).click();
     expect(el.value).toBe("2026-07-20");
     expect(el.getAttribute("value")).toBe("2026-07-20"); // selection reflects
     el.formResetCallback();
@@ -103,7 +102,7 @@ describe("ui-calendar", () => {
 
   it("formDisabledCallback disables the day buttons (disabled fieldset ancestor)", async () => {
     const el = await mount();
-    const day = () => el.querySelector<HTMLButtonElement>('[data-calendar-day="2026-07-15"]')!;
+    const day = () => must(el.querySelector<HTMLButtonElement>('[data-calendar-day="2026-07-15"]'));
     el.formDisabledCallback(true);
     expect(day().disabled).toBe(true);
     el.formDisabledCallback(false);
@@ -121,11 +120,11 @@ describe("ui-calendar", () => {
 
   it("disables days outside [min, max]", async () => {
     const el = await mount('value="2026-07-15" min="2026-07-10" max="2026-07-20"');
-    expect(el.querySelector<HTMLButtonElement>('[data-calendar-day="2026-07-05"]')!.disabled).toBe(
-      true,
-    );
-    expect(el.querySelector<HTMLButtonElement>('[data-calendar-day="2026-07-15"]')!.disabled).toBe(
-      false,
-    );
+    expect(
+      must(el.querySelector<HTMLButtonElement>('[data-calendar-day="2026-07-05"]')).disabled,
+    ).toBe(true);
+    expect(
+      must(el.querySelector<HTMLButtonElement>('[data-calendar-day="2026-07-15"]')).disabled,
+    ).toBe(false);
   });
 });

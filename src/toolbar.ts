@@ -21,8 +21,10 @@ const TOOLBAR_ITEMS = [
   "[data-toolbar-item]",
 ].join(",");
 
+/** Custom element `ui-toolbar`: one roving tab stop across its mixed controls. */
 export class UIToolbar extends RovingElement {
-  get orientation() {
+  /** Arrow-key axis from the `orientation` attribute. */
+  get orientation(): "horizontal" | "vertical" {
     return this.getAttribute("orientation") === "vertical" ? "vertical" : "horizontal";
   }
 
@@ -46,7 +48,7 @@ export class UIToolbar extends RovingElement {
   // Stable membership regardless of the roving tab stop — do NOT filter on
   // tabindex here, or items parked at -1 would drop out of navigation. Scoped
   // so a nested ui-toolbar keeps ownership of its own controls.
-  #items() {
+  #items(): HTMLElement[] {
     return scopedQuery(this, TOOLBAR_ITEMS).filter(
       (el) => !el.hasAttribute("disabled") && !el.closest("[inert]"),
     );

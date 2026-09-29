@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { localeOf, normalize } from "./text.ts";
+import { must } from "./test-utils.ts";
 
+/** Narrow a lookup the fixture guarantees is present. */
 afterEach(() => {
   document.body.innerHTML = "";
   document.documentElement.removeAttribute("lang");
@@ -41,7 +43,7 @@ describe("localeOf", () => {
 
   it("falls back to the document language, then to the runtime default", () => {
     document.body.innerHTML = `<span id="inner"></span>`;
-    const inner = document.querySelector("#inner")!;
+    const inner = must(document.querySelector("#inner"));
     document.documentElement.setAttribute("lang", "sv");
     expect(localeOf(inner)).toBe("sv");
     document.documentElement.removeAttribute("lang");
@@ -53,7 +55,7 @@ describe("localeOf", () => {
     // a RangeError on it, which would break every filter and typeahead.
     document.documentElement.setAttribute("lang", "en_US");
     document.body.innerHTML = `<span id="inner"></span>`;
-    const inner = document.querySelector("#inner")!;
+    const inner = must(document.querySelector("#inner"));
     expect(localeOf(inner)).toBeUndefined();
     expect(() => normalize("İzmir", localeOf(inner))).not.toThrow();
     document.body.innerHTML = `<div lang="tr"><span id="ok"></span></div>`;

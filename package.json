@@ -6,6 +6,7 @@
     "dist",
     "src",
     "!src/**/*.test.ts",
+    "!src/test-utils.ts",
     "!src/**/*.stories.ts"
   ],
   "type": "module",

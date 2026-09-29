@@ -14,10 +14,12 @@ import { ensureButton } from "./parts.ts";
 import { isDisabled } from "./roving.ts";
 import { runExit, setOpenState } from "./transitions.ts";
 
+/** Detail of the `chip-remove` event: the value of the chip being removed. */
 export interface ChipRemoveDetail {
   readonly value: string | null;
 }
 
+/** Removable token (tag/filter chip) whose remove button emits a cancelable removal and animates out. */
 export class UIChip extends LightDomElement {
   static observedAttributes = ["removable", "disabled"];
   #closing = false;
@@ -28,7 +30,8 @@ export class UIChip extends LightDomElement {
   get disabled() {
     return isDisabled(this);
   }
-  get removable() {
+  /** Whether a remove button is rendered. */
+  get removable(): boolean {
     return this.hasAttribute("removable");
   }
 

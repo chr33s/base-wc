@@ -32,13 +32,15 @@ export function syncDisclosure(
   }
 }
 
+/** Single disclosure: a trigger toggles the visibility of its content region. */
 export class UICollapsible extends LightDomElement {
   static observedAttributes = ["open"];
 
   #trigger: HTMLElement | null = null;
   #content: HTMLElement | null = null;
 
-  get open() {
+  /** Whether the content is expanded. */
+  get open(): boolean {
     return this.hasAttribute("open");
   }
   set open(next: boolean) {

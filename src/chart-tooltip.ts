@@ -43,6 +43,7 @@ import { UIPopupElement } from "./popup.ts";
 
 const TOKENS = ["{key}", "{label}", "{value}", "{index}"] as const;
 
+/** One tooltip row: a series and its value at the highlighted data row. */
 interface Row {
   key: string;
   label: string;
@@ -51,12 +52,13 @@ interface Row {
   seriesIndex: number | null;
 }
 
-function formatValue(value: ChartValue) {
+function formatValue(value: ChartValue): string {
   if (value == null) return "";
   if (value instanceof Date) return value.toLocaleDateString();
   return String(value);
 }
 
+/** A pointer-following tooltip showing the highlighted row's series values (axis or item trigger). */
 export class UIChartTooltip extends UIPopupElement {
   static override role = "tooltip";
 
@@ -64,11 +66,13 @@ export class UIChartTooltip extends UIPopupElement {
   #chart: UIChart | null = null;
   #active = false;
 
-  get trigger() {
+  /** What summons the tooltip: the whole axis row, or a single hovered item (`trigger` attribute, default `axis`). */
+  get trigger(): "axis" | "item" {
     return this.getAttribute("trigger") === "item" ? "item" : "axis";
   }
 
-  override connectedCallback() {
+  /** Wire to the owning chart's highlight and pointer events. */
+  override connectedCallback(): void {
     super.connectedCallback();
     connectOwned(
       this,
@@ -78,7 +82,8 @@ export class UIChartTooltip extends UIPopupElement {
     );
   }
 
-  disconnectedCallback() {
+  /** Detach from the chart and hide. */
+  disconnectedCallback(): void {
     this.#chart?.removeEventListener("highlight", this.#onHighlight);
     this.#chart?.removeEventListener("pointermove", this.#onPointerMove);
     this.#hide();
@@ -124,7 +129,7 @@ export class UIChartTooltip extends UIPopupElement {
     this.style.top = `${event.clientY + 12}px`;
   };
 
-  #rows(chart: UIChart, detail: UIChartHighlightDetail) {
+  #rows(chart: UIChart, detail: UIChartHighlightDetail): Row[] {
     const series = chart.getSeries();
     const visible = series.filter((registration) => !registration.hidden);
     // `item` trigger: the highlight's palette slot names the series exactly.
@@ -163,7 +168,7 @@ export class UIChartTooltip extends UIPopupElement {
     this.append(table);
   }
 
-  #buildRow(row: Row) {
+  #buildRow(row: Row): HTMLTableRowElement {
     const tr = document.createElement("tr");
     tr.setAttribute("data-part", "row");
     tr.setAttribute("data-series", row.key);
@@ -183,8 +188,8 @@ export class UIChartTooltip extends UIPopupElement {
     return tr;
   }
 
-  #instantiate(template: HTMLTemplateElement, row: Row) {
-    const clone = template.content.cloneNode(true) as DocumentFragment;
+  #instantiate(template: HTMLTemplateElement, row: Row): DocumentFragment {
+    const clone = document.importNode(template.content, true);
     const values = {
       "{key}": row.key,
       "{label}": row.label,

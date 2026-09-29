@@ -48,13 +48,18 @@
 import type { SeriesRegistration } from "./chart-core.ts";
 import type { UIChart } from "./chart.ts";
 import { define } from "./define.ts";
+import { closestFrom } from "./internal/closest.ts";
 import { connectOwned } from "./lifecycle.ts";
 
+/** Detail of the legend's `toggle` event. */
 export interface UIChartToggleDetail {
+  /** The `key` of the toggled series. */
   readonly series: string;
+  /** The series' hidden state after the toggle. */
   readonly hidden: boolean;
 }
 
+/** A legend listing the chart's series as toggle buttons that hide/show and highlight them. */
 export class UIChartLegend extends HTMLElement {
   #chart: UIChart | null = null;
   #unsubscribe: (() => void) | null = null;
@@ -62,7 +67,7 @@ export class UIChartLegend extends HTMLElement {
   #onClick = (event: MouseEvent) => {
     const chart = this.#chart;
     if (!chart) return;
-    const registration = this.#seriesFor(event.target);
+    const registration = this.#seriesFor(event);
     if (!registration) return;
 
     const hidden = !registration.hidden;
@@ -81,7 +86,7 @@ export class UIChartLegend extends HTMLElement {
   #onPointerOver = (event: PointerEvent) => {
     this.#chart?.setHighlight({
       index: null,
-      series: this.#seriesFor(event.target)?.element ?? null,
+      series: this.#seriesFor(event)?.element ?? null,
     });
   };
 
@@ -89,7 +94,8 @@ export class UIChartLegend extends HTMLElement {
     this.#chart?.setHighlight({ index: null, series: null });
   };
 
-  connectedCallback() {
+  /** Wire to the owning chart and start rendering items. */
+  connectedCallback(): void {
     this.setAttribute("role", "list");
     connectOwned(
       this,
@@ -99,7 +105,8 @@ export class UIChartLegend extends HTMLElement {
     );
   }
 
-  disconnectedCallback() {
+  /** Stop listening to the chart and clear handlers. */
+  disconnectedCallback(): void {
     this.#unsubscribe?.();
     this.#unsubscribe = null;
     this.removeEventListener("click", this.#onClick);
@@ -139,7 +146,7 @@ export class UIChartLegend extends HTMLElement {
     for (let i = series.length; i < existing.length; i++) existing[i]?.remove();
   }
 
-  #createItem() {
+  #createItem(): HTMLSpanElement {
     const item = document.createElement("span");
     item.setAttribute("role", "listitem");
     const button = document.createElement("button");
@@ -152,7 +159,8 @@ export class UIChartLegend extends HTMLElement {
   }
 
   #syncItem(item: HTMLElement, registration: SeriesRegistration, index: number) {
-    const button = item.querySelector("button")!;
+    const button = item.querySelector("button");
+    if (!button) return;
     button.setAttribute("data-legend-index", String(index));
     button.setAttribute("data-series", registration.key);
     // Pressed is the "on" state, as in `ui-toggle`: a shown series is pressed.
@@ -166,9 +174,9 @@ export class UIChartLegend extends HTMLElement {
   }
 
   /** The series an event landed on, resolved through the item's index — the same lookup the click handler uses, so no button holds a reference of its own and every one of them stays reusable. */
-  #seriesFor(target: EventTarget | null) {
-    if (!(target instanceof Element) || !this.#chart) return undefined;
-    const button = target.closest<HTMLButtonElement>("button[data-legend-index]");
+  #seriesFor(event: Event): SeriesRegistration | undefined {
+    if (!this.#chart) return undefined;
+    const button = closestFrom<HTMLButtonElement>(event, "button[data-legend-index]");
     if (!button) return undefined;
     return this.#chart.getSeries()[Number(button.getAttribute("data-legend-index"))];
   }

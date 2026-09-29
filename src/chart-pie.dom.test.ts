@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vite-plus/test";
 import { arcPath, pieAngles } from "./chart-shape.ts";
 import "./chart-pie.ts";
 import "./chart.ts";
+import { flush, must } from "./test-utils.ts";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -13,14 +14,10 @@ afterEach(() => {
 // and any later mutation defers its re-render the same way. A zero-delay
 // macrotask drains all of it (wiring, registrations, observer deliveries and
 // the coalesced render), so tests assert on settled DOM.
-function flush() {
-  return new Promise((resolve) => setTimeout(resolve));
-}
-
 async function mountChart(inner: string, size = true) {
   document.body.innerHTML = `<ui-chart${size ? ' width="300" height="300"' : ""}>${inner}</ui-chart>`;
   await flush();
-  return document.querySelector("ui-chart")!;
+  return must(document.querySelector("ui-chart"));
 }
 
 const TABLE = `
@@ -38,7 +35,7 @@ const TABLE = `
 describe("ui-chart-pie", () => {
   it("reads attribute defaults", async () => {
     document.body.innerHTML = `<ui-chart-pie key="Count"></ui-chart-pie>`;
-    const pie = document.querySelector("ui-chart-pie")!;
+    const pie = must(document.querySelector("ui-chart-pie"));
     expect(pie.key).toBe("Count");
     expect(pie.innerRadius).toBe(0);
     expect(pie.outerRadius).toBeUndefined();
@@ -54,7 +51,7 @@ describe("ui-chart-pie", () => {
     const chart = await mountChart(`${TABLE}<ui-chart-pie key="Count"></ui-chart-pie>`);
     const group = chart.querySelector('[data-part="series"][data-series="Count"]');
     expect(group).not.toBeNull();
-    expect(group!.getAttribute("data-type")).toBe("pie");
+    expect(must(group).getAttribute("data-type")).toBe("pie");
 
     const arcs = chart.querySelectorAll('[data-part="arc"]');
     expect(arcs.length).toBe(4);
@@ -114,18 +111,18 @@ describe("ui-chart-pie", () => {
     const expectedFirstPath = arcPath({
       innerRadius: 40,
       outerRadius,
-      startAngle: slices[0]!.startAngle,
-      endAngle: slices[0]!.endAngle,
-      padAngle: slices[0]!.padAngle,
+      startAngle: must(slices[0]).startAngle,
+      endAngle: must(slices[0]).endAngle,
+      padAngle: must(slices[0]).padAngle,
       cx,
       cy,
     });
 
     const arcs = chart.querySelectorAll('[data-part="arc"]');
-    expect(arcs[0]!.getAttribute("d")).toBe(expectedFirstPath);
+    expect(must(arcs[0]).getAttribute("d")).toBe(expectedFirstPath);
     // A donut's inner edge means the path is not a simple wedge back to the
     // center — it should contain a second arc command rather than a line to (cx, cy).
-    expect(arcs[0]!.getAttribute("d")).not.toContain(`L${cx},${cy}`);
+    expect(must(arcs[0]).getAttribute("d")).not.toContain(`L${cx},${cy}`);
   });
 
   it("honors outer-radius when explicitly authored", async () => {
@@ -144,14 +141,14 @@ describe("ui-chart-pie", () => {
     const expectedFirstPath = arcPath({
       innerRadius: 0,
       outerRadius: 60,
-      startAngle: slices[0]!.startAngle,
-      endAngle: slices[0]!.endAngle,
-      padAngle: slices[0]!.padAngle,
+      startAngle: must(slices[0]).startAngle,
+      endAngle: must(slices[0]).endAngle,
+      padAngle: must(slices[0]).padAngle,
       cx,
       cy,
     });
     const arcs = chart.querySelectorAll('[data-part="arc"]');
-    expect(arcs[0]!.getAttribute("d")).toBe(expectedFirstPath);
+    expect(must(arcs[0]).getAttribute("d")).toBe(expectedFirstPath);
   });
 
   it("still emits a mark for a zero-value slice, keeping data-index alignment", async () => {
@@ -167,8 +164,8 @@ describe("ui-chart-pie", () => {
     `);
     const arcs = chart.querySelectorAll('[data-part="arc"]');
     expect(arcs.length).toBe(2);
-    expect(arcs[0]!.getAttribute("data-index")).toBe("0");
-    expect(arcs[1]!.getAttribute("data-index")).toBe("1");
+    expect(must(arcs[0]).getAttribute("data-index")).toBe("0");
+    expect(must(arcs[1]).getAttribute("data-index")).toBe("1");
   });
 
   it("changes slice paint order (but not data-index) when sort is set", async () => {
@@ -192,7 +189,7 @@ describe("ui-chart-pie", () => {
     chart.addEventListener("select", (e) => events.push((e as CustomEvent).detail));
 
     const arcs = chart.querySelectorAll('[data-part="arc"]');
-    arcs[2]!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    must(arcs[2]).dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
     expect(events).toEqual([{ series: "Count", seriesIndex: 0, index: 2, value: 30 }]);
   });
@@ -213,10 +210,10 @@ describe("ui-chart-pie", () => {
     // The element *is* its registration, so the attribute edit is already the
     // update — the next (batched) render picks up the new column with no
     // unregister/re-register churn.
-    chart.querySelector("ui-chart-pie")!.setAttribute("key", "B");
+    must(chart.querySelector("ui-chart-pie")).setAttribute("key", "B");
     await flush();
 
-    expect(chart.querySelector('[data-part="series"]')!.getAttribute("data-series")).toBe("B");
+    expect(must(chart.querySelector('[data-part="series"]')).getAttribute("data-series")).toBe("B");
     const after = [...chart.querySelectorAll('[data-part="arc"]')].map((a) => a.getAttribute("d"));
     expect(after).not.toEqual(before);
   });
@@ -224,7 +221,7 @@ describe("ui-chart-pie", () => {
   it("removes its series group on disconnect", async () => {
     const chart = await mountChart(`${TABLE}<ui-chart-pie key="Count"></ui-chart-pie>`);
     expect(chart.querySelectorAll('[data-part="series"]').length).toBe(1);
-    chart.querySelector("ui-chart-pie")!.remove();
+    must(chart.querySelector("ui-chart-pie")).remove();
     expect(chart.querySelectorAll('[data-part="series"]').length).toBe(0);
   });
 });

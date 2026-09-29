@@ -23,19 +23,21 @@
 import type { UIChart } from "./chart.ts";
 import { connectOwned } from "./lifecycle.ts";
 
+/** Base for chart children that register themselves with the owning `ui-chart` and request a re-render on attribute change. */
 export abstract class ChartChildElement extends HTMLElement {
   #chart: UIChart | null = null;
   #unregister: (() => void) | null = null;
 
   /** The `ui-chart` this element is registered with, or `null` while unattached. */
-  protected get chart() {
+  protected get chart(): UIChart | null {
     return this.#chart;
   }
 
   /** Add this element to the chart's registry; return the removal callback. */
   protected abstract register(chart: UIChart): () => void;
 
-  connectedCallback() {
+  /** Locate the owning chart and register once it is defined. */
+  connectedCallback(): void {
     connectOwned(
       this,
       "ui-chart",
@@ -47,13 +49,15 @@ export abstract class ChartChildElement extends HTMLElement {
     );
   }
 
-  disconnectedCallback() {
+  /** Unregister from the chart. */
+  disconnectedCallback(): void {
     this.#unregister?.();
     this.#unregister = null;
     this.#chart = null;
   }
 
-  attributeChangedCallback() {
+  /** Ask the chart to re-render; the element is its own registration, so nothing else needs syncing. */
+  attributeChangedCallback(): void {
     this.#chart?.requestRender();
   }
 }

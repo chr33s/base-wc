@@ -31,26 +31,54 @@
  * created through the manager.
  */
 import { define } from "./define.ts";
+import { closestFrom } from "./internal/closest.ts";
 import { numberAttribute } from "./math.ts";
 import { labelFrom, nextId } from "./id.ts";
 import { type PointerDragOptions, trackPointerDrag } from "./pointer-drag.ts";
 import { runExit, setOpenState } from "./transitions.ts";
 
+/** Severity of a toast; `error` and `warning` announce assertively. */
+export type ToastType = "info" | "success" | "warning" | "error";
+
+/** Narrow a `data-type` attribute value to a {@link ToastType}, or `undefined`. */
+function parseToastType(value: string | undefined): ToastType | undefined {
+  switch (value) {
+    case "info":
+    case "success":
+    case "warning":
+    case "error":
+      return value;
+    default:
+      return undefined;
+  }
+}
+
 /** Options for {@link UIToastViewport.add} / {@link toast}. */
 export interface ToastOptions {
   /** Bold heading line. */
-  title?: string;
+  title?: string | undefined;
   /** Secondary body line. */
-  description?: string;
+  description?: string | undefined;
   /** Severity — `error`/`warning` announce assertively (`role=alert`). */
-  type?: "info" | "success" | "warning" | "error";
+  type?: ToastType | undefined;
   /** Auto-dismiss delay in ms; `0` keeps it until dismissed. Default 5000. */
-  duration?: number;
+  duration?: number | undefined;
   /** Label for an action button; clicking it fires an `action` event. */
-  action?: string;
+  action?: string | undefined;
   /** Stable id (for {@link UIToastViewport.dismiss}); auto-generated otherwise. */
-  id?: string;
+  id?: string | undefined;
 }
+
+/**
+ * The parts a manager-built toast renders, in the order `add` appends them —
+ * the close button always stays last, so an update that introduces a part slots
+ * it in ahead of the close button rather than after it.
+ */
+const TOAST_PARTS = [
+  ["title", "data-toast-title", "div"],
+  ["description", "data-toast-description", "div"],
+  ["action", "data-toast-action", "button"],
+] as const;
 
 const DEFAULT_DURATION = 5000;
 /** Horizontal travel (px) past which a swipe dismisses instead of snapping back. */
@@ -85,8 +113,56 @@ export class UIToast extends HTMLElement {
   #disposeSwipe: (() => void) | null = null;
 
   /** Auto-dismiss delay in ms (`0` = sticky). */
-  get duration() {
+  get duration(): number {
     return numberAttribute(this, "duration", DEFAULT_DURATION);
+  }
+
+  /** The options this toast currently renders, read back from its markup. */
+  get options(): ToastOptions {
+    const options: ToastOptions = { id: this.id };
+    for (const [key, attribute] of TOAST_PARTS) {
+      const text = this.querySelector(`[${attribute}]`)?.textContent;
+      if (text) options[key] = text;
+    }
+    const type = parseToastType(this.dataset.type);
+    if (type) options.type = type;
+    if (this.hasAttribute("duration")) options.duration = this.duration;
+    return options;
+  }
+
+  /**
+   * Write `options` onto this toast, creating, retexting or removing each part.
+   * Only the keys actually present are touched, so this doubles as the partial
+   * update the manager applies.
+   */
+  applyOptions(options: Partial<ToastOptions>): void {
+    if ("type" in options) {
+      if (options.type) this.dataset.type = options.type;
+      else delete this.dataset.type;
+    }
+    if ("duration" in options) {
+      if (options.duration == null) this.removeAttribute("duration");
+      else this.setAttribute("duration", String(options.duration));
+    }
+
+    for (const [key, attribute, tag] of TOAST_PARTS) {
+      if (!(key in options)) continue;
+      const text = options[key];
+      let part = this.querySelector<HTMLElement>(`[${attribute}]`);
+      if (!text) {
+        part?.remove();
+        continue;
+      }
+      if (!part) {
+        part = document.createElement(tag);
+        if (part instanceof HTMLButtonElement) part.type = "button";
+        part.setAttribute(attribute, "");
+        // Keep the authored order: insert before the close button when one is
+        // already rendered, else append.
+        this.insertBefore(part, this.querySelector("[data-toast-close]"));
+      }
+      part.textContent = text;
+    }
   }
 
   connectedCallback() {
@@ -145,7 +221,7 @@ export class UIToast extends HTMLElement {
    * update: a toast whose text just changed has to give the reader the full
    * duration to read it, exactly as a freshly added one would.
    */
-  refresh() {
+  refresh(): void {
     this.#syncAnnouncement();
     clearTimeout(this.#timer);
     this.#remaining = null;
@@ -196,10 +272,9 @@ export class UIToast extends HTMLElement {
   }
 
   #onClick = (e: MouseEvent) => {
-    const target = e.target as Element;
-    if (target.closest("[data-toast-close]")) {
+    if (closestFrom(e, "[data-toast-close]")) {
       this.close();
-    } else if (target.closest("[data-toast-action]")) {
+    } else if (closestFrom(e, "[data-toast-action]")) {
       this.dispatchEvent(new CustomEvent("action", { bubbles: true, detail: { id: this.id } }));
       this.close();
     }
@@ -225,7 +300,7 @@ export class UIToast extends HTMLElement {
       onStart: (e) => {
         if (e.button !== 0) return false;
         // Let the action/close buttons handle their own clicks.
-        if ((e.target as Element).closest("[data-toast-close],[data-toast-action]")) return false;
+        if (closestFrom(e, "[data-toast-close],[data-toast-action]")) return false;
         this.#swiping = true;
         this.#swipeStartX = e.clientX;
         this.pause();
@@ -274,7 +349,7 @@ export class UIToast extends HTMLElement {
   }
 
   /** Dismiss the toast, playing its exit animation before removal. */
-  close() {
+  close(): void {
     clearTimeout(this.#timer);
     this.#timer = 0;
     this.#startedAt = 0;
@@ -340,22 +415,23 @@ export class UIToastViewport extends HTMLElement {
   #expand = () => {
     if (this.hasAttribute("data-expanded")) return;
     this.setAttribute("data-expanded", "");
-    this.#pauseAll(true);
+    this.#pauseAll("pause");
     this.#layout();
   };
   #collapse = () => {
     if (!this.hasAttribute("data-expanded")) return;
     this.removeAttribute("data-expanded");
-    this.#pauseAll(false);
+    this.#pauseAll("resume");
     this.#layout();
   };
   #onFocusOut = (e: FocusEvent) => {
-    if (!this.contains(e.relatedTarget as Node | null)) this.#collapse();
+    const next = e.relatedTarget;
+    if (!(next instanceof Node && this.contains(next))) this.#collapse();
   };
 
-  #pauseAll(paused: boolean) {
+  #pauseAll(action: "pause" | "resume") {
     for (const t of this.querySelectorAll<UIToast>("ui-toast")) {
-      if (paused) t.pause();
+      if (action === "pause") t.pause();
       else t.resume();
     }
   }
@@ -386,10 +462,10 @@ export class UIToastViewport extends HTMLElement {
   };
 
   /** Build, enqueue and return a toast for `options`. */
-  add(options: ToastOptions) {
-    const toast = document.createElement("ui-toast") as UIToast;
+  add(options: ToastOptions): UIToast {
+    const toast = document.createElement("ui-toast");
     toast.id = options.id ?? nextId("ui-toast");
-    applyToastOptions(toast, options);
+    toast.applyOptions(options);
 
     const close = document.createElement("button");
     close.type = "button";
@@ -422,11 +498,11 @@ export class UIToastViewport extends HTMLElement {
   update(
     id: string,
     patch: Partial<ToastOptions> | ((current: ToastOptions) => Partial<ToastOptions>),
-  ) {
+  ): UIToast | null {
     const toast = this.#find(id);
     if (!toast) return null;
-    const next = typeof patch === "function" ? patch(readToastOptions(toast)) : patch;
-    applyToastOptions(toast, next);
+    const next = patch instanceof Function ? patch(toast.options) : patch;
+    toast.applyOptions(next);
     toast.refresh();
     // Match `add`: a toast that lands while the stack is expanded stays paused
     // with its siblings rather than counting down under the pointer.
@@ -436,11 +512,11 @@ export class UIToastViewport extends HTMLElement {
   }
 
   /** Dismiss the toast with the given id. */
-  dismiss(id: string) {
+  dismiss(id: string): void {
     this.#find(id)?.close();
   }
 
-  #find(id: string) {
+  #find(id: string): UIToast | null {
     for (const t of this.querySelectorAll<UIToast>("ui-toast")) {
       if (t.id === id) return t;
     }
@@ -448,71 +524,13 @@ export class UIToastViewport extends HTMLElement {
   }
 
   /** Dismiss every toast in the viewport. */
-  clear() {
+  clear(): void {
     for (const t of this.querySelectorAll<UIToast>("ui-toast")) t.close();
   }
 }
 
-/**
- * The parts a manager-built toast renders, in the order `add` appends them —
- * the close button always stays last, so an update that introduces a part slots
- * it in ahead of the close button rather than after it.
- */
-const TOAST_PARTS = [
-  ["title", "data-toast-title", "div"],
-  ["description", "data-toast-description", "div"],
-  ["action", "data-toast-action", "button"],
-] as const;
-
-/** Read back the options a toast currently renders. */
-function readToastOptions(toast: UIToast): ToastOptions {
-  const options: ToastOptions = { id: toast.id };
-  for (const [key, attribute] of TOAST_PARTS) {
-    const text = toast.querySelector(`[${attribute}]`)?.textContent;
-    if (text) options[key] = text;
-  }
-  if (toast.dataset.type) options.type = toast.dataset.type as NonNullable<ToastOptions["type"]>;
-  if (toast.hasAttribute("duration")) options.duration = toast.duration;
-  return options;
-}
-
-/**
- * Write `options` onto a toast, creating, retexting or removing each part.
- * Only the keys actually present are touched, so this doubles as the partial
- * update the manager applies.
- */
-function applyToastOptions(toast: UIToast, options: Partial<ToastOptions>) {
-  if ("type" in options) {
-    if (options.type) toast.dataset.type = options.type;
-    else delete toast.dataset.type;
-  }
-  if ("duration" in options) {
-    if (options.duration == null) toast.removeAttribute("duration");
-    else toast.setAttribute("duration", String(options.duration));
-  }
-
-  for (const [key, attribute, tag] of TOAST_PARTS) {
-    if (!(key in options)) continue;
-    const text = options[key];
-    let part = toast.querySelector<HTMLElement>(`[${attribute}]`);
-    if (!text) {
-      part?.remove();
-      continue;
-    }
-    if (!part) {
-      part = document.createElement(tag);
-      if (part instanceof HTMLButtonElement) part.type = "button";
-      part.setAttribute(attribute, "");
-      // Keep the authored order: insert before the close button when one is
-      // already rendered, else append.
-      toast.insertBefore(part, toast.querySelector("[data-toast-close]"));
-    }
-    part.textContent = text;
-  }
-}
-
 /** Show a toast via the first `<ui-toast-viewport>` in the document. */
-export function toast(options: ToastOptions) {
+export function toast(options: ToastOptions): UIToast | null {
   return firstToastViewport()?.add(options) ?? null;
 }
 
@@ -523,11 +541,11 @@ export function toast(options: ToastOptions) {
 export function updateToast(
   id: string,
   patch: Partial<ToastOptions> | ((current: ToastOptions) => Partial<ToastOptions>),
-) {
+): UIToast | null {
   return firstToastViewport()?.update(id, patch) ?? null;
 }
 
-function firstToastViewport() {
+function firstToastViewport(): UIToastViewport | null {
   return document.querySelector<UIToastViewport>("ui-toast-viewport");
 }
 

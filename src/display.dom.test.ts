@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import "./elements.ts";
+import { must } from "./test-utils.ts";
 
+/** The value, or a failure naming the missing element. */
 afterEach(() => {
   document.body.innerHTML = "";
 });
@@ -9,7 +11,7 @@ afterEach(() => {
 describe("ui-progress", () => {
   it("exposes a determinate progressbar with a fill fraction", () => {
     document.body.innerHTML = `<ui-progress value="25" max="50"></ui-progress>`;
-    const el = document.querySelector("ui-progress")!;
+    const el = must(document.querySelector("ui-progress"));
     expect(el.getAttribute("role")).toBe("progressbar");
     expect(el.getAttribute("aria-valuenow")).toBe("25");
     expect(el.getAttribute("aria-valuemax")).toBe("50");
@@ -19,26 +21,26 @@ describe("ui-progress", () => {
 
   it("marks completion", () => {
     document.body.innerHTML = `<ui-progress value="100"></ui-progress>`;
-    expect(document.querySelector("ui-progress")!.getAttribute("data-state")).toBe("complete");
+    expect(must(document.querySelector("ui-progress")).getAttribute("data-state")).toBe("complete");
   });
 
   it("drops aria-valuenow when indeterminate", () => {
     document.body.innerHTML = `<ui-progress></ui-progress>`;
-    const el = document.querySelector("ui-progress")!;
+    const el = must(document.querySelector("ui-progress"));
     expect(el.hasAttribute("aria-valuenow")).toBe(false);
     expect(el.getAttribute("data-state")).toBe("indeterminate");
   });
 
   it("clamps out-of-range values", () => {
     document.body.innerHTML = `<ui-progress value="250"></ui-progress>`;
-    expect(document.querySelector("ui-progress")!.getAttribute("aria-valuenow")).toBe("100");
+    expect(must(document.querySelector("ui-progress")).getAttribute("aria-valuenow")).toBe("100");
   });
 });
 
 describe("ui-meter", () => {
   it("exposes a meter with value + fraction", () => {
     document.body.innerHTML = `<ui-meter value="30" min="0" max="60"></ui-meter>`;
-    const el = document.querySelector("ui-meter")!;
+    const el = must(document.querySelector("ui-meter"));
     expect(el.getAttribute("role")).toBe("meter");
     expect(el.getAttribute("aria-valuenow")).toBe("30");
     expect(el.style.getPropertyValue("--meter")).toBe("0.5");
@@ -47,12 +49,12 @@ describe("ui-meter", () => {
   it("classifies value against low/high/optimum regions", () => {
     // optimum in the high region (higher is better); value in the low region → poor.
     document.body.innerHTML = `<ui-meter value="10" min="0" max="100" low="30" high="70" optimum="90"></ui-meter>`;
-    expect(document.querySelector("ui-meter")!.getAttribute("data-state")).toBe("poor");
+    expect(must(document.querySelector("ui-meter")).getAttribute("data-state")).toBe("poor");
   });
 
   it("reports optimal when the value sits in the optimum region", () => {
     document.body.innerHTML = `<ui-meter value="85" min="0" max="100" low="30" high="70" optimum="90"></ui-meter>`;
-    expect(document.querySelector("ui-meter")!.getAttribute("data-state")).toBe("optimal");
+    expect(must(document.querySelector("ui-meter")).getAttribute("data-state")).toBe("optimal");
   });
 });
 
@@ -60,7 +62,7 @@ describe("ui-avatar", () => {
   async function mount(inner: string) {
     document.body.innerHTML = `<ui-avatar>${inner}</ui-avatar>`;
     await Promise.resolve();
-    return document.querySelector("ui-avatar")!;
+    return must(document.querySelector("ui-avatar"));
   }
 
   it("falls back to error when there is no image", async () => {
@@ -77,7 +79,7 @@ describe("ui-avatar", () => {
     el.addEventListener("statechange", (e) =>
       onState((e as CustomEvent<{ state: string }>).detail),
     );
-    el.querySelector("img")!.dispatchEvent(new Event("load"));
+    must(el.querySelector("img")).dispatchEvent(new Event("load"));
     expect(el.state).toBe("loaded");
     expect(onState.mock.calls.at(-1)?.[0]).toEqual({ state: "loaded" });
   });
@@ -86,7 +88,7 @@ describe("ui-avatar", () => {
     const el = await mount(
       `<img data-avatar-image src="/bad.png" alt="" /><span data-avatar-fallback>AB</span>`,
     );
-    el.querySelector("img")!.dispatchEvent(new Event("error"));
+    must(el.querySelector("img")).dispatchEvent(new Event("error"));
     expect(el.state).toBe("error");
   });
 });
@@ -94,28 +96,28 @@ describe("ui-avatar", () => {
 describe("range value text", () => {
   it("announces a progress bar as a percentage of its range", () => {
     document.body.innerHTML = `<ui-progress value="25" max="50"></ui-progress>`;
-    expect(document.querySelector("ui-progress")!.getAttribute("aria-valuetext")).toBe("50%");
+    expect(must(document.querySelector("ui-progress")).getAttribute("aria-valuetext")).toBe("50%");
   });
 
   it("announces the clamped value, never the raw one", () => {
     // The bar stops at its end, so announcing 200 next to a full bar would be
     // the one thing a screen-reader user cannot reconcile.
     document.body.innerHTML = `<ui-meter value="200" max="100"></ui-meter>`;
-    const meter = document.querySelector("ui-meter")!;
+    const meter = must(document.querySelector("ui-meter"));
     expect(meter.getAttribute("aria-valuenow")).toBe("100");
     expect(meter.getAttribute("aria-valuetext")).toBe("100%");
   });
 
   it("formats the clamped value when given Intl options", () => {
     document.body.innerHTML = `<ui-meter value="150" max="100"></ui-meter>`;
-    const meter = document.querySelector("ui-meter")!;
+    const meter = must(document.querySelector("ui-meter"));
     meter.format = { style: "currency", currency: "USD", maximumFractionDigits: 0 };
     expect(meter.getAttribute("aria-valuetext")).toBe("$100");
   });
 
   it("says nothing about an indeterminate bar's progress", () => {
     document.body.innerHTML = `<ui-progress indeterminate></ui-progress>`;
-    const bar = document.querySelector("ui-progress")!;
+    const bar = must(document.querySelector("ui-progress"));
     expect(bar.hasAttribute("aria-valuenow")).toBe(false);
     expect(bar.hasAttribute("aria-valuetext")).toBe(false);
   });

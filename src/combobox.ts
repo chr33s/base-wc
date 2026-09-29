@@ -39,6 +39,7 @@ import { isRTL } from "./direction.ts";
 import { UIPopupElement } from "./popup.ts";
 import { FormAssociatedElement, type FormControlOptions } from "./form-control.ts";
 import { nextId } from "./id.ts";
+import { closestFrom } from "./internal/closest.ts";
 import { managedDisabled } from "./native.ts";
 import { onPointerMoved } from "./intent.ts";
 import { listNav, type ListNav } from "./list-nav.ts";
@@ -48,7 +49,9 @@ import { localeOf, normalize } from "./text.ts";
 
 /** A single combobox option. Supplied via the `items` property, not markup. */
 export interface ComboboxItem<T = unknown> {
+  /** Form value submitted and reported in events. */
   readonly value: string;
+  /** Text shown in the row and matched by filtering and typeahead. */
   readonly label: string;
   /**
    * The application record this option was derived from, when the collection
@@ -103,6 +106,7 @@ export interface ComboboxCounts {
 export interface ComboboxChangeDetail {
   /** The option just toggled/chosen (empty `value` when the list was cleared). */
   readonly value: string;
+  /** Label of the option just toggled/chosen. */
   readonly label: string;
   /** All currently-selected values (single → `[value]` or `[]`). */
   readonly values: string[];
@@ -112,6 +116,7 @@ export interface ComboboxChangeDetail {
   readonly item?: unknown;
 }
 
+/** Virtualized, filterable single/multi-select combobox over a large `items` store, with chips, clear control and form participation. */
 export class UICombobox extends FormAssociatedElement {
   protected override formControlOptions(): FormControlOptions {
     return {
@@ -166,7 +171,7 @@ export class UICombobox extends FormAssociatedElement {
    * unchanged: the pool now recycles *rows*, so a 10,000-item grid still holds a
    * constant number of elements.
    */
-  get columns() {
+  get columns(): number {
     return Math.max(1, Math.trunc(numberAttribute(this, "columns", 1)));
   }
   get #grid() {
@@ -174,7 +179,7 @@ export class UICombobox extends FormAssociatedElement {
   }
 
   /** Multi-select mode — options toggle without closing; `value` is an array. */
-  get multiple() {
+  get multiple(): boolean {
     return this.hasAttribute("multiple");
   }
   /**
@@ -185,10 +190,11 @@ export class UICombobox extends FormAssociatedElement {
    * itself becomes `readonly`, so there is no filtering to do either. An author
    * who wants the control inert wants `disabled`.
    */
-  get readOnly() {
+  get readOnly(): boolean {
     return this.hasAttribute("readonly");
   }
-  get value() {
+  /** Selected value: a string (or `null`) in single mode, an array of values when `multiple`. */
+  get value(): string | string[] | null {
     return this.multiple ? [...this.#selected.keys()] : this.#selectedValue;
   }
   set value(next: string | string[] | null) {
@@ -205,7 +211,8 @@ export class UICombobox extends FormAssociatedElement {
     this.#syncFormValue();
     if (this.#controller?.open) this.#renderWindow();
   }
-  get counts() {
+  /** Live total / matched / rendered-row counts, as also reported by `filterchange`. */
+  get counts(): ComboboxCounts {
     return {
       total: this.#all.length,
       matched: this.#filtered.length,
@@ -281,7 +288,7 @@ export class UICombobox extends FormAssociatedElement {
     // actually moved, or scrolling the list would yank the highlight away from
     // the item the keyboard just navigated to (see {@link onPointerMoved}).
     onPointerMoved(viewport, (e) => {
-      const row = (e.target as Element).closest("[data-index]") as HTMLElement | null;
+      const row = closestFrom<HTMLElement>(e, "[data-index]");
       if (row) this.#setActive(Number(row.dataset.index), { scroll: false });
     });
 
@@ -317,7 +324,7 @@ export class UICombobox extends FormAssociatedElement {
   #applyFilter(query: string) {
     const q = normalize(query, localeOf(this));
     this.#filtered =
-      q === "" ? this.#all : this.#all.filter((_, i) => this.#normalizedLabels[i].includes(q));
+      q === "" ? this.#all : this.#all.filter((_, i) => this.#normalizedLabels[i]?.includes(q));
     this.#viewport.scrollTop = 0;
     this.#empty?.toggleAttribute("hidden", this.#filtered.length > 0);
     this.#renderWindow();
@@ -462,7 +469,12 @@ export class UICombobox extends FormAssociatedElement {
     this.#emitChange(item.value, item.label, "item-press", item.item);
   }
 
-  #emitChange(value: string, label: string, reason: ChangeReason, item?: unknown) {
+  #emitChange(
+    value: string,
+    label: string,
+    reason: ChangeReason,
+    item?: ComboboxChangeDetail["item"],
+  ) {
     this.dispatchEvent(
       new CustomEvent<ComboboxChangeDetail>("change", {
         bubbles: true,
@@ -555,9 +567,9 @@ export class UICombobox extends FormAssociatedElement {
   }
 
   #onChipClick = (e: MouseEvent) => {
-    const btn = (e.target as Element).closest("[data-combobox-chip-remove]");
+    const btn = closestFrom(e, "[data-combobox-chip-remove]");
     if (!btn || this.readOnly) return;
-    const chip = btn.closest("ui-combobox-chip") as HTMLElement | null;
+    const chip = btn.closest<HTMLElement>("ui-combobox-chip");
     const value = chip?.dataset.value;
     if (value == null || !this.#selected.has(value)) return;
     const label = this.#selected.get(value) ?? "";
@@ -585,9 +597,13 @@ export class UICombobox extends FormAssociatedElement {
   };
 }
 
+/** Anchored popup surface that hosts the combobox list. */
 export class UIComboboxPopup extends UIPopupElement {}
+/** Scrolling viewport whose rows are windowed and recycled. */
 export class UIComboboxViewport extends HTMLElement {}
+/** Spacer that sets the full scroll height for the virtual list. */
 export class UIComboboxSpacer extends HTMLElement {}
+/** Message shown when no items match the query. */
 export class UIComboboxEmpty extends HTMLElement {}
 /** Container the combobox renders selected-value chips into (multi-select). */
 export class UIComboboxChips extends HTMLElement {}

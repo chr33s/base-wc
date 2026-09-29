@@ -17,7 +17,9 @@
  */
 import { define } from "./define.ts";
 import { nextId } from "./id.ts";
+import { closestFrom } from "./internal/closest.ts";
 import { scopedQuery } from "./query.ts";
+import type { ChangeNotification } from "./reasons.ts";
 import { RovingElement, type RovingOptions } from "./roving.ts";
 
 /** Direction the selection moved in, for enter/exit animations. */
@@ -28,6 +30,7 @@ export type TabActivationDirection = "left" | "right" | "up" | "down" | "none";
 // only ever checked to within this many pixels.
 const MAX_LAYOUT_ROUNDING_ERROR = 2;
 
+/** Tabbed interface: roving `[data-tab]` triggers, `[data-tab-panel]` panels, optional indicator. */
 export class UITabs extends RovingElement {
   #list: HTMLElement | null = null;
   #indicator: HTMLElement | null = null;
@@ -35,14 +38,16 @@ export class UITabs extends RovingElement {
   /** Index of the previously selected tab, for `data-activation-direction`. */
   #previousIndex = -1;
 
-  get value() {
+  /** `value` of the selected tab, or `null`. Setting selects the matching tab without emitting `change`. */
+  get value(): string | null {
     return this.#selectedTab()?.getAttribute("value") ?? null;
   }
   set value(next: string | null) {
     const tab = this.#tabs().find((t) => t.getAttribute("value") === next);
-    if (tab) this.#select(tab, false);
+    if (tab) this.#select(tab, "silent");
   }
-  get orientation() {
+  /** Tab-list axis from the `orientation` attribute. */
+  get orientation(): "horizontal" | "vertical" {
     return this.getAttribute("orientation") === "vertical" ? "vertical" : "horizontal";
   }
   get #automatic() {
@@ -82,7 +87,7 @@ export class UITabs extends RovingElement {
       this.#tabs().find((t) => t.getAttribute("value") === preset) ??
       this.#navTabs()[0] ??
       this.#tabs()[0];
-    if (initial) this.#select(initial, false);
+    if (initial) this.#select(initial, "silent");
     return true;
   }
 
@@ -116,9 +121,9 @@ export class UITabs extends RovingElement {
       orientation: this.orientation,
       loop: true,
       onMove: (tab) => {
-        if (this.#automatic) this.#select(tab, true);
+        if (this.#automatic) this.#select(tab, "emit");
       },
-      onActivate: (tab) => this.#select(tab, true),
+      onActivate: (tab) => this.#select(tab, "emit"),
     };
   }
 
@@ -129,7 +134,7 @@ export class UITabs extends RovingElement {
     return this.#tabs().find((t) => t.getAttribute("aria-selected") === "true") ?? null;
   }
 
-  #select(tab: HTMLElement, emit: boolean) {
+  #select(tab: HTMLElement, notify: ChangeNotification) {
     if (tab.hasAttribute("disabled")) return;
     const value = tab.getAttribute("value");
     const tabs = this.#tabs();
@@ -143,7 +148,8 @@ export class UITabs extends RovingElement {
     const index = this.#navTabs().indexOf(tab);
     if (index >= 0) this.roving?.refresh(index);
     this.#positionIndicator();
-    if (emit) this.dispatchEvent(new CustomEvent("change", { bubbles: true, detail: { value } }));
+    if (notify === "emit")
+      this.dispatchEvent(new CustomEvent("change", { bubbles: true, detail: { value } }));
   }
 
   // ---- indicator --------------------------------------------------------
@@ -195,7 +201,7 @@ export class UITabs extends RovingElement {
     const tab = this.#selectedTab();
     // `getBoundingClientRect` is absent under happy-dom's bare elements; with no
     // measurable geometry there is nothing to draw, so stay hidden.
-    if (!tab || typeof tab.getBoundingClientRect !== "function") {
+    if (!tab || !("getBoundingClientRect" in tab)) {
       indicator.hidden = true;
       return;
     }
@@ -241,15 +247,16 @@ export class UITabs extends RovingElement {
   };
 
   #onClick = (e: MouseEvent) => {
-    const tab = (e.target as Element).closest("[data-tab]") as HTMLElement | null;
+    const tab = closestFrom<HTMLElement>(e, "[data-tab]");
     if (tab?.closest("ui-tabs") !== this) return; // a nested ui-tabs owns this tab
     if (tab && !tab.hasAttribute("disabled")) {
       tab.focus();
-      this.#select(tab, true);
+      this.#select(tab, "emit");
     }
   };
 }
 
+/** Custom element `ui-tab-list`: the strip that holds the tabs and receives clicks. */
 export class UITabList extends HTMLElement {}
 
 /**
@@ -264,11 +271,23 @@ export class UITabIndicator extends HTMLElement {
   }
 }
 
+/** A position in layout pixels. */
+interface LayoutOffset {
+  left: number;
+  top: number;
+}
+
+/** A 2D translation in CSS pixels. */
+interface Translation {
+  x: number;
+  y: number;
+}
+
 /**
  * The element's box relative to `ancestor`'s padding box, from layout offsets
  * only. Immune to transforms, but rounded to whole pixels.
  */
-function layoutOffset(element: HTMLElement, ancestor: HTMLElement) {
+function layoutOffset(element: HTMLElement, ancestor: HTMLElement): LayoutOffset {
   const own = cumulativeOffset(element);
   const base = cumulativeOffset(ancestor);
   let left = own.left - base.left - ancestor.clientLeft;
@@ -290,14 +309,15 @@ function layoutOffset(element: HTMLElement, ancestor: HTMLElement) {
   return { left, top };
 }
 
-function cumulativeOffset(element: HTMLElement) {
+function cumulativeOffset(element: HTMLElement): LayoutOffset {
   let left = 0;
   let top = 0;
   let node: HTMLElement | null = element;
   while (node) {
     left += node.offsetLeft;
     top += node.offsetTop;
-    const parent = node.offsetParent as HTMLElement | null;
+    const parent: HTMLElement | null =
+      node.offsetParent instanceof HTMLElement ? node.offsetParent : null;
     if (parent) {
       left += parent.clientLeft;
       top += parent.clientTop;
@@ -315,7 +335,7 @@ function cumulativeOffset(element: HTMLElement) {
  * without rotation or scale — enough here, because with either in play the
  * caller's agreement check rejects the rect-based offset anyway.
  */
-function elementTranslation(element: HTMLElement) {
+function elementTranslation(element: HTMLElement): Translation {
   const view = element.ownerDocument?.defaultView;
   const style = view?.getComputedStyle?.(element);
   if (!style) return { x: 0, y: 0 };
@@ -326,10 +346,11 @@ function elementTranslation(element: HTMLElement) {
   if (transform && transform !== "none") {
     const matrix = /matrix(?:3d)?\(([^)]+)\)/.exec(transform);
     if (matrix) {
-      const values = matrix[1].split(",").map((part) => Number.parseFloat(part));
+      const values = (matrix[1] ?? "").split(",").map((part) => Number.parseFloat(part));
+      const slot = (i: number) => values[i] ?? 0;
       // `matrix()` carries translation in slots 4/5; `matrix3d()` in 12/13.
-      if (values.length === 6) [x, y] = [values[4], values[5]];
-      else if (values.length === 16) [x, y] = [values[12], values[13]];
+      if (values.length === 6) [x, y] = [slot(4), slot(5)];
+      else if (values.length === 16) [x, y] = [slot(12), slot(13)];
     }
   }
 
@@ -345,7 +366,7 @@ function elementTranslation(element: HTMLElement) {
 }
 
 /** One `translate` longhand component in pixels; anything unresolvable is 0. */
-function translateLength(value: string | undefined, reference: number) {
+function translateLength(value: string | undefined, reference: number): number {
   if (!value) return 0;
   const numeric = Number.parseFloat(value);
   if (!Number.isFinite(numeric)) return 0;

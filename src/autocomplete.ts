@@ -30,6 +30,7 @@ export interface AutocompleteChangeDetail {
   readonly reason: ChangeReason;
 }
 
+/** The autocomplete host: an input whose text is the form value, with a suggestion listbox. */
 export class UIAutocomplete extends FormAssociatedElement {
   protected override formControlOptions(): FormControlOptions {
     return {
@@ -66,7 +67,8 @@ export class UIAutocomplete extends FormAssociatedElement {
     homeEnd: false,
   });
 
-  get value() {
+  /** The input text, which is the form value (`""` before wiring). */
+  get value(): string {
     return this.#input?.value ?? "";
   }
   /**
@@ -74,9 +76,10 @@ export class UIAutocomplete extends FormAssociatedElement {
    * and can be browsed, but neither typing nor committing a suggestion changes
    * the text. An author who wants the control inert wants `disabled`.
    */
-  get readOnly() {
+  get readOnly(): boolean {
     return this.hasAttribute("readonly");
   }
+  /** The suggestion pool, filtered against the input text as the user types. */
   set items(next: string[]) {
     this.#items = Array.isArray(next) ? next.slice() : [];
     // Normalize once per item set, not once per item per keystroke.
@@ -145,7 +148,7 @@ export class UIAutocomplete extends FormAssociatedElement {
   #filter(query: string) {
     const q = normalize(query, localeOf(this));
     this.#matches =
-      q === "" ? [] : this.#items.filter((_, i) => this.#normalizedItems[i].includes(q));
+      q === "" ? [] : this.#items.filter((_, i) => this.#normalizedItems[i]?.includes(q));
     this.#renderMatches();
     this.#empty?.toggleAttribute("hidden", !(q !== "" && this.#matches.length === 0));
   }
@@ -172,6 +175,10 @@ export class UIAutocomplete extends FormAssociatedElement {
       return;
     }
     const active = rows[index];
+    if (!active) {
+      this.#controller?.setActive(-1, null);
+      return;
+    }
     active.setAttribute("data-highlighted", "");
     this.#controller?.setActive(index, active.id);
   }
@@ -238,8 +245,11 @@ export class UIAutocomplete extends FormAssociatedElement {
   }
 }
 
+/** Popup container for the suggestion list. */
 export class UIAutocompletePopup extends UIPopupElement {}
+/** Container the suggestion rows are injected into. */
 export class UIAutocompleteList extends HTMLElement {}
+/** Shown while the query matches no suggestion. */
 export class UIAutocompleteEmpty extends HTMLElement {}
 
 define("ui-autocomplete", UIAutocomplete);

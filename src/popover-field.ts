@@ -14,13 +14,14 @@ import { retireNative } from "./native.ts";
 import { type Overlay, overlay } from "./overlay.ts";
 import { ensureButton } from "./parts.ts";
 
+/** Everything {@link popoverField} needs from the owning component. */
 export interface PopoverFieldConfig {
   /** The adopted native input — the submitting form value. */
   input: HTMLInputElement;
   /** Names the generated popup id and the CSS anchor pair (debuggability only). */
   prefix: string;
   /** Trigger button: adopted by `marker`, generated with `label`/`text` otherwise. */
-  trigger: { marker: string; label: string; text?: string };
+  trigger: { marker: string; label: string; text?: string | undefined };
   /** The popup shell and the enhanced widget inside it; the popup is appended to `host`. */
   build: () => { popup: HTMLElement; widget: HTMLElement };
   /** Retire the input behind the trigger (fully-replaced controls, e.g. color). */
@@ -31,6 +32,7 @@ export interface PopoverFieldConfig {
   initialFocus: () => HTMLElement | null;
 }
 
+/** Handle returned by {@link popoverField}: the wired parts plus open state and `close`. */
 export interface PopoverField {
   readonly trigger: HTMLElement;
   readonly popup: HTMLElement;
@@ -41,7 +43,7 @@ export interface PopoverField {
 }
 
 /** Wire a native-first field's trigger + anchored popover. Call from `#wire`. */
-export function popoverField(host: HTMLElement, config: PopoverFieldConfig) {
+export function popoverField(host: HTMLElement, config: PopoverFieldConfig): PopoverField {
   const { input } = config;
   const trigger = ensureButton(host, {
     marker: config.trigger.marker,
@@ -59,7 +61,6 @@ export function popoverField(host: HTMLElement, config: PopoverFieldConfig) {
   const ov: Overlay = overlay(popup, {
     anchor: {
       ref: () => trigger,
-      options: { offset: 6, padding: 8 },
       pair: config.prefix,
     },
     trigger: {

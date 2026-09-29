@@ -8,11 +8,19 @@
 import { LightDomElement } from "./lifecycle.ts";
 import { define } from "./define.ts";
 
+/** Image load lifecycle reflected as `data-state`. */
 export type AvatarState = "loading" | "loaded" | "error";
 
+/** Narrow a raw `data-state` attribute to an {@link AvatarState}, defaulting to `loading`. */
+function parseState(raw: string | null): AvatarState {
+  return raw === "loaded" || raw === "error" ? raw : "loading";
+}
+
+/** The avatar host: tracks its image's load state and reflects it for CSS. */
 export class UIAvatar extends LightDomElement {
-  get state() {
-    return (this.getAttribute("data-state") as AvatarState | null) ?? "loading";
+  /** Current image state; `loading` until the image resolves. */
+  get state(): AvatarState {
+    return parseState(this.getAttribute("data-state"));
   }
 
   protected override initialize() {

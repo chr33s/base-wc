@@ -12,10 +12,11 @@ import { define } from "./define.ts";
 import { LightDomElement } from "./lifecycle.ts";
 import type { UIField } from "./field.ts";
 
+/** Validates every `ui-field` on submit, blocks an invalid submit, focuses the first error and reports `form-invalid` / `form-valid`. */
 export class UIForm extends LightDomElement {
   protected override initialize() {
     const form = this.querySelector("form");
-    (form ?? this).addEventListener("submit", this.#onSubmit as EventListener);
+    (form ?? this).addEventListener("submit", this.#onSubmit);
     // Marked wired only once the listener is attached. The native <form> is a
     // genuinely optional part — `submit` bubbles, so the host-level fallback
     // listener covers a form even if one parses in later — hence no retry.
@@ -35,7 +36,7 @@ export class UIForm extends LightDomElement {
     const summary = this.querySelector<HTMLElement>("[data-form-error-summary]");
     if (invalid.length > 0) {
       e.preventDefault();
-      invalid[0].control?.focus?.();
+      invalid[0]?.control?.focus?.();
       if (summary) {
         summary.hidden = false;
         summary.textContent = `${invalid.length} field${invalid.length === 1 ? "" : "s"} need attention.`;

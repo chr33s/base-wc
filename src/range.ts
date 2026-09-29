@@ -13,6 +13,12 @@
  */
 import { clamp } from "./math.ts";
 
+/** The clamped value and its 0–1 fraction, as returned by {@link syncRangeState}. */
+export interface RangeState {
+  value: number;
+  fraction: number;
+}
+
 /**
  * Clamp `value` into `[min, max]`, mirror the range into the `aria-value*`
  * attributes, and publish the resulting 0–1 fraction as the `property` custom
@@ -36,9 +42,9 @@ export function syncRangeState(
     /** `Intl.NumberFormat` options for `aria-valuetext`; omit for a percentage. */
     format?: Intl.NumberFormatOptions | null;
     /** BCP-47 locale for that formatting. */
-    locale?: string;
+    locale?: string | undefined;
   },
-) {
+): RangeState {
   const { min, max, property, format, locale } = options;
   const value = clamp(options.value, min, max);
   const fraction = max > min ? (value - min) / (max - min) : 0;

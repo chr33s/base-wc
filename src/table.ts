@@ -9,24 +9,32 @@
  */
 import { LightDomElement } from "./lifecycle.ts";
 import { define } from "./define.ts";
+import type { ChangeNotification } from "./reasons.ts";
 
+/** Layout mode: a responsive `list`, a classic `table`, or `auto` to let CSS decide. */
 export type UITableVariant = "auto" | "list" | "table";
+/** Value of `aria-sort` on a sorted column. */
 export type UITableSortDirection = "ascending" | "descending";
+/** How a column's cells are formatted and sorted (`numeric`/`currency` sort by number). */
 export type UITableHeaderFormat = "base" | "numeric" | "currency";
+/** Placement of a cell within a row when the table renders as a list. */
 export type UITableListSlot = "primary" | "secondary" | "kicker" | "inline" | "labeled";
 
+/** Detail of the bubbling `sort` event. */
 export interface UITableSortDetail {
   readonly key: string;
   readonly direction: UITableSortDirection;
   readonly index: number;
 }
 
+/** Detail of the bubbling `selectionchange` event. */
 export interface UITableSelectionDetail {
   readonly selected: number;
   readonly total: number;
   readonly values: ReadonlyArray<string>;
 }
 
+/** Detail of the bubbling `previouspage` / `nextpage` events. */
 export interface UITablePageDetail {
   readonly direction: "previous" | "next";
 }
@@ -44,47 +52,41 @@ const INTERACTIVE_SELECTOR = [
   "[tabindex]:not([tabindex='-1'])",
 ].join(",");
 
-const SELECT_ALL = "input[type='checkbox'][data-table-select-all]";
-const SELECT_ROW = "input[type='checkbox'][data-table-select-row]";
-const CONTROLS = "[data-table-controls]";
-const CONTROLS_ROW = "[data-table-controls-row]";
-const CONTROLS_CELL = "[data-table-controls-cell]";
-const FILTERS = "[data-table-filters]";
-const BULK = "[data-table-bulk]";
-const BULK_ITEM = "[data-table-selected-count], [data-table-bulk-action]";
-const PAGINATION = "[data-table-pagination]";
-const PAGINATION_ROW = "[data-table-pagination-row]";
-const PAGINATION_CELL = "[data-table-pagination-cell]";
-const PREVIOUS = "[data-table-previous]";
-const NEXT = "[data-table-next]";
+/** Selectors for the `data-table-*` hooks this enhancer reads and generates. */
+const SELECTOR = {
+  selectAll: "input[type='checkbox'][data-table-select-all]",
+  selectRow: "input[type='checkbox'][data-table-select-row]",
+  controls: "[data-table-controls]",
+  controlsRow: "[data-table-controls-row]",
+  controlsCell: "[data-table-controls-cell]",
+  filters: "[data-table-filters]",
+  bulk: "[data-table-bulk]",
+  bulkItem: "[data-table-selected-count], [data-table-bulk-action]",
+  pagination: "[data-table-pagination]",
+  paginationRow: "[data-table-pagination-row]",
+  paginationCell: "[data-table-pagination-cell]",
+  previous: "[data-table-previous]",
+  next: "[data-table-next]",
+} as const;
 
 const isCheckbox = (value: Element | null): value is HTMLInputElement =>
   value instanceof HTMLInputElement && value.type === "checkbox";
 
-const normalizeVariant = (value: string | null) =>
-  value === "list" || value === "table" ? value : "auto";
-
-const normalizeFormat = (value: string | null) =>
-  value === "numeric" || value === "currency" ? value : "base";
-
-const normalizeListSlot = (value: string | null) => {
-  if (
-    value === "primary" ||
-    value === "secondary" ||
-    value === "kicker" ||
-    value === "inline" ||
-    value === "labeled"
-  ) {
-    return value;
-  }
-  return "labeled";
-};
+/** Narrow an attribute value to one of `allowed`, else `fallback`. */
+function oneOf<const T extends string>(
+  value: string | null,
+  allowed: readonly T[],
+  fallback: T,
+): T {
+  return allowed.find((candidate) => candidate === value) ?? fallback;
+}
 
 const numberValue = (text: string) => {
   const parsed = Number(text.replace(/[^0-9.-]+/g, ""));
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+/** Light-DOM enhancer adding sorting, selection, pagination and list metadata to a native `<table>`. */
 export class UITable extends LightDomElement {
   static observedAttributes = [
     "variant",
@@ -98,42 +100,48 @@ export class UITable extends LightDomElement {
   #generatedPagination: HTMLElement | null = null;
   #mutation: MutationObserver | null = null;
 
-  get variant() {
-    return normalizeVariant(this.getAttribute("variant"));
+  /** Layout mode from the `variant` attribute (`auto` by default). */
+  get variant(): UITableVariant {
+    return oneOf(this.getAttribute("variant"), ["auto", "list", "table"], "auto");
   }
   set variant(next: UITableVariant) {
     this.setAttribute("variant", next);
   }
 
-  get loading() {
+  /** Whether the table is busy (`loading` attribute); sets `aria-busy` and disables paging. */
+  get loading(): boolean {
     return this.hasAttribute("loading");
   }
   set loading(next: boolean) {
     this.toggleAttribute("loading", next);
   }
 
-  get paginate() {
+  /** Whether pagination controls are shown. */
+  get paginate(): boolean {
     return this.hasAttribute("paginate");
   }
   set paginate(next: boolean) {
     this.toggleAttribute("paginate", next);
   }
 
-  get hasPreviousPage() {
+  /** Whether a previous page exists (enables the previous control). */
+  get hasPreviousPage(): boolean {
     return this.hasAttribute("has-previous-page");
   }
   set hasPreviousPage(next: boolean) {
     this.toggleAttribute("has-previous-page", next);
   }
 
-  get hasNextPage() {
+  /** Whether a next page exists (enables the next control). */
+  get hasNextPage(): boolean {
     return this.hasAttribute("has-next-page");
   }
   set hasNextPage(next: boolean) {
     this.toggleAttribute("has-next-page", next);
   }
 
-  get selectedValues() {
+  /** Values of the checked row-selection boxes, in DOM order. */
+  get selectedValues(): string[] {
     return this.#rowBoxes()
       .filter((box) => box.checked)
       .map((box) => box.value);
@@ -144,12 +152,12 @@ export class UITable extends LightDomElement {
   }
 
   /** Re-read table headers/rows after the consumer changes table structure. */
-  refresh() {
+  refresh(): void {
     this.#withObserverPaused(() => {
       this.#table = this.querySelector("table");
       this.#ensureControls();
       this.#annotateCells();
-      this.#syncSelection(false);
+      this.#syncSelection("silent");
       this.#sync();
     });
   }
@@ -238,26 +246,28 @@ export class UITable extends LightDomElement {
   }
 
   #rowBoxes() {
-    return [...this.querySelectorAll<HTMLInputElement>(SELECT_ROW)];
+    return [...this.querySelectorAll<HTMLInputElement>(SELECTOR.selectRow)];
   }
 
   #selectAll() {
-    return this.querySelector<HTMLInputElement>(SELECT_ALL);
+    return this.querySelector<HTMLInputElement>(SELECTOR.selectAll);
   }
 
   #ensureControls() {
     if (!this.#table) return;
-    const filters = this.#movableControls(FILTERS);
-    const bulk = this.#movableControls(BULK);
-    const looseBulk = this.#movableControls(BULK_ITEM).filter((item) => !item.closest(BULK));
-    const existing = this.#table.querySelector<HTMLElement>(CONTROLS);
+    const filters = this.#movableControls(SELECTOR.filters);
+    const bulk = this.#movableControls(SELECTOR.bulk);
+    const looseBulk = this.#movableControls(SELECTOR.bulkItem).filter(
+      (item) => !item.closest(SELECTOR.bulk),
+    );
+    const existing = this.#table.querySelector<HTMLElement>(SELECTOR.controls);
     if (!existing && filters.length === 0 && bulk.length === 0 && looseBulk.length === 0) return;
 
-    const controls = this.#controlsContainer();
+    const controls = this.#controlsContainer(this.#table);
     for (const item of filters) controls.append(item);
     for (const item of bulk) controls.append(item);
     if (looseBulk.length > 0) {
-      let group = controls.querySelector<HTMLElement>(BULK);
+      let group = controls.querySelector<HTMLElement>(SELECTOR.bulk);
       if (!group) {
         group = document.createElement("div");
         group.setAttribute("data-table-bulk", "");
@@ -269,21 +279,20 @@ export class UITable extends LightDomElement {
 
   #movableControls(selector: string) {
     return Array.from(this.querySelectorAll<HTMLElement>(selector)).filter(
-      (item) => !item.closest(CONTROLS),
+      (item) => !item.closest(SELECTOR.controls),
     );
   }
 
-  #controlsContainer() {
-    const table = this.#table!;
+  #controlsContainer(table: HTMLTableElement) {
     const thead = table.tHead ?? table.createTHead();
-    let row = thead.querySelector<HTMLTableRowElement>(CONTROLS_ROW);
+    let row = thead.querySelector<HTMLTableRowElement>(SELECTOR.controlsRow);
     if (!row) {
       row = document.createElement("tr");
       row.setAttribute("data-table-controls-row", "");
       thead.insertBefore(row, thead.firstElementChild);
     }
 
-    let cell = row.querySelector<HTMLTableCellElement>(CONTROLS_CELL);
+    let cell = row.querySelector<HTMLTableCellElement>(SELECTOR.controlsCell);
     if (!cell) {
       cell = document.createElement("td");
       cell.setAttribute("data-table-controls-cell", "");
@@ -291,7 +300,7 @@ export class UITable extends LightDomElement {
     }
     this.#spanAllColumns(cell);
 
-    let controls = cell.querySelector<HTMLElement>(CONTROLS);
+    let controls = cell.querySelector<HTMLElement>(SELECTOR.controls);
     if (!controls) {
       controls = document.createElement("div");
       controls.setAttribute("data-table-controls", "");
@@ -303,7 +312,7 @@ export class UITable extends LightDomElement {
   #annotateCells() {
     const headers = this.#headers();
     this.#headerRow()?.setAttribute("data-table-header-row", "");
-    this.#spanAllColumns(this.#table?.querySelector<HTMLTableCellElement>(CONTROLS_CELL));
+    this.#spanAllColumns(this.#table?.querySelector<HTMLTableCellElement>(SELECTOR.controlsCell));
     headers.forEach((header) => {
       const sortable = header.hasAttribute("data-sort-key");
       header.toggleAttribute("data-sortable", sortable);
@@ -338,12 +347,20 @@ export class UITable extends LightDomElement {
     header.append(button);
   }
 
-  #headerFormat(header: Element) {
-    return normalizeFormat(header.getAttribute("data-format") ?? header.getAttribute("format"));
+  #headerFormat(header: Element): UITableHeaderFormat {
+    return oneOf(
+      header.getAttribute("data-format") ?? header.getAttribute("format"),
+      ["base", "numeric", "currency"],
+      "base",
+    );
   }
 
-  #headerListSlot(header: Element) {
-    return normalizeListSlot(header.getAttribute("data-list-slot"));
+  #headerListSlot(header: Element): UITableListSlot {
+    return oneOf(
+      header.getAttribute("data-list-slot"),
+      ["primary", "secondary", "kicker", "inline", "labeled"],
+      "labeled",
+    );
   }
 
   #sort(header: HTMLTableCellElement) {
@@ -388,7 +405,7 @@ export class UITable extends LightDomElement {
     );
   }
 
-  #syncSelection(emit: boolean) {
+  #syncSelection(notify: ChangeNotification) {
     const boxes = this.#rowBoxes();
     const selected = boxes.filter((box) => box.checked);
     const selectAll = this.#selectAll();
@@ -414,7 +431,7 @@ export class UITable extends LightDomElement {
       action.disabled = selected.length === 0;
     }
 
-    if (emit) {
+    if (notify === "emit") {
       this.dispatchEvent(
         new CustomEvent<UITableSelectionDetail>("selectionchange", {
           bubbles: true,
@@ -437,9 +454,9 @@ export class UITable extends LightDomElement {
   #syncPagination() {
     if (!this.#table) return;
     this.#withObserverPaused(() => {
-      let pagination = this.querySelector<HTMLElement>(PAGINATION);
+      let pagination = this.querySelector<HTMLElement>(SELECTOR.pagination);
       if (!this.paginate) {
-        const row = this.#generatedPagination?.closest(PAGINATION_ROW);
+        const row = this.#generatedPagination?.closest(SELECTOR.paginationRow);
         this.#generatedPagination?.remove();
         this.#generatedPagination = null;
         row?.remove();
@@ -454,8 +471,11 @@ export class UITable extends LightDomElement {
       const cell = this.#paginationCell(pagination);
       if (cell && pagination.parentElement !== cell) cell.append(pagination);
       pagination.removeAttribute("hidden");
-      this.#setControlDisabled(pagination.querySelector(PREVIOUS), this.#pageDisabled("previous"));
-      this.#setControlDisabled(pagination.querySelector(NEXT), this.#pageDisabled("next"));
+      this.#setControlDisabled(
+        pagination.querySelector(SELECTOR.previous),
+        this.#pageDisabled("previous"),
+      );
+      this.#setControlDisabled(pagination.querySelector(SELECTOR.next), this.#pageDisabled("next"));
     });
   }
 
@@ -487,13 +507,13 @@ export class UITable extends LightDomElement {
 
     if (!this.#table) return null;
     const tfoot = this.#table.tFoot ?? this.#table.createTFoot();
-    let row = tfoot.querySelector<HTMLTableRowElement>(PAGINATION_ROW);
+    let row = tfoot.querySelector<HTMLTableRowElement>(SELECTOR.paginationRow);
     if (!row) {
       row = document.createElement("tr");
       row.setAttribute("data-table-pagination-row", "");
       tfoot.append(row);
     }
-    let cell = row.querySelector<HTMLTableCellElement>(PAGINATION_CELL);
+    let cell = row.querySelector<HTMLTableCellElement>(SELECTOR.paginationCell);
     if (!cell) {
       cell = document.createElement("td");
       cell.setAttribute("data-table-pagination-cell", "");
@@ -538,8 +558,8 @@ export class UITable extends LightDomElement {
 
   #onClick = (event: Event) => {
     if (!(event.target instanceof Element)) return;
-    if (event.target.closest(PREVIOUS)) return this.#page("previous");
-    if (event.target.closest(NEXT)) return this.#page("next");
+    if (event.target.closest(SELECTOR.previous)) return this.#page("previous");
+    if (event.target.closest(SELECTOR.next)) return this.#page("next");
 
     const header = event.target.closest("th[data-sort-key]");
     if (header instanceof HTMLTableCellElement && this.contains(header)) {
@@ -552,12 +572,12 @@ export class UITable extends LightDomElement {
   #onChange = (event: Event) => {
     if (!(event.target instanceof Element)) return;
     const target = event.target;
-    if (target.matches(SELECT_ALL) && isCheckbox(target)) {
+    if (target.matches(SELECTOR.selectAll) && isCheckbox(target)) {
       for (const box of this.#rowBoxes()) this.#setBox(box, target.checked);
-      this.#syncSelection(true);
+      this.#syncSelection("emit");
       return;
     }
-    if (target.matches(SELECT_ROW)) this.#syncSelection(true);
+    if (target.matches(SELECTOR.selectRow)) this.#syncSelection("emit");
   };
 }
 

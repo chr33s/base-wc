@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import "./elements.ts";
+import { flush, must } from "./test-utils.ts";
 
-const flush = () => new Promise((r) => setTimeout(r, 0));
-
+/** The value, or a failure naming the missing element. */
 afterEach(() => {
   document.body.innerHTML = "";
 });
@@ -11,9 +11,9 @@ afterEach(() => {
 async function mount(inputAttrs = "multiple") {
   document.body.innerHTML = `<ui-drop-zone><input type="file" name="upload" ${inputAttrs} /></ui-drop-zone>`;
   await flush();
-  const zone = document.querySelector("ui-drop-zone")!;
-  const input = document.querySelector<HTMLInputElement>("input")!;
-  const target = zone.querySelector<HTMLElement>("[data-drop-target]")!;
+  const zone = must(document.querySelector("ui-drop-zone"));
+  const input = must(document.querySelector<HTMLInputElement>("input"));
+  const target = must(zone.querySelector<HTMLElement>("[data-drop-target]"));
   return { zone, input, target };
 }
 

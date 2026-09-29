@@ -32,8 +32,21 @@ import type { CategoryValue, Scale, ScaleType } from "./chart-scale.ts";
 // dataset model
 // ---------------------------------------------------------------------------
 
+/** One dataset cell: a category label, number or `Date`, or `null` for a missing value. */
 export type ChartValue = CategoryValue | null;
+/** One dataset row: cell values keyed by column (header) name. */
 export type ChartRow = Record<string, ChartValue>;
+
+/** The series types this package ships an element for; the renderer registry itself stays open to other names. */
+export type BuiltInSeriesType = "bar" | "line" | "pie" | "scatter" | "reference-line";
+
+/** A cartesian dimension: `x` is horizontal, `y` vertical. */
+export type ChartDimension = "x" | "y";
+
+/** Narrow a raw `axis` attribute to a {@link ChartDimension}, defaulting to `y` for an absent or invalid value. */
+export function parseChartDimension(raw: string | null): ChartDimension {
+  return raw === "x" ? "x" : "y";
+}
 
 /**
  * Read a `<table>`'s rows into columnar {@link ChartRow} objects, keyed by
@@ -45,7 +58,7 @@ export type ChartRow = Record<string, ChartValue>;
  * string that differs from the value used for scaling (e.g.
  * `data-value="1400"` inside a cell reading "$1,400").
  */
-export function parseTable(table: HTMLTableElement) {
+export function parseTable(table: HTMLTableElement): ChartRow[] {
   // `querySelectorAll`, not `.rows` (an `HTMLTableSectionElement` property some
   // DOM implementations — including the happy-dom test environment — don't
   // implement), so this works identically under real browsers and unit tests.
@@ -87,13 +100,13 @@ const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
  * December. A source that carries its own time (and so its own zone, explicit
  * or local) is unambiguous and is parsed as written.
  */
-function parseDate(source: string) {
+function parseDate(source: string): Date {
   const parts = DATE_ONLY.exec(source.trim());
   if (!parts) return new Date(source);
   return new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]));
 }
 
-function parseCell(cell: HTMLTableCellElement) {
+function parseCell(cell: HTMLTableCellElement): ChartValue {
   const override = cell.getAttribute("data-value");
   const time = cell.querySelector("time[datetime]");
   if (time) {
@@ -121,7 +134,7 @@ export function isNumberValue(value: ChartValue | undefined): value is number {
 export { numberAttribute } from "./math.ts";
 
 /** Coerce a cell value to the number a continuous scale needs (`Date` → epoch ms). `null`/unparsable → `NaN`. */
-export function toNumeric(value: ChartValue) {
+export function toNumeric(value: ChartValue | undefined): number {
   if (value instanceof Date) return value.getTime();
   if (value == null) return Number.NaN;
   return Number(value);
@@ -162,11 +175,13 @@ export function mergeExtent(
 // stacking
 // ---------------------------------------------------------------------------
 
+/** A stacked series' span for one row: `y0` is its baseline (the running total beneath it), `y1` its top edge. */
 export interface StackedValue {
   y0: number;
   y1: number;
 }
 
+/** How stacked values accumulate: `none` sums in series order; `diverging` keeps separate positive and negative running totals. */
 export type StackOffset = "none" | "diverging";
 
 /**
@@ -186,9 +201,9 @@ export type StackOffset = "none" | "diverging";
  */
 export function stackSeries(
   data: readonly ChartRow[],
-  series: ReadonlyArray<{ key: string; stack?: string }>,
+  series: ReadonlyArray<{ key: string; stack?: string | undefined }>,
   offset: StackOffset = "none",
-) {
+): StackedValue[][] {
   // Keyed by stack id (a string) or, for an unstacked series, by its own
   // position (a number) — so an unstacked series groups only with itself, and
   // no authored `stack` id can ever collide with that.
@@ -205,16 +220,17 @@ export function stackSeries(
     const positive = data.map(() => 0);
     const negative = data.map(() => 0);
     for (const i of group) {
-      const key = series[i]!.key;
+      const key = series[i]?.key;
+      if (key === undefined) continue;
       result[i] = data.map((row, r) => {
         const value = toNumeric(row[key] ?? null) || 0;
         if (offset === "diverging" && value < 0) {
-          const y1 = negative[r]!;
+          const y1 = negative[r] ?? 0;
           const y0 = y1 + value;
           negative[r] = y0;
           return { y0, y1 };
         }
-        const y0 = positive[r]!;
+        const y0 = positive[r] ?? 0;
         const y1 = y0 + value;
         positive[r] = y1;
         return { y0, y1 };
@@ -228,6 +244,7 @@ export function stackSeries(
 // axis / series registration models
 // ---------------------------------------------------------------------------
 
+/** The chart edge an axis sits on. */
 export type AxisPosition = "top" | "bottom" | "left" | "right";
 
 /**
@@ -239,11 +256,15 @@ export interface AxisRegistration {
   /** Which edge this axis sits on. One axis per orientation is used — the first registered horizontal (`top`/`bottom`) axis is the chart's index axis, the first vertical one its value axis; MUI's multi-axis `axisId` model is not ported. */
   readonly position: AxisPosition;
   /** Dataset column this axis reads its domain from (band/point/time axes; omitted for a scatter value axis). */
-  readonly key?: string;
+  readonly key?: string | undefined;
+  /** The scale family used to map the domain onto the axis. */
   readonly scaleType: ScaleType;
-  readonly min?: number;
-  readonly max?: number;
-  readonly tickCount?: number;
+  /** Pinned lower domain bound; `undefined` derives it from the data. */
+  readonly min?: number | undefined;
+  /** Pinned upper domain bound; `undefined` derives it from the data. */
+  readonly max?: number | undefined;
+  /** Target tick count for a continuous scale; `undefined` uses the family default. */
+  readonly tickCount?: number | undefined;
   /**
    * Draw this axis's own tick markup for the scale `ui-chart` has just built
    * from the registration — or clear it, given `undefined`, which says this
@@ -255,6 +276,7 @@ export interface AxisRegistration {
   render(scale: Scale | undefined): void;
 }
 
+/** How a series takes part in highlighting: what counts as active (`highlight`) and what gets dimmed (`fade`). */
 export interface HighlightScope {
   highlight: "item" | "series" | "none";
   fade: "global" | "series" | "none";
@@ -278,19 +300,23 @@ export interface HighlightScope {
 export interface SeriesRegistration {
   /** The DOM handle for this series — the registered element itself, for an element-backed registration. What `HighlightState.series` points at, and what document ordering compares. */
   readonly element: HTMLElement;
+  /** The `registerSeriesType` name whose renderer draws this series. */
   readonly type: string;
   /** The primary dataset column: the value column for bar/line/pie (plotted against the shared index axis or, for pie, allocated as slices), or the y-value column for an x/y-pair series like scatter. */
   readonly key: string;
   /** The x-value column for a series that plots two independent value columns (scatter) rather than reading its x position from a shared category/index axis. */
-  readonly xKey?: string;
+  readonly xKey?: string | undefined;
   /** Display name for legend/tooltip text. Falls back to `key` (the raw column name) when omitted. */
-  readonly label?: string;
-  readonly stack?: string;
+  readonly label?: string | undefined;
+  /** Stack group id; series sharing one stack on top of each other, `undefined` leaves the series unstacked. */
+  readonly stack?: string | undefined;
+  /** How this series highlights and fades. */
   readonly highlightScope: HighlightScope;
   /** Live visibility — toggled through `ui-chart`'s `setSeriesHidden` (what `ui-chart-legend` drives) and read back by `isSeriesHidden`. This field is the only record of it. On an element-backed registration it is the element's own native `hidden` — so `<ui-chart-bar hidden>` starts hidden, and the state survives a DOM move with the element. */
   hidden: boolean;
 }
 
+/** What is currently highlighted: a data row, a series, both, or neither. */
 export interface HighlightState {
   /** The active data-row index (axis-trigger hover/keyboard nav), or `null`. */
   index: number | null;
@@ -298,14 +324,19 @@ export interface HighlightState {
   series: HTMLElement | null;
 }
 
+/** The store's mutable state bag: dataset, plot box, registrations and highlight. */
 export interface ChartState {
+  /** The ingested dataset rows. */
   data: ChartRow[];
+  /** Plot box width in px. */
   width: number;
+  /** Plot box height in px. */
   height: number;
   /** Registered axes, in registration order — the list `ui-chart` renders from, not a mirror of one. */
   axes: AxisRegistration[];
   /** Registered series, in document order (paint order) — the list `ui-chart` renders from, and what `ui-chart-legend`/`ui-chart-tooltip` read through `chart.getSeries()`. */
   series: SeriesRegistration[];
+  /** The active highlight. */
   highlight: HighlightState;
 }
 
@@ -348,11 +379,12 @@ export class ChartStore {
   #listeners = new Set<ChartListener>();
 
   /** Tell every subscriber, synchronously, what kind of change just happened. */
-  notify(kind: ChartInvalidation) {
+  notify(kind: ChartInvalidation): void {
     for (const listener of this.#listeners) listener(kind);
   }
 
-  subscribe(listener: ChartListener) {
+  /** Listen for invalidations; returns the unsubscribe callback. */
+  subscribe(listener: ChartListener): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
   }
@@ -377,7 +409,7 @@ export function isMarkHighlighted(
   scope: HighlightScope,
   seriesElement: HTMLElement,
   index: number,
-) {
+): boolean {
   if (scope.highlight === "none") return false;
   if (highlight.series === seriesElement) {
     if (scope.highlight === "series") return true;
@@ -397,7 +429,7 @@ export function isSeriesHighlighted(
   highlight: HighlightState,
   scope: HighlightScope,
   seriesElement: HTMLElement,
-) {
+): boolean {
   return scope.highlight !== "none" && highlight.series === seriesElement;
 }
 
@@ -406,7 +438,7 @@ export function isSeriesFaded(
   highlight: HighlightState,
   scope: HighlightScope,
   seriesElement: HTMLElement,
-) {
+): boolean {
   if (scope.fade === "none" || highlight.series === null) return false;
   return highlight.series !== seriesElement;
 }
@@ -424,7 +456,7 @@ export function isMarkFaded(
   scope: HighlightScope,
   seriesElement: HTMLElement,
   index: number,
-) {
+): boolean {
   if (scope.fade === "none") return false;
   if (highlight.series === null && highlight.index === null) return false;
   if (isMarkHighlighted(highlight, scope, seriesElement, index)) return false;
@@ -436,6 +468,7 @@ export function isMarkFaded(
 // series-type registry
 // ---------------------------------------------------------------------------
 
+/** A declarative SVG mark a series renderer asks `ui-chart` to reconcile into the plot. */
 export interface MarkDescriptor {
   /** Stable key for reconciliation across renders (e.g. `"stroke"`, or the row index) — never re-derived from array position. Scoped to its own series, so two series may use the same key without colliding. */
   key: string;
@@ -445,10 +478,12 @@ export interface MarkDescriptor {
   /** Structural SVG attributes only (`d`, `x`, `width`, `cx`, `r`, `transform`, `fill="none"`, …) — never presentational color/paint. */
   attrs: Record<string, string>;
   /** The data-row index this mark represents, when it represents exactly one (drives `data-index` + highlight/fade + events). */
-  index?: number;
-  text?: string;
+  index?: number | undefined;
+  /** Text content, for `text` marks. */
+  text?: string | undefined;
 }
 
+/** Everything a series renderer receives to compute its marks for one render pass. */
 export interface SeriesRenderContext {
   /** The registration being rendered — for an element-backed series this *is* the element (`config.element === config`), so a renderer narrows `config.element` with `instanceof` to reach its own attribute surface. */
   config: SeriesRegistration;
@@ -479,6 +514,7 @@ export interface SeriesRenderContext {
    * series re-splits the band instead of leaving its column empty.
    */
   groupIndex: number;
+  /** Number of side-by-side slots sharing the band (see {@link groupIndex}). */
   groupCount: number;
 }
 
@@ -488,7 +524,9 @@ export interface SeriesHit {
   distance: number;
 }
 
+/** A series type's renderer: domain contribution, mark geometry and optional hit testing. */
 export interface SeriesTypeDefinition {
+  /** Registry name, matched against `SeriesRegistration.type`. */
   type: string;
   /** Whether this series type participates in `stackSeries` (bar/area) — if so, `chart.ts` computes `stacked` before calling `computeMarks`. */
   stacks: boolean;
@@ -505,7 +543,7 @@ export interface SeriesTypeDefinition {
   getExtremum(
     data: readonly ChartRow[],
     series: SeriesRegistration,
-    dim: "x" | "y",
+    dim: ChartDimension,
   ): [number, number] | null;
   /** Build this series' marks in local plot-pixel coordinates. */
   computeMarks(context: SeriesRenderContext): MarkDescriptor[];
@@ -516,10 +554,11 @@ export interface SeriesTypeDefinition {
 const seriesTypes = new Map<string, SeriesTypeDefinition>();
 
 /** Register a series type's renderer (called once at module evaluation by each `chart-*.ts` series module). Re-registering the same `type` replaces the previous definition. */
-export function registerSeriesType(definition: SeriesTypeDefinition) {
+export function registerSeriesType(definition: SeriesTypeDefinition): void {
   seriesTypes.set(definition.type, definition);
 }
 
-export function getSeriesType(type: string) {
+/** The renderer registered under `type`, or `undefined` when none is. */
+export function getSeriesType(type: string): SeriesTypeDefinition | undefined {
   return seriesTypes.get(type);
 }

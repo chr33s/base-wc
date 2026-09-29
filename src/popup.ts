@@ -16,6 +16,7 @@
  * `super.connectedCallback()` and adds to it.
  */
 
+/** Base for top-layer popup shells: announces `popover="manual"`, a role and focusability on connect. */
 export class UIPopupElement extends HTMLElement {
   /** ARIA role announced on connect; `null` leaves the role to the consumer. */
   static role: string | null = null;
@@ -27,7 +28,8 @@ export class UIPopupElement extends HTMLElement {
    */
   static focusable = false;
 
-  connectedCallback() {
+  /** Apply the popover attribute, role and tabindex declared by the class statics. */
+  connectedCallback(): void {
     const ctor = this.constructor as typeof UIPopupElement;
     this.setAttribute("popover", "manual");
     if (ctor.role) this.setAttribute("role", ctor.role);
@@ -46,7 +48,7 @@ export class UIModalPopupElement extends UIPopupElement {
   static override role = "dialog";
   static override focusable = true;
 
-  override connectedCallback() {
+  override connectedCallback(): void {
     super.connectedCallback();
     this.setAttribute("aria-modal", "true");
   }

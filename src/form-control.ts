@@ -49,6 +49,7 @@ export const FORM_CONTROL_TAGS = [
 /** Default `required`-but-empty message (mirrors the browsers' own wording). */
 const MISSING_MESSAGE = "Please fill out this field.";
 
+/** How a form-associated component plugs into {@link formControl}: its value source and lifecycle hooks. */
 export interface FormControlOptions {
   /**
    * True while an authored native control is the adopted, submitting value
@@ -71,16 +72,21 @@ export interface FormControlOptions {
   missingMessage?: string;
 }
 
+/** Form-association controller: value submission, synthesized validity, and reset/disabled delegates. */
 export interface FormControl {
+  /** The element's `ElementInternals`, or `null` where unsupported. */
   readonly internals: ElementInternals | null;
   /** The owning form (standalone mode; adopted mode reads the native control). */
   readonly form: HTMLFormElement | null;
+  /** Synthesized validity: only `valueMissing` and `customError` can be raised. */
   readonly validity: ValidityState;
+  /** The custom error if set, else the required-but-empty message, else `""`. */
   readonly validationMessage: string;
   /** The single entry point for form-value writes; refreshes validity too. */
   setValue(value: string | FormData | null): void;
   /** Like a native control's: fires `invalid` on the host when invalid. */
   checkValidity(): boolean;
+  /** Like a native control's: as {@link FormControl.checkValidity}, then surfaces the message. */
   reportValidity(): boolean;
   /**
    * Raise (or, with `""`, clear) a consumer-supplied error, exactly as the
@@ -97,7 +103,8 @@ export interface FormControl {
 }
 
 /** A ValidityState where only `valueMissing` and `customError` can be raised. */
-function validityOf(valueMissing: boolean, customError: boolean) {
+function validityOf(flags: Pick<ValidityState, "valueMissing" | "customError">): ValidityState {
+  const { valueMissing, customError } = flags;
   return {
     badInput: false,
     customError,
@@ -110,7 +117,7 @@ function validityOf(valueMissing: boolean, customError: boolean) {
     typeMismatch: false,
     valueMissing,
     valid: !valueMissing && !customError,
-  } as ValidityState;
+  };
 }
 
 /**
@@ -154,7 +161,7 @@ export function formControl(host: HTMLElement, options: FormControlOptions): For
     // even when `required` toggles between writes, and identical across DOMs
     // with partial ElementInternals support.
     get validity() {
-      return validityOf(valueMissing(), customMessage !== "");
+      return validityOf({ valueMissing: valueMissing(), customError: customMessage !== "" });
     },
     get validationMessage() {
       // A custom error outranks the built-in one, as it does natively.
@@ -245,34 +252,44 @@ export abstract class FormAssociatedElement extends LightDomElement {
     return this.#formDisabled;
   }
 
-  get form() {
+  /** The owning form, or `null`. */
+  get form(): HTMLFormElement | null {
     return this.formControl.form;
   }
-  get name() {
+  /** Form field name (the `name` attribute), or `null`. */
+  get name(): string | null {
     return this.getAttribute("name");
   }
-  get disabled() {
+  /** Whether disabled by attribute or by an enclosing form/fieldset. */
+  get disabled(): boolean {
     return this.hasAttribute("disabled") || this.#formDisabled;
   }
-  get validity() {
+  /** Synthesized validity state. */
+  get validity(): ValidityState {
     return this.formControl.validity;
   }
-  get validationMessage() {
+  /** Current validation message, or `""` when valid. */
+  get validationMessage(): string {
     return this.formControl.validationMessage;
   }
-  checkValidity() {
+  /** Report validity, firing `invalid` on the host when it fails. */
+  checkValidity(): boolean {
     return this.formControl.checkValidity();
   }
-  reportValidity() {
+  /** Like {@link checkValidity}, as the native method. */
+  reportValidity(): boolean {
     return this.formControl.reportValidity();
   }
-  setCustomValidity(message: string) {
+  /** Set (or with `""`, clear) a consumer-supplied error. */
+  setCustomValidity(message: string): void {
     this.formControl.setCustomValidity(message);
   }
-  formResetCallback() {
+  /** Browser callback: restore the initial value on `form.reset()`. */
+  formResetCallback(): void {
     this.formControl.handleReset();
   }
-  formDisabledCallback(disabled: boolean) {
+  /** Browser callback: a form or fieldset changed this control's disabled state. */
+  formDisabledCallback(disabled: boolean): void {
     this.formControl.handleDisabled(disabled);
   }
 }
@@ -294,16 +311,20 @@ export class NativeCheckboxElement extends LightDomElement {
     return this.#input;
   }
 
-  get form() {
+  /** The adopted input's form, or `null`. */
+  get form(): HTMLFormElement | null {
     return this.#input?.form ?? null;
   }
-  get name() {
+  /** The adopted input's `name`, or `null` before adoption. */
+  get name(): string | null {
     return this.#input?.name ?? null;
   }
-  get value() {
+  /** Submitted value when checked (native default `"on"`). */
+  get value(): string {
     return this.#input?.value || "on";
   }
-  get checked() {
+  /** Whether the adopted checkbox is checked. */
+  get checked(): boolean {
     return this.#input?.checked ?? false;
   }
   set checked(next: boolean) {
@@ -311,7 +332,8 @@ export class NativeCheckboxElement extends LightDomElement {
     this.#input.checked = next;
     this.sync();
   }
-  get disabled() {
+  /** Whether the adopted input is disabled. */
+  get disabled(): boolean {
     return this.#input?.disabled ?? false;
   }
   set disabled(next: boolean) {

@@ -33,6 +33,7 @@
  */
 import { define } from "./define.ts";
 import { isRTL } from "./direction.ts";
+import { closestFrom } from "./internal/closest.ts";
 import { UIPopupElement } from "./popup.ts";
 import { FormAssociatedElement, type FormControlOptions } from "./form-control.ts";
 import { labelFrom, nextId } from "./id.ts";
@@ -48,6 +49,7 @@ import { type Overlay, overlay } from "./overlay.ts";
 export interface SelectChangeDetail {
   /** The option that was just toggled/chosen. */
   readonly value: string;
+  /** Visible text of that option. */
   readonly label: string;
   /** All currently-selected values, in option order (single → `[value]`). */
   readonly values: string[];
@@ -74,9 +76,7 @@ function standaloneValue(): SelectValue {
 function nativeValue(select: HTMLSelectElement): SelectValue {
   return {
     read: () =>
-      new Set(
-        [...select.options].filter((option) => option.selected).map((option) => option.value),
-      ),
+      new Set([...select.options].flatMap((option) => (option.selected ? [option.value] : []))),
     write: (values) => {
       for (const option of select.options) option.selected = values.has(option.value);
       // A single select re-selects its first option when all are cleared.
@@ -85,6 +85,7 @@ function nativeValue(select: HTMLSelectElement): SelectValue {
   };
 }
 
+/** Trigger + listbox select (single or `multiple`), native-first or fully custom-authored. */
 export class UISelect extends FormAssociatedElement {
   protected override formControlOptions(): FormControlOptions {
     return {
@@ -130,7 +131,7 @@ export class UISelect extends FormAssociatedElement {
   });
 
   /** Multi-select mode — options toggle without closing; `value` is an array. */
-  get multiple() {
+  get multiple(): boolean {
     return this.hasAttribute("multiple");
   }
   /**
@@ -139,7 +140,7 @@ export class UISelect extends FormAssociatedElement {
    * opens, highlights and typeahead still work, and only committing a choice is
    * refused — an author who wants the control inert wants `disabled`.
    */
-  get readOnly() {
+  get readOnly(): boolean {
     return this.hasAttribute("readonly");
   }
   /**
@@ -150,7 +151,8 @@ export class UISelect extends FormAssociatedElement {
   get orientation(): Orientation {
     return this.getAttribute("orientation") === "horizontal" ? "horizontal" : "vertical";
   }
-  get value() {
+  /** Selected value (`string | null`), or the ordered `string[]` in `multiple` mode. */
+  get value(): string | string[] | null {
     const vals = this.#selectedInOrder();
     return this.multiple ? vals : (vals[0] ?? null);
   }
@@ -201,7 +203,7 @@ export class UISelect extends FormAssociatedElement {
     }
 
     this.#overlay = overlay(this.#popup, {
-      anchor: { ref: () => this.#trigger, options: { offset: 6, padding: 8 }, pair: "select" },
+      anchor: { ref: () => this.#trigger, pair: "select" },
       dismiss: {
         within: () => [this.#popup, this.#trigger],
         onDismiss: () => this.#close({ restoreFocus: false, reason: "outside-press" }),
@@ -372,6 +374,7 @@ export class UISelect extends FormAssociatedElement {
     this.#activeIndex = i;
     this.#allOptions().forEach((o) => o.removeAttribute("data-highlighted"));
     const active = options[i];
+    if (!active) return;
     active.setAttribute("data-highlighted", "");
     // Keep the highlighted option visible in a scrollable popup (guarded —
     // scrollIntoView is absent under happy-dom).
@@ -502,11 +505,10 @@ export class UISelect extends FormAssociatedElement {
 
   /** Resolve a press-drag: commit what it landed on, or take back the open. */
   #endPressDrag(e: PointerEvent) {
-    const target = e.target as Element | null;
-    const option = target?.closest?.("ui-select-option") as HTMLElement | null;
-    if (option && this.#popup?.contains(option)) {
-      const index = this.#options().indexOf(option);
-      if (index >= 0) this.#activate(index);
+    const target = e.target instanceof Element ? e.target : null;
+    const hit = this.#optionFromEvent(e);
+    if (hit) {
+      if (hit.index >= 0) this.#activate(hit.index);
       return;
     }
     // Released back on the trigger: an ordinary press-and-release, so the popup
@@ -541,23 +543,30 @@ export class UISelect extends FormAssociatedElement {
     this.#nav.handle(e);
   };
 
+  /**
+   * The option inside the popup that `e` landed on, with its index among the
+   * enabled options (`-1` when disabled), or `null` when it hit no option.
+   */
+  #optionFromEvent(e: Event): { option: HTMLElement; index: number } | null {
+    const option = closestFrom<HTMLElement>(e, "ui-select-option");
+    if (!option || !this.#popup?.contains(option)) return null;
+    return { option, index: this.#options().indexOf(option) };
+  }
+
   /** While a press-drag runs, the option under the pointer becomes the active one. */
   #onOptionPointerOver = (e: PointerEvent) => {
     if (!this.#openedOnPress) return;
-    const option = (e.target as Element).closest("ui-select-option") as HTMLElement | null;
-    if (!option || option.hasAttribute("disabled")) return;
-    const index = this.#options().indexOf(option);
-    if (index >= 0) this.#setActive(index);
+    const hit = this.#optionFromEvent(e);
+    if (hit && hit.index >= 0) this.#setActive(hit.index);
   };
 
   #onOptionClick = (e: MouseEvent) => {
-    const option = (e.target as Element).closest("ui-select-option") as HTMLElement | null;
-    if (!option || option.hasAttribute("disabled")) return;
-    const index = this.#options().indexOf(option);
-    if (index >= 0) this.#activate(index);
+    const hit = this.#optionFromEvent(e);
+    if (hit && hit.index >= 0) this.#activate(hit.index);
   };
 }
 
+/** Custom element `ui-select-popup`: the `role="listbox"` popup that holds the options. */
 export class UISelectPopup extends UIPopupElement {
   // Claimed here as well as in the root's wiring: a popup is unconditionally a
   // listbox, and announcing it before the children connect lets them see the
@@ -565,6 +574,7 @@ export class UISelectPopup extends UIPopupElement {
   // one) without waiting for the root's deferred wiring pass.
   static override role = "listbox";
 }
+/** Custom element `ui-select-option`: a selectable `role="option"` row keyed by its `value`. */
 export class UISelectOption extends HTMLElement {
   connectedCallback() {
     this.setAttribute("role", "option");

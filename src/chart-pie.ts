@@ -51,6 +51,7 @@ import { define } from "./define.ts";
 
 const DEGREES_TO_RADIANS = Math.PI / 180;
 
+/** A pie/donut series: one arc per dataset row, sized by its value. */
 export class UIChartPie extends UIChartSeries {
   static observedAttributes = [
     ...SERIES_ATTRIBUTES,
@@ -64,35 +65,38 @@ export class UIChartPie extends UIChartSeries {
 
   readonly type = "pie";
 
-  get innerRadius() {
+  /** Inner radius in px (`inner-radius`, default 0 for a full pie). */
+  get innerRadius(): number {
     return numberAttribute(this, "inner-radius", 0);
   }
 
   /** `undefined` when unauthored — `computeMarks` then fits the outer radius to the plot (see class doc). */
-  get outerRadius() {
+  get outerRadius(): number | undefined {
     return numberAttribute(this, "outer-radius");
   }
 
-  get padAngle() {
+  /** Angular gap between slices in radians (`pad-angle`, default 0). */
+  get padAngle(): number {
     return numberAttribute(this, "pad-angle", 0);
   }
 
   /** Radians, converted from the authored (degrees) `start-angle` attribute. */
-  get startAngle() {
+  get startAngle(): number {
     return numberAttribute(this, "start-angle", 0) * DEGREES_TO_RADIANS;
   }
 
   /** Radians, converted from the authored (degrees) `end-angle` attribute. */
-  get endAngle() {
+  get endAngle(): number {
     return numberAttribute(this, "end-angle", 360) * DEGREES_TO_RADIANS;
   }
 
-  get sort() {
+  /** Whether slices are ordered by descending value instead of data order (`sort` attribute). */
+  get sort(): boolean {
     return this.hasAttribute("sort");
   }
 }
 
-function pieOuterRadius(element: UIChartPie, plot: { width: number; height: number }) {
+function pieOuterRadius(element: UIChartPie, plot: { width: number; height: number }): number {
   return element.outerRadius ?? Math.max(0, Math.min(plot.width, plot.height) / 2 - 4);
 }
 

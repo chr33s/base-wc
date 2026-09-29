@@ -25,6 +25,7 @@ import { define } from "./define.ts";
 /** Roles whose children are constrained to a fixed set excluding `separator`. */
 const ROLE_CONSTRAINED = '[role="listbox"]';
 
+/** Custom element `ui-separator`: a divider that demotes itself to `role="none"` when decorative or inside a listbox. */
 export class UISeparator extends HTMLElement {
   static observedAttributes = ["orientation", "decorative"];
 

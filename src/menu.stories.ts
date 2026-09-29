@@ -10,7 +10,7 @@ export const Menu: Story = {
   render: () => {
     const onSelect = (e: Event) => {
       const detail = (e as CustomEvent<{ value: string; item: HTMLElement }>).detail;
-      const checked = (detail.item as unknown as { checked?: boolean }).checked;
+      const checked = "checked" in detail.item ? detail.item.checked : undefined;
       const log = (e.currentTarget as Element).parentElement?.querySelector("#menu-log");
       if (log)
         log.textContent =

@@ -1,10 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import "./elements.ts";
+import { key, must } from "./test-utils.ts";
 
-const key = (target: EventTarget, k: string) =>
-  target.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
-
+/** Narrow an indexed lookup the fixture guarantees is present. */
 async function mount(attrs = 'value="b"') {
   document.body.innerHTML = `
     <ui-tabs ${attrs}>
@@ -20,8 +19,8 @@ async function mount(attrs = 'value="b"') {
       <div data-tab-panel value="d">Panel D</div>
     </ui-tabs>`;
   await Promise.resolve();
-  const tabs = document.querySelector("ui-tabs")!;
-  const list = document.querySelector("ui-tab-list")!;
+  const tabs = must(document.querySelector("ui-tabs"));
+  const list = must(document.querySelector("ui-tab-list"));
   const tabEls = [...document.querySelectorAll<HTMLButtonElement>("[data-tab]")];
   const panels = [...document.querySelectorAll<HTMLElement>("[data-tab-panel]")];
   return { tabs, list, tabEls, panels };
@@ -35,34 +34,34 @@ describe("ui-tabs", () => {
   it("wires tablist/tab/tabpanel roles and cross-references", async () => {
     const { list, tabEls, panels } = await mount();
     expect(list.getAttribute("role")).toBe("tablist");
-    expect(tabEls[0].getAttribute("role")).toBe("tab");
-    expect(tabEls[0].getAttribute("aria-controls")).toBe(panels[0].id);
-    expect(panels[0].getAttribute("role")).toBe("tabpanel");
-    expect(panels[0].getAttribute("aria-labelledby")).toBe(tabEls[0].id);
+    expect(must(tabEls[0]).getAttribute("role")).toBe("tab");
+    expect(must(tabEls[0]).getAttribute("aria-controls")).toBe(must(panels[0]).id);
+    expect(must(panels[0]).getAttribute("role")).toBe("tabpanel");
+    expect(must(panels[0]).getAttribute("aria-labelledby")).toBe(must(tabEls[0]).id);
   });
 
   it("selects the preset tab and shows only its panel", async () => {
     const { tabs, tabEls, panels } = await mount('value="b"');
     expect(tabs.value).toBe("b");
-    expect(tabEls[1].getAttribute("aria-selected")).toBe("true");
-    expect(panels[0].hidden).toBe(true);
-    expect(panels[1].hidden).toBe(false);
-    expect(tabEls[1].tabIndex).toBe(0);
-    expect(tabEls[0].tabIndex).toBe(-1);
+    expect(must(tabEls[1]).getAttribute("aria-selected")).toBe("true");
+    expect(must(panels[0]).hidden).toBe(true);
+    expect(must(panels[1]).hidden).toBe(false);
+    expect(must(tabEls[1]).tabIndex).toBe(0);
+    expect(must(tabEls[0]).tabIndex).toBe(-1);
   });
 
   it("automatic activation: arrow keys move and select, skipping disabled", async () => {
     const { tabs, list, tabEls, panels } = await mount('value="b"');
-    tabEls[1].focus(); // B
+    must(tabEls[1]).focus(); // B
     key(list, "ArrowRight"); // → D (skips disabled C)
     expect(document.activeElement).toBe(tabEls[3]);
     expect(tabs.value).toBe("d");
-    expect(panels[3].hidden).toBe(false);
+    expect(must(panels[3]).hidden).toBe(false);
   });
 
   it("manual activation only selects on Enter/Space", async () => {
     const { tabs, list, tabEls } = await mount('value="a" activation="manual"');
-    tabEls[0].focus();
+    must(tabEls[0]).focus();
     key(list, "ArrowRight"); // moves focus to B but does not select
     expect(document.activeElement).toBe(tabEls[1]);
     expect(tabs.value).toBe("a");
@@ -74,9 +73,9 @@ describe("ui-tabs", () => {
     const { tabs, tabEls } = await mount('value="a"');
     const onChange = vi.fn<(detail: { value: string }) => void>();
     tabs.addEventListener("change", (e) => onChange((e as CustomEvent<{ value: string }>).detail));
-    tabEls[3].click();
+    must(tabEls[3]).click();
     expect(tabs.value).toBe("d");
-    expect(onChange.mock.calls[0][0]).toEqual({ value: "d" });
+    expect(must(onChange.mock.calls[0])[0]).toEqual({ value: "d" });
   });
 
   it("leaves a nested ui-tabs' tabs and panels to the nested instance", async () => {
@@ -99,11 +98,13 @@ describe("ui-tabs", () => {
         <div data-tab-panel value="two">Outer two</div>
       </ui-tabs>`;
     await Promise.resolve();
-    const outer = document.querySelector<HTMLElement & { value: string | null }>("#outer")!;
-    const inner = document.querySelector<HTMLElement & { value: string | null }>("#inner")!;
-    const outerTabs = [...outer.querySelectorAll<HTMLButtonElement>("ui-tab-list")[0].children];
-    const innerA = document.querySelector<HTMLElement>("#inner-a")!;
-    const innerB = document.querySelector<HTMLElement>("#inner-b")!;
+    const outer = must(document.querySelector<HTMLElement & { value: string | null }>("#outer"));
+    const inner = must(document.querySelector<HTMLElement & { value: string | null }>("#inner"));
+    const outerTabs = [
+      ...must(outer.querySelectorAll<HTMLButtonElement>("ui-tab-list")[0]).children,
+    ];
+    const innerA = must(document.querySelector<HTMLElement>("#inner-a"));
+    const innerB = must(document.querySelector<HTMLElement>("#inner-b"));
 
     // Re-selecting on the outer tabs must not hide the nested panels whose
     // values don't match the outer selection.
@@ -114,7 +115,7 @@ describe("ui-tabs", () => {
     expect(innerB.hidden).toBe(true);
 
     // Selecting inside the nested tabs stays inside it.
-    inner.querySelector<HTMLButtonElement>("[data-tab][value='b']")!.click();
+    must(inner.querySelector<HTMLButtonElement>("[data-tab][value='b']")).click();
     expect(inner.value).toBe("b");
     expect(innerB.hidden).toBe(false);
     expect(outer.value).toBe("one");
@@ -122,7 +123,7 @@ describe("ui-tabs", () => {
 
   it("wires children that arrive after the connect microtask", async () => {
     document.body.innerHTML = "<ui-tabs></ui-tabs>";
-    const tabs = document.querySelector("ui-tabs")!;
+    const tabs = must(document.querySelector("ui-tabs"));
     await Promise.resolve(); // wiring attempt runs against the empty host
     tabs.innerHTML = `
       <ui-tab-list>
@@ -131,9 +132,9 @@ describe("ui-tabs", () => {
       <div data-tab-panel value="late">Late panel</div>`;
     await new Promise((r) => setTimeout(r, 0)); // MutationObserver retry
 
-    expect(tabs.querySelector("ui-tab-list")!.getAttribute("role")).toBe("tablist");
+    expect(must(tabs.querySelector("ui-tab-list")).getAttribute("role")).toBe("tablist");
     expect(tabs.value).toBe("late");
-    expect(tabs.querySelector<HTMLElement>("[data-tab-panel]")!.hidden).toBe(false);
+    expect(must(tabs.querySelector<HTMLElement>("[data-tab-panel]")).hidden).toBe(false);
   });
 
   it("positions an indicator over the selected tab", async () => {
@@ -148,7 +149,7 @@ describe("ui-tabs", () => {
         <div data-tab-panel value="b">B</div>
       </ui-tabs>`;
     await Promise.resolve();
-    const indicator = document.querySelector<HTMLElement>("ui-tab-indicator")!;
+    const indicator = must(document.querySelector<HTMLElement>("ui-tab-indicator"));
 
     // Decorative: the tab list already announces which tab is selected.
     expect(indicator.getAttribute("role")).toBe("presentation");
@@ -174,8 +175,8 @@ describe("ui-tabs", () => {
         <div data-tab-panel value="b">B</div>
       </ui-tabs>`;
     await Promise.resolve();
-    const tabs = document.querySelector("ui-tabs")!;
-    const indicator = document.querySelector<HTMLElement>("ui-tab-indicator")!;
+    const tabs = must(document.querySelector("ui-tabs"));
+    const indicator = must(document.querySelector<HTMLElement>("ui-tab-indicator"));
     // The first selection has no predecessor to have travelled from.
     expect(indicator.getAttribute("data-activation-direction")).toBe("none");
 
@@ -197,8 +198,8 @@ describe("ui-tabs", () => {
         <div data-tab-panel value="b">B</div>
       </ui-tabs>`;
     await Promise.resolve();
-    const tabs = document.querySelector("ui-tabs")!;
-    const indicator = document.querySelector<HTMLElement>("ui-tab-indicator")!;
+    const tabs = must(document.querySelector("ui-tabs"));
+    const indicator = must(document.querySelector<HTMLElement>("ui-tab-indicator"));
     expect(indicator.getAttribute("data-orientation")).toBe("vertical");
 
     tabs.value = "b";

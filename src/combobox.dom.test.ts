@@ -3,10 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { ComboboxChangeDetail, ComboboxCounts, ComboboxItem } from "./combobox.ts";
 import { createItems } from "./combobox.ts";
 import "./elements.ts";
+import { key, must } from "./test-utils.ts";
 
-const key = (target: EventTarget, k: string) =>
-  target.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
-
+/** The value, or a failure naming the missing element. */
 const type = (input: HTMLInputElement, value: string) => {
   input.value = value;
   input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -24,12 +23,12 @@ async function mount(items: ComboboxItem[]) {
       </ui-combobox>
     </form>`;
   await Promise.resolve(); // let the deferred wiring microtask run
-  const cb = document.querySelector("ui-combobox")!;
+  const cb = must(document.querySelector("ui-combobox"));
   cb.items = items;
-  const input = document.querySelector<HTMLInputElement>("[data-combobox-input]")!;
-  const viewport = document.querySelector("ui-combobox-viewport")!;
-  const spacer = document.querySelector("ui-combobox-spacer")!;
-  const empty = document.querySelector("ui-combobox-empty")!;
+  const input = must(document.querySelector<HTMLInputElement>("[data-combobox-input]"));
+  const viewport = must(document.querySelector("ui-combobox-viewport"));
+  const spacer = must(document.querySelector("ui-combobox-spacer"));
+  const empty = must(document.querySelector("ui-combobox-empty"));
   return { cb, input, viewport, spacer, empty };
 }
 
@@ -99,7 +98,10 @@ describe("ui-combobox (virtualized)", () => {
     type(input, "liam"); // one match, auto-highlighted at index 0
     key(input, "Enter");
     expect(onChange).toHaveBeenCalledTimes(1);
-    expect(onChange.mock.calls[0][0]).toMatchObject({ value: "u2", label: "Liam Patel" });
+    expect(must(must(onChange.mock.calls[0])[0])).toMatchObject({
+      value: "u2",
+      label: "Liam Patel",
+    });
     expect(cb.value).toBe("u2");
     expect(input.value).toBe("Liam Patel");
     expect(input.getAttribute("aria-expanded")).toBe("false");
@@ -109,7 +111,7 @@ describe("ui-combobox (virtualized)", () => {
     const { cb, input } = await mount(PEOPLE);
     const onChange = vi.fn<(detail: ComboboxChangeDetail) => void>();
     cb.addEventListener("change", (e) => onChange((e as CustomEvent<ComboboxChangeDetail>).detail));
-    const firstRow = document.querySelector<HTMLElement>('.cb-row[data-index="0"]')!;
+    const firstRow = must(document.querySelector<HTMLElement>('.cb-row[data-index="0"]'));
     firstRow.click();
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(cb.value).toBe("u1");
@@ -161,13 +163,14 @@ describe("ui-combobox — multiple (chips)", () => {
         </ui-combobox>
       </form>`;
     await Promise.resolve();
-    const cb = document.querySelector("ui-combobox")!;
+    const cb = must(document.querySelector("ui-combobox"));
     cb.items = PEOPLE;
-    const input = document.querySelector<HTMLInputElement>("[data-combobox-input]")!;
-    const chips = document.querySelector("ui-combobox-chips")!;
-    const clear = document.querySelector<HTMLButtonElement>("[data-combobox-clear]")!;
-    const popup = document.querySelector("ui-combobox-popup")!;
-    const row = (i: number) => document.querySelector<HTMLElement>(`.cb-row[data-index="${i}"]`)!;
+    const input = must(document.querySelector<HTMLInputElement>("[data-combobox-input]"));
+    const chips = must(document.querySelector("ui-combobox-chips"));
+    const clear = must(document.querySelector<HTMLButtonElement>("[data-combobox-clear]"));
+    const popup = must(document.querySelector("ui-combobox-popup"));
+    const row = (i: number) =>
+      must(document.querySelector<HTMLElement>(`.cb-row[data-index="${i}"]`));
     return { cb, input, chips, clear, popup, row };
   }
 
@@ -176,9 +179,9 @@ describe("ui-combobox — multiple (chips)", () => {
 
   it("marks the listbox multiselectable", async () => {
     const { cb } = await mount();
-    expect(cb.querySelector("ui-combobox-viewport")!.getAttribute("aria-multiselectable")).toBe(
-      "true",
-    );
+    expect(
+      must(cb.querySelector("ui-combobox-viewport")).getAttribute("aria-multiselectable"),
+    ).toBe("true");
   });
 
   it("toggles selections into chips, reports an array, and stays open", async () => {
@@ -211,9 +214,11 @@ describe("ui-combobox — multiple (chips)", () => {
     input.click();
     row(0).click();
     row(1).click();
-    const removeU1 = chips.querySelector<HTMLButtonElement>(
-      'ui-combobox-chip[data-value="u1"] [data-combobox-chip-remove]',
-    )!;
+    const removeU1 = must(
+      chips.querySelector<HTMLButtonElement>(
+        'ui-combobox-chip[data-value="u1"] [data-combobox-chip-remove]',
+      ),
+    );
     removeU1.click();
     expect(cb.value).toEqual(["u2"]);
     expect(chipValues(chips)).toEqual(["u2"]);
@@ -283,7 +288,8 @@ describe("ui-combobox — hover highlighting", () => {
   it("ignores a pointermove that reports the same coordinates as the last one", async () => {
     const { input } = await mount(PEOPLE);
     input.click(); // open for browsing
-    const row = (i: number) => document.querySelector<HTMLElement>(`.cb-row[data-index="${i}"]`)!;
+    const row = (i: number) =>
+      must(document.querySelector<HTMLElement>(`.cb-row[data-index="${i}"]`));
     row(2).dispatchEvent(
       new MouseEvent("pointermove", { clientX: 10, clientY: 40, bubbles: true }),
     );
@@ -322,9 +328,9 @@ describe("ui-combobox — locale-aware filtering", () => {
     // Turkish lowercases `I` to the dotless `ı`, so a query of `i` matches
     // İzmir and not Isparta — the reverse of the Unicode default rules.
     expect(cb.counts.matched).toBe(1);
-    expect(document.querySelector<HTMLElement>('.cb-row[data-index="0"]')!.textContent).toContain(
-      "İzmir",
-    );
+    expect(
+      must(document.querySelector<HTMLElement>('.cb-row[data-index="0"]')).textContent,
+    ).toContain("İzmir");
   });
 });
 
@@ -347,7 +353,7 @@ describe("ui-combobox createItems", () => {
     input.click();
     key(input, "Enter");
 
-    expect(onChange.mock.calls[0][0].item).toBe(users[0]);
+    expect(must(must(onChange.mock.calls[0])[0]).item).toBe(must(users[0]));
     expect(cb.value).toBe("1");
   });
 });
@@ -381,11 +387,11 @@ describe("ui-combobox readonly", () => {
         </ui-combobox-popup>
       </ui-combobox>`;
     await Promise.resolve();
-    const cb = document.querySelector("ui-combobox")!;
+    const cb = must(document.querySelector("ui-combobox"));
     cb.items = PEOPLE;
     cb.value = ["u1"];
 
-    document.querySelector<HTMLButtonElement>("[data-combobox-clear]")!.click();
+    must(document.querySelector<HTMLButtonElement>("[data-combobox-clear]")).click();
     expect(cb.value).toEqual(["u1"]);
   });
 });
@@ -414,10 +420,10 @@ describe("ui-combobox grid mode", () => {
         </ui-combobox-popup>
       </ui-combobox>`;
     await Promise.resolve();
-    const cb = document.querySelector("ui-combobox")!;
+    const cb = must(document.querySelector("ui-combobox"));
     cb.items = items;
-    const input = document.querySelector<HTMLInputElement>("[data-combobox-input]")!;
-    const viewport = document.querySelector("ui-combobox-viewport")!;
+    const input = must(document.querySelector<HTMLInputElement>("[data-combobox-input]"));
+    const viewport = must(document.querySelector("ui-combobox-viewport"));
     return { cb, input, viewport };
   }
 
@@ -435,30 +441,30 @@ describe("ui-combobox grid mode", () => {
     input.click();
     const rows = [...viewport.querySelectorAll('[role="row"]')];
     expect(rows.length).toBeGreaterThan(0);
-    expect(rows[0].getAttribute("aria-rowindex")).toBe("1");
+    expect(must(rows[0]).getAttribute("aria-rowindex")).toBe("1");
 
-    const cells = [...rows[0].querySelectorAll<HTMLElement>('[role="gridcell"]')];
+    const cells = [...must(rows[0]).querySelectorAll<HTMLElement>('[role="gridcell"]')];
     expect(cells).toHaveLength(3);
     expect(cells.map((c) => c.textContent)).toEqual(["Ava Kim", "Liam Patel", "Noah Garcia"]);
-    expect(cells[1].getAttribute("aria-colindex")).toBe("2");
+    expect(must(cells[1]).getAttribute("aria-colindex")).toBe("2");
   });
 
   it("hides the spare cells of a short last row", async () => {
     const { input, viewport } = await grid(3);
     input.click();
     const rows = [...viewport.querySelectorAll<HTMLElement>('[role="row"]')];
-    const lastCells = [...rows[1].querySelectorAll<HTMLElement>('[role="gridcell"]')];
+    const lastCells = [...must(rows[1]).querySelectorAll<HTMLElement>('[role="gridcell"]')];
     // 5 items over 3 columns leaves the second row holding two.
     expect(lastCells.map((c) => c.hidden)).toEqual([false, false, true]);
-    expect(lastCells[2].hasAttribute("data-index")).toBe(false);
+    expect(must(lastCells[2]).hasAttribute("data-index")).toBe(false);
   });
 
   it("walks the grid in two dimensions", async () => {
     const { cb, input } = await grid(3);
     input.click(); // opens with the first cell active
     const activeIndex = () => {
-      const id = input.getAttribute("aria-activedescendant")!;
-      return Number(document.getElementById(id)!.dataset.index);
+      const id = must(input.getAttribute("aria-activedescendant"));
+      return Number(must(document.getElementById(id)).dataset.index);
     };
     expect(activeIndex()).toBe(0);
 
@@ -475,8 +481,8 @@ describe("ui-combobox grid mode", () => {
     const { input } = await grid(3);
     input.click();
     const activeIndex = () => {
-      const id = input.getAttribute("aria-activedescendant")!;
-      return Number(document.getElementById(id)!.dataset.index);
+      const id = must(input.getAttribute("aria-activedescendant"));
+      return Number(must(document.getElementById(id)).dataset.index);
     };
 
     key(input, "ArrowLeft"); // wraps to the end of row 0

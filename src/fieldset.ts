@@ -18,6 +18,7 @@ import { nextId } from "./id.ts";
 // below) is what suppresses interaction and submission.
 const CONTROLS = ["input", "select", "textarea", "button", ...FORM_CONTROL_TAGS].join(",");
 
+/** Disables every descendant form control (native and `ui-*`) while its own `disabled` attribute is set. */
 export class UIFieldset extends LightDomElement {
   static observedAttributes = ["disabled"];
 

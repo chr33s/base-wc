@@ -15,7 +15,8 @@ interface PendingConnection {
 
 const pending = new WeakMap<HTMLElement, PendingConnection>();
 
-export function connectLightDom(host: HTMLElement, isWired: () => boolean, wire: () => void) {
+/** Run `wire` for `host` once its light-DOM children exist, retrying as children arrive until `isWired()` reports success. */
+export function connectLightDom(host: HTMLElement, isWired: () => boolean, wire: () => void): void {
   if (isWired()) {
     stopWaiting(host);
     return;

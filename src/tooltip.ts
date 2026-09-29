@@ -15,14 +15,14 @@ import { HoverCardElement } from "./hover-card.ts";
 import { nextId } from "./id.ts";
 import { overlay } from "./overlay.ts";
 import { UIPopupElement } from "./popup.ts";
+import { queryPair } from "./query.ts";
 
+/** Hover/focus tooltip: `[data-tooltip-trigger]` described by a `<ui-tooltip-content>`. */
 export class UITooltip extends HoverCardElement {
   #arrow: HTMLElement | null = null;
 
-  protected override parts() {
-    const trigger = this.querySelector<HTMLElement>("[data-tooltip-trigger]");
-    const content = this.querySelector<HTMLElement>("ui-tooltip-content");
-    return trigger && content ? ([trigger, content] as const) : null;
+  protected override parts(): readonly [HTMLElement, HTMLElement] | null {
+    return queryPair(this, "[data-tooltip-trigger]", "ui-tooltip-content");
   }
 
   protected override prepare(trigger: HTMLElement, content: HTMLElement) {
@@ -45,7 +45,7 @@ export class UITooltip extends HoverCardElement {
     return overlay(content, {
       anchor: {
         ref: () => trigger,
-        options: { offset: 6, padding: 8, arrow: this.#arrow },
+        options: { arrow: this.#arrow },
         pair: "tooltip",
       },
       events: this,
@@ -53,6 +53,7 @@ export class UITooltip extends HoverCardElement {
   }
 }
 
+/** Custom element `ui-tooltip-content`: the non-focusable `role="tooltip"` surface. */
 export class UITooltipContent extends UIPopupElement {
   static override role = "tooltip";
 }

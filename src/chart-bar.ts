@@ -49,13 +49,14 @@ import { SERIES_ATTRIBUTES, UIChartSeries } from "./chart-series.ts";
 import { round } from "./chart-shape.ts";
 import { define } from "./define.ts";
 
+/** A bar series: one rect per row, grouped side by side or stacked. */
 export class UIChartBar extends UIChartSeries {
   static observedAttributes = [...SERIES_ATTRIBUTES, "stack"];
 
   readonly type = "bar";
 
   /** The stack group this bar belongs to — a registration field like the shared ones. An empty attribute is not an id — `stack=""` means unstacked, not "stack with every other series that left it empty". */
-  get stack() {
+  get stack(): string | undefined {
     return this.getAttribute("stack") || undefined;
   }
 }
@@ -64,7 +65,7 @@ export class UIChartBar extends UIChartSeries {
 // "bar" series-type renderer
 // ---------------------------------------------------------------------------
 
-function computeBarMarks(context: SeriesRenderContext) {
+function computeBarMarks(context: SeriesRenderContext): MarkDescriptor[] {
   const { xScale, yScale, data, categoryKey, config, stacked, groupIndex, groupCount } = context;
   if (!xScale || !yScale) return [];
   if (!isDiscreteScale(xScale) || isDiscreteScale(yScale)) return [];
@@ -74,7 +75,7 @@ function computeBarMarks(context: SeriesRenderContext) {
 
   const marks: MarkDescriptor[] = [];
   data.forEach((row, i) => {
-    const bandStart = xScale(row[categoryKey]);
+    const bandStart = xScale(row[categoryKey] ?? null);
     if (bandStart === undefined) return;
 
     // A bar spans its stacked segment, or plain 0 → value when unstacked.

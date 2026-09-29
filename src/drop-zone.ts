@@ -15,18 +15,21 @@ import { define } from "./define.ts";
 import { LightDomElement } from "./lifecycle.ts";
 import { adoptedControl, fireNativeChange, retireNative } from "./native.ts";
 
+/** Detail of the drop zone's `change` event. */
 export interface DropZoneChangeDetail {
   /** The accepted files now held by the native input. */
   readonly files: File[];
 }
 
+/** Drag-and-drop target that feeds accepted files into an adopted native `input[type=file]`. */
 export class UIDropZone extends LightDomElement {
   #input!: HTMLInputElement;
   #target!: HTMLElement;
   /** dragenter/dragleave fire per descendant; count to know when we truly left. */
   #dragDepth = 0;
 
-  get files() {
+  /** The files currently held by the native input. */
+  get files(): File[] {
     return this.#input?.files ? Array.from(this.#input.files) : [];
   }
 

@@ -18,6 +18,7 @@ import { type Orientation, resolveNavKey } from "./roving.ts";
 import { clamp } from "./math.ts";
 import { normalize } from "./text.ts";
 
+/** Item model and callbacks that a {@link listNav} engine drives. */
 export interface ListNavOptions {
   /** Live count of navigable items. */
   count: () => number;
@@ -56,13 +57,14 @@ export interface ListNavOptions {
   locale?: () => string | undefined;
 }
 
+/** A listbox keyboard engine, returned by {@link listNav}. */
 export interface ListNav {
   /** Handle a listbox keydown. Returns whether the key was consumed. */
   handle(event: KeyboardEvent): boolean;
 }
 
 /** Create a listbox keyboard + typeahead engine over an indexed item model. */
-export function listNav(options: ListNavOptions) {
+export function listNav(options: ListNavOptions): ListNav {
   const loop = options.loop ?? true;
   const homeEnd = options.homeEnd ?? true;
   let typeahead = "";

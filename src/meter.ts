@@ -11,13 +11,16 @@ import { clamp, numberAttribute } from "./math.ts";
 import { localeOf } from "./text.ts";
 import { syncRangeState } from "./range.ts";
 
+/** Custom element `ui-meter`; see the module comment for attributes and state hooks. */
 export class UIMeter extends HTMLElement {
   static observedAttributes = ["value", "min", "max", "low", "high", "optimum"];
 
-  get min() {
+  /** Lower bound (`min` attribute, default 0). */
+  get min(): number {
     return numberAttribute(this, "min", 0);
   }
-  get max() {
+  /** Upper bound (`max` attribute, default 100). */
+  get max(): number {
     return numberAttribute(this, "max", 100);
   }
   /**

@@ -13,6 +13,7 @@ interface RenderOptions {
 const ROW_H = 36;
 const OVERSCAN = 4;
 
+/** Fixed pool of recycled row (or grid cell) elements that renders a window of a large option list. */
 export class ComboboxOptions {
   #rows: HTMLDivElement[] = [];
   #cells: HTMLDivElement[][] = [];
@@ -36,10 +37,12 @@ export class ComboboxOptions {
     spacer.setAttribute("role", "presentation");
   }
 
-  get rowCount() {
+  /** Number of pooled rows currently in the DOM. */
+  get rowCount(): number {
     return this.#rows.length;
   }
-  get pageSize() {
+  /** Rows that fit in the viewport (at least 1), for PageUp/PageDown. */
+  get pageSize(): number {
     return Math.max(1, Math.floor(this.#viewport.clientHeight / this.#rowH) - 1);
   }
   get #grid() {
@@ -47,13 +50,14 @@ export class ComboboxOptions {
   }
 
   /** Called after showing the popup, when consumer CSS can be measured. */
-  measure() {
+  measure(): void {
     this.#ensurePool();
     this.#rowH = this.#rows[0]?.offsetHeight || ROW_H;
     this.#ensurePool();
   }
 
-  scrollTo(index: number) {
+  /** Scroll the viewport just enough to bring the row holding `index` into view. */
+  scrollTo(index: number): void {
     const top = Math.floor(index / this.#columns) * this.#rowH;
     const bottom = top + this.#rowH;
     const viewport = this.#viewport;
@@ -62,7 +66,7 @@ export class ComboboxOptions {
       viewport.scrollTop = bottom - viewport.clientHeight;
   }
 
-  #shape = "";
+  #layoutKey = "";
 
   #ensurePool() {
     const visible = this.#viewport.clientHeight
@@ -97,7 +101,8 @@ export class ComboboxOptions {
     }
   }
 
-  render(items: readonly Option[], options: RenderOptions) {
+  /** Render the window of `items` visible at the current scroll position into the pool. */
+  render(items: readonly Option[], options: RenderOptions): void {
     if (options.columns !== this.#columns) {
       this.#columns = options.columns;
       this.#spacer.textContent = "";
@@ -105,11 +110,11 @@ export class ComboboxOptions {
       this.#cells = [];
     }
     this.#ensurePool();
-    // Container semantics and spacer height only change with the shape of the
+    // Container semantics and spacer height only change with the layout of the
     // list, not on every scroll-driven render.
-    const shape = `${this.#columns}:${items.length}`;
-    if (shape !== this.#shape) {
-      this.#shape = shape;
+    const layoutKey = `${this.#columns}:${items.length}`;
+    if (layoutKey !== this.#layoutKey) {
+      this.#layoutKey = layoutKey;
       this.#spacer.style.height = `${Math.ceil(items.length / this.#columns) * this.#rowH}px`;
       this.#viewport.setAttribute("role", this.#grid ? "grid" : "listbox");
       this.#input.setAttribute("aria-haspopup", this.#grid ? "grid" : "listbox");
@@ -132,8 +137,7 @@ export class ComboboxOptions {
     const first = clamp(Math.floor(scrollTop / this.#rowH) - OVERSCAN, 0, maxFirst);
     const active = options.activeIndex;
 
-    for (let p = 0; p < this.#rows.length; p++) {
-      const row = this.#rows[p];
+    for (const [p, row] of this.#rows.entries()) {
       const rowIndex = first + p;
       if (rowIndex >= rowCount) {
         row.hidden = true;
@@ -153,8 +157,7 @@ export class ComboboxOptions {
       }
       row.setAttribute("aria-rowindex", String(rowIndex + 1));
       const cells = this.#cells[p] ?? [];
-      for (let c = 0; c < cells.length; c++) {
-        const cell = cells[c];
+      for (const [c, cell] of cells.entries()) {
         const index = rowIndex * columns + c;
         if (index >= total) {
           // The last row of a grid is usually short; its spare cells leave the
@@ -179,6 +182,7 @@ export class ComboboxOptions {
     isSelected: (value: string) => boolean,
   ) {
     const item = items[index];
+    if (!item) return;
     el.textContent = item.label;
     el.id = this.#optionId(index);
     el.dataset.index = String(index);

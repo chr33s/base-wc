@@ -6,7 +6,9 @@ import { isDiscreteScale, pointScale } from "./chart-scale.ts";
 import "./chart.ts";
 import "./chart-scatter.ts";
 import type { UIChart, UIChartHighlightDetail } from "./chart.ts";
+import { flush, must } from "./test-utils.ts";
 
+/** Narrow a lookup the fixture guarantees is present. */
 afterEach(() => {
   document.body.innerHTML = "";
 });
@@ -53,14 +55,10 @@ beforeAll(() => {
 // registrations, observer deliveries, and the coalesced render — so tests
 // assert on settled DOM. Highlight changes stay synchronous and need none of
 // this.
-function flush() {
-  return new Promise((resolve) => setTimeout(resolve));
-}
-
 async function mountChart(inner: string, size = true) {
   document.body.innerHTML = `<ui-chart${size ? ' width="400" height="200"' : ""}>${inner}</ui-chart>`;
   await flush();
-  return document.querySelector("ui-chart")!;
+  return must(document.querySelector("ui-chart"));
 }
 
 async function addFakeSeries(chart: UIChart, key = "Revenue") {
@@ -131,17 +129,17 @@ describe("ui-chart", () => {
     const chart = await mountChart(TABLE);
     const svgs = chart.querySelectorAll("svg");
     expect(svgs.length).toBe(1);
-    expect(svgs[0]!.getAttribute("aria-hidden")).toBe("true");
-    expect(svgs[0]!.querySelector('[data-part="grid"]')).not.toBeNull();
-    expect(svgs[0]!.querySelector('[data-part="bands"]')).not.toBeNull();
-    expect(svgs[0]!.querySelector('[data-part="series-root"]')).not.toBeNull();
+    expect(must(svgs[0]).getAttribute("aria-hidden")).toBe("true");
+    expect(must(svgs[0]).querySelector('[data-part="grid"]')).not.toBeNull();
+    expect(must(svgs[0]).querySelector('[data-part="bands"]')).not.toBeNull();
+    expect(must(svgs[0]).querySelector('[data-part="series-root"]')).not.toBeNull();
   });
 
   it("uses explicit width/height attributes without needing layout", async () => {
     const chart = await mountChart(
       `${TABLE}<ui-chart-axis position="bottom" key="Month" scale="band"></ui-chart-axis><ui-chart-axis position="left"></ui-chart-axis>`,
     );
-    const svg = chart.querySelector("svg")!;
+    const svg = must(chart.querySelector("svg"));
     expect(svg.getAttribute("viewBox")).toBe("0 0 400 200");
   });
 
@@ -155,7 +153,7 @@ describe("ui-chart", () => {
       <ui-chart-axis position="left"></ui-chart-axis>
     </ui-chart>`;
     await flush();
-    const chart = document.querySelector("ui-chart")!;
+    const chart = must(document.querySelector("ui-chart"));
     const element = document.createElement("div");
     chart.append(element);
     chart.registerSeries({
@@ -170,7 +168,7 @@ describe("ui-chart", () => {
     // The bottom axis has no `key` of its own (continuous, series-driven) —
     // its domain must come from the series' xKey ("a": [3, 9]), not its
     // primary key ("b": [10, 50]). A tick at the xKey's max (9) should exist.
-    const xAxis = chart.querySelectorAll("ui-chart-axis")[0]!;
+    const xAxis = must(chart.querySelectorAll("ui-chart-axis")[0]);
     const ticks = [...xAxis.querySelectorAll<HTMLElement>('[data-part="tick"]')];
     expect(ticks.some((t) => t.textContent === "9")).toBe(true);
     expect(ticks.some((t) => t.textContent === "50")).toBe(false);
@@ -182,10 +180,10 @@ describe("ui-chart", () => {
     );
     const bands = chart.querySelectorAll('[data-part="band"]');
     expect(bands.length).toBe(3);
-    expect(bands[0]!.getAttribute("fill")).toBe("transparent");
-    expect(Number(bands[0]!.getAttribute("width"))).toBeGreaterThan(0);
-    expect(bands[0]!.getAttribute("data-value")).toBe("Jan");
-    expect(bands[1]!.getAttribute("data-index")).toBe("1");
+    expect(must(bands[0]).getAttribute("fill")).toBe("transparent");
+    expect(Number(must(bands[0]).getAttribute("width"))).toBeGreaterThan(0);
+    expect(must(bands[0]).getAttribute("data-value")).toBe("Jan");
+    expect(must(bands[1]).getAttribute("data-index")).toBe("1");
   });
 
   it("regression: point-scale band rects are centered on their category and stay within the plot", async () => {
@@ -210,21 +208,21 @@ describe("ui-chart", () => {
     // and padding `axisScale` itself uses for a point axis.
     const scale = pointScale(["Jan", "Feb", "Mar"], [0, 400], { padding: 0.15 });
     if (!isDiscreteScale(scale)) throw new Error("expected a point scale");
-    const feb = bands[1]!;
+    const feb = must(bands[1]);
     const x = Number(feb.getAttribute("x"));
     const width = Number(feb.getAttribute("width"));
-    expect(x + width / 2).toBeCloseTo(scale("Feb")!, 2);
+    expect(x + width / 2).toBeCloseTo(must(scale("Feb")), 2);
   });
 
   it("generates axis tick spans with a --tick fraction", async () => {
     const chart = await mountChart(
       `${TABLE}<ui-chart-axis position="bottom" key="Month" scale="band"></ui-chart-axis>`,
     );
-    const axis = chart.querySelector("ui-chart-axis")!;
+    const axis = must(chart.querySelector("ui-chart-axis"));
     const ticks = axis.querySelectorAll('[data-part="tick"]');
     expect(ticks.length).toBe(3);
-    expect(ticks[0]!.textContent).toBe("Jan");
-    expect(ticks[0]!.getAttribute("style")).toContain("--tick:");
+    expect(must(ticks[0]).textContent).toBe("Jan");
+    expect(must(ticks[0]).getAttribute("style")).toContain("--tick:");
   });
 
   it("draws grid lines only for a dimension with a registered ui-chart-grid", async () => {
@@ -251,11 +249,11 @@ describe("ui-chart", () => {
 
     // Registrations are counted, not just flagged: removing one of two grid
     // elements must not switch the whole dimension off.
-    chart.querySelector("ui-chart-grid")!.remove();
+    must(chart.querySelector("ui-chart-grid")).remove();
     await flush();
     expect(lines()).toBeGreaterThan(0);
 
-    chart.querySelector("ui-chart-grid")!.remove();
+    must(chart.querySelector("ui-chart-grid")).remove();
     await flush();
     expect(lines()).toBe(0);
   });
@@ -270,10 +268,10 @@ describe("ui-chart", () => {
 
     const group = chart.querySelector('[data-part="series"]');
     expect(group).not.toBeNull();
-    expect(group!.getAttribute("data-type")).toBe("fake-bar");
-    expect(group!.getAttribute("data-series")).toBe("Revenue");
+    expect(must(group).getAttribute("data-type")).toBe("fake-bar");
+    expect(must(group).getAttribute("data-series")).toBe("Revenue");
     expect((group as HTMLElement).dataset.seriesIndex).toBe("0");
-    expect(group!.querySelectorAll('[data-part="mark"]').length).toBe(3);
+    expect(must(group).querySelectorAll('[data-part="mark"]').length).toBe(3);
   });
 
   it("hides a series' group when marked hidden and removes it from the DOM", async () => {
@@ -318,7 +316,7 @@ describe("ui-chart", () => {
     const events: unknown[] = [];
     chart.addEventListener("highlight", (e) => events.push((e as CustomEvent).detail));
 
-    const band = chart.querySelectorAll('[data-part="band"]')[1]!;
+    const band = must(chart.querySelectorAll('[data-part="band"]')[1]);
     band.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
     expect(events.at(-1)).toEqual({ series: null, seriesIndex: null, index: 1 });
 
@@ -339,7 +337,7 @@ describe("ui-chart", () => {
     // A mark sits inside its series' <g>, which is a SIBLING of the bands
     // group, not a descendant of any band rect — hovering it must not require
     // falling through to (or missing) the band's own axis-wide highlight.
-    const mark = chart.querySelectorAll('[data-part="mark"]')[2]!;
+    const mark = must(chart.querySelectorAll('[data-part="mark"]')[2]);
     mark.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
     expect(events.at(-1)).toEqual({ series: "Revenue", seriesIndex: 0, index: 2 });
   });
@@ -354,8 +352,8 @@ describe("ui-chart", () => {
 
     chart.setHighlight({ index: 1, series: null });
     const marks = chart.querySelectorAll('[data-part="mark"]');
-    expect(marks[1]!.hasAttribute("data-highlighted")).toBe(true);
-    expect(marks[0]!.hasAttribute("data-faded")).toBe(true);
+    expect(must(marks[1]).hasAttribute("data-highlighted")).toBe(true);
+    expect(must(marks[0]).hasAttribute("data-faded")).toBe(true);
   });
 
   it("walks the highlighted index with ArrowRight/ArrowLeft and clears on Escape", async () => {
@@ -380,7 +378,7 @@ describe("ui-chart", () => {
 
     const events: unknown[] = [];
     chart.addEventListener("select", (e) => events.push((e as CustomEvent).detail));
-    const mark = chart.querySelectorAll('[data-part="mark"]')[2]!;
+    const mark = must(chart.querySelectorAll('[data-part="mark"]')[2]);
     mark.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(events).toEqual([{ series: "Revenue", seriesIndex: 0, index: 2, value: 101 }]);
   });
@@ -395,7 +393,7 @@ describe("ui-chart", () => {
 
     const { unregister } = await addFakeSeries(chart);
     expect(chart.getSeries().length).toBe(1);
-    expect(chart.getSeries()[0]!.key).toBe("Revenue");
+    expect(must(chart.getSeries()[0]).key).toBe("Revenue");
 
     unregister();
     expect(chart.getSeries().length).toBe(0);
@@ -458,11 +456,11 @@ describe("ui-chart: one registry", () => {
     expect(chart.getSeries().map((s) => s.key)).toEqual(["Revenue", "Cost"]);
 
     const [revenue] = chart.getSeries();
-    chart.setSeriesHidden(revenue!.element, true);
+    chart.setSeriesHidden(must(revenue).element, true);
     // Hidden is a flag on the registration, not a removal from the registry.
     expect(chart.getSeries().map((s) => s.key)).toEqual(["Revenue", "Cost"]);
-    expect(chart.getSeries()[0]!.hidden).toBe(true);
-    expect(chart.isSeriesHidden(revenue!.element)).toBe(true);
+    expect(must(chart.getSeries()[0]).hidden).toBe(true);
+    expect(chart.isSeriesHidden(must(revenue).element)).toBe(true);
   });
 });
 
@@ -476,7 +474,7 @@ describe("ui-chart: highlight is not a re-render", () => {
     `);
     await addFakeSeries(chart);
     const gridLine = chart.querySelector('[data-part="grid-line"]');
-    const band = chart.querySelectorAll('[data-part="band"]')[1]!;
+    const band = must(chart.querySelectorAll('[data-part="band"]')[1]);
     expect(gridLine).not.toBeNull();
 
     chart.setHighlight({ index: 1, series: null });
@@ -484,9 +482,9 @@ describe("ui-chart: highlight is not a re-render", () => {
     // A full render replaces every grid line; a highlight must not.
     expect(chart.querySelector('[data-part="grid-line"]')).toBe(gridLine);
     expect(band.hasAttribute("data-highlighted")).toBe(true);
-    expect(chart.querySelectorAll('[data-part="mark"]')[1]!.hasAttribute("data-highlighted")).toBe(
-      true,
-    );
+    expect(
+      must(chart.querySelectorAll('[data-part="mark"]')[1]).hasAttribute("data-highlighted"),
+    ).toBe(true);
 
     chart.setHighlight({ index: null, series: null });
     expect(band.hasAttribute("data-highlighted")).toBe(false);
@@ -500,10 +498,10 @@ describe("ui-chart: lifecycle", () => {
     chart.setAttribute("width", "400");
     chart.setAttribute("height", "200");
     chart.innerHTML = TABLE;
-    document.querySelector("#from")!.append(chart);
+    must(document.querySelector("#from")).append(chart);
     await flush();
 
-    document.querySelector("#to")!.append(chart);
+    must(document.querySelector("#to")).append(chart);
     await flush();
 
     // Teardown used to drop every listener and leave the element flagged as
@@ -528,12 +526,12 @@ describe("ui-chart: lifecycle", () => {
       disconnect() {}
     }
     const original = globalThis.ResizeObserver;
-    globalThis.ResizeObserver = StubResizeObserver as unknown as typeof ResizeObserver;
+    globalThis.ResizeObserver = StubResizeObserver;
     try {
       document.body.innerHTML = `<div id="from"></div><div id="to"></div>`;
       const chart = document.createElement("ui-chart");
       chart.innerHTML = TABLE;
-      document.querySelector("#from")!.append(chart);
+      must(document.querySelector("#from")).append(chart);
       await flush();
       expect(observed).toEqual([chart.querySelector("svg")]);
 
@@ -542,12 +540,12 @@ describe("ui-chart: lifecycle", () => {
       // width/height attributes", not on "not measured yet", or a chart that
       // has ever been measured stops observing the moment it moves.
       const entry = { contentRect: { width: 400, height: 200 } } as ResizeObserverEntry;
-      callbacks[0]!([entry], new StubResizeObserver(() => {}) as unknown as ResizeObserver);
+      must(callbacks[0])([entry], new StubResizeObserver(() => {}));
       await new Promise((resolve) => requestAnimationFrame(resolve));
       await flush();
-      expect(chart.querySelector("svg")!.getAttribute("viewBox")).toBe("0 0 400 200");
+      expect(must(chart.querySelector("svg")).getAttribute("viewBox")).toBe("0 0 400 200");
 
-      document.querySelector("#to")!.append(chart);
+      must(document.querySelector("#to")).append(chart);
       await flush();
       // Teardown disconnected the old observer, so re-wiring has to make a new
       // one — a moved chart that never measures again would freeze at its last
@@ -575,7 +573,7 @@ describe("ui-chart: lifecycle", () => {
       <ui-chart-axis position="left" scale="linear"></ui-chart-axis>
       <ui-chart-scatter x-key="X" key="Y"></ui-chart-scatter>
     `);
-    const svg = chart.querySelector("svg")!;
+    const svg = must(chart.querySelector("svg"));
     svg.getBoundingClientRect = () =>
       ({ x: 0, y: 0, top: 0, left: 0, width: 400, height: 200 }) as DOMRect;
 
@@ -603,7 +601,7 @@ describe("ui-chart: lifecycle", () => {
       <ui-chart-axis position="bottom" scale="linear" key="X" min="0" max="10"></ui-chart-axis>
       <ui-chart-axis position="left" min="0" max="5"></ui-chart-axis>
     `);
-    chart.querySelector("svg")!.getBoundingClientRect = () =>
+    must(chart.querySelector("svg")).getBoundingClientRect = () =>
       ({ x: 0, y: 0, top: 0, left: 0, width: 400, height: 200 }) as DOMRect;
 
     const events = trackHighlights(chart);
@@ -646,18 +644,18 @@ describe("ui-chart: lifecycle", () => {
 
   it("re-ingests the authored table when its cells change after mount", async () => {
     const chart = await mountChart(TABLE);
-    expect(chart.data[0]!.Revenue).toBe(120);
+    expect(must(chart.data[0]).Revenue).toBe(120);
 
-    chart.querySelector("tbody td:last-child")!.textContent = "999";
+    must(chart.querySelector("tbody td:last-child")).textContent = "999";
     await flush();
-    expect(chart.data[0]!.Revenue).toBe(999);
+    expect(must(chart.data[0]).Revenue).toBe(999);
   });
 
   it("keeps a programmatic .data assignment when the table changes afterwards", async () => {
     const chart = await mountChart(TABLE);
     chart.data = [{ Month: "Apr", Revenue: 999 }];
 
-    chart.querySelector("tbody td")!.textContent = "Dec";
+    must(chart.querySelector("tbody td")).textContent = "Dec";
     await flush();
     expect(chart.data).toEqual([{ Month: "Apr", Revenue: 999 }]);
   });
@@ -671,7 +669,7 @@ describe("ui-chart: lifecycle", () => {
     expect(chart.data.length).toBe(3);
     expect(chart.getAttribute("data-state")).toBe("rendered");
 
-    chart.querySelector("table")!.remove();
+    must(chart.querySelector("table")).remove();
     await flush();
 
     expect(chart.data).toEqual([]);
@@ -680,7 +678,7 @@ describe("ui-chart: lifecycle", () => {
 
   it("regression: wrapping the dataset table out of direct-child reach also clears .data", async () => {
     const chart = await mountChart(TABLE);
-    const table = chart.querySelector("table")!;
+    const table = must(chart.querySelector("table"));
     const wrapper = document.createElement("div");
     table.replaceWith(wrapper);
     wrapper.append(table);
@@ -694,7 +692,7 @@ describe("ui-chart-axis", () => {
   it("defaults to position bottom and scale linear", async () => {
     document.body.innerHTML = `<ui-chart width="100" height="100"><ui-chart-axis></ui-chart-axis></ui-chart>`;
     await flush();
-    const axis = document.querySelector("ui-chart-axis")!;
+    const axis = must(document.querySelector("ui-chart-axis"));
     expect(axis.position).toBe("bottom");
     expect(axis.scaleType).toBe("linear");
   });
@@ -706,22 +704,22 @@ describe("ui-chart-axis", () => {
       <ui-chart-axis position="left"></ui-chart-axis>
     `);
     const [bottom, left] = [...chart.querySelectorAll("ui-chart-axis")];
-    expect(bottom!.querySelectorAll('[data-part="tick"]').length).toBe(3);
-    expect(left!.querySelectorAll('[data-part="tick"]').length).toBeGreaterThan(0);
+    expect(must(bottom).querySelectorAll('[data-part="tick"]').length).toBe(3);
+    expect(must(left).querySelectorAll('[data-part="tick"]').length).toBeGreaterThan(0);
 
     // Only one axis per orientation is used; the former value axis is now a
     // second horizontal one, so it must drop the ticks it had drawn rather
     // than leave a stale set of them on the page.
-    left!.setAttribute("position", "bottom");
+    must(left).setAttribute("position", "bottom");
     await flush();
-    expect(left!.querySelectorAll('[data-part="tick"]').length).toBe(0);
-    expect(bottom!.querySelectorAll('[data-part="tick"]').length).toBe(3);
+    expect(must(left).querySelectorAll('[data-part="tick"]').length).toBe(0);
+    expect(must(bottom).querySelectorAll('[data-part="tick"]').length).toBe(3);
   });
 
   it("reads position/key/scale from attributes", async () => {
     document.body.innerHTML = `<ui-chart width="100" height="100"><ui-chart-axis position="left" key="Revenue" scale="log"></ui-chart-axis></ui-chart>`;
     await flush();
-    const axis = document.querySelector("ui-chart-axis")!;
+    const axis = must(document.querySelector("ui-chart-axis"));
     expect(axis.position).toBe("left");
     expect(axis.key).toBe("Revenue");
     expect(axis.scaleType).toBe("log");

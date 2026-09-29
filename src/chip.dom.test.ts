@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import "./elements.ts";
+import { flush, must } from "./test-utils.ts";
 
-const flush = () => new Promise((r) => setTimeout(r, 0));
-
+/** The value, or a failure naming the missing element. */
 afterEach(() => {
   document.body.innerHTML = "";
 });
@@ -11,7 +11,7 @@ afterEach(() => {
 async function mount(attrs = 'removable value="blue"') {
   document.body.innerHTML = `<ui-chip ${attrs}>Blue</ui-chip>`;
   await flush();
-  return document.querySelector("ui-chip")!;
+  return must(document.querySelector("ui-chip"));
 }
 
 describe("ui-chip", () => {
@@ -26,7 +26,7 @@ describe("ui-chip", () => {
     const el = await mount();
     let value: string | null = "unset";
     el.addEventListener("remove", (e) => (value = (e as CustomEvent).detail.value));
-    el.querySelector<HTMLButtonElement>("[data-chip-remove]")!.click();
+    must(el.querySelector<HTMLButtonElement>("[data-chip-remove]")).click();
     expect(value).toBe("blue");
     expect(document.querySelector("ui-chip")).toBe(null); // removed (no CSS exit)
   });
@@ -35,7 +35,7 @@ describe("ui-chip", () => {
     const el = await mount();
     const onRemove = vi.fn<(e: Event) => void>();
     el.addEventListener("remove", onRemove);
-    const btn = el.querySelector<HTMLButtonElement>("[data-chip-remove]")!;
+    const btn = must(el.querySelector<HTMLButtonElement>("[data-chip-remove]"));
 
     btn.click();
     el.dismiss();
@@ -51,7 +51,7 @@ describe("ui-chip", () => {
 
   it("a disabled chip does not remove", async () => {
     const el = await mount("removable disabled");
-    el.querySelector<HTMLButtonElement>("[data-chip-remove]")!.click();
+    must(el.querySelector<HTMLButtonElement>("[data-chip-remove]")).click();
     expect(document.querySelector("ui-chip")).toBeTruthy();
   });
 

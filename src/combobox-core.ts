@@ -12,13 +12,19 @@
  */
 import { type AnchorOptions } from "./anchor.ts";
 import { nextId } from "./id.ts";
+import { closestFrom } from "./internal/closest.ts";
 import { type Overlay, overlay } from "./overlay.ts";
 import type { ChangeReason } from "./reasons.ts";
 
+/** Wiring for an {@link AriaCombobox}: the parts it decorates and the callbacks it drives. */
 export interface AriaComboboxOptions {
+  /** The editable text input that receives the combobox role and keyboard handling. */
   readonly input: HTMLInputElement;
+  /** The anchored popup surface shown and hidden with the list. */
   readonly popup: HTMLElement;
+  /** The element that owns the option rows (listbox or grid role). */
   readonly listbox: HTMLElement;
+  /** Prefix for generated ids and the CSS anchor pairing name. */
   readonly idPrefix: string;
   /**
    * The role the popup list owns. `"listbox"` (the default) for a one-column
@@ -28,17 +34,21 @@ export interface AriaComboboxOptions {
   readonly listboxRole?: "listbox" | "grid";
   /** Focus/dismiss boundary: presses and focus inside it never close. */
   readonly host: HTMLElement;
+  /** Placement options for the popup anchored to the input. */
   readonly anchorOptions?: AnchorOptions;
+  /** Fired for each edit of the input, after native events are contained. */
   readonly onInput: (event: Event) => void;
   /** Close request: Escape while open, focus left the host, outside press. */
   readonly onClose: (reason: ChangeReason) => void;
   /** ArrowDown/ArrowUp while closed. Omit to leave closed-state arrows alone. */
-  readonly onArrowOpen?: (reason: ChangeReason) => void;
+  readonly onArrowOpen?: ((reason: ChangeReason) => void) | undefined;
   /** Keydown while open (after the shared guards) — list navigation. */
   readonly onNavigate: (event: KeyboardEvent) => void;
+  /** A row was clicked; receives its `data-index`. */
   readonly onOptionCommit: (index: number) => void;
 }
 
+/** Owns the combobox ARIA wiring, anchored popup lifecycle and shared key/blur policy for an input plus listbox. */
 export class AriaCombobox {
   readonly #input: HTMLInputElement;
   readonly #overlay: Overlay;
@@ -85,7 +95,8 @@ export class AriaCombobox {
     // Close when focus leaves the widget entirely; moving focus between parts
     // of the host (chips, clear button) keeps it open.
     input.addEventListener("blur", (event) => {
-      if (!options.host.contains(event.relatedTarget as Node | null)) options.onClose("focus-out");
+      if (!options.host.contains(event.relatedTarget instanceof Node ? event.relatedTarget : null))
+        options.onClose("focus-out");
     });
     // The host emits its own semantic events; native events from the internal
     // input would otherwise escape with an incompatible shape.
@@ -93,13 +104,13 @@ export class AriaCombobox {
     input.addEventListener("change", stopPropagation);
 
     listbox.addEventListener("click", (event) => {
-      const row = (event.target as Element).closest<HTMLElement>("[data-index]");
+      const row = closestFrom<HTMLElement>(event, "[data-index]");
       if (row) options.onOptionCommit(Number(row.dataset.index));
     });
     // Preserve input focus while still allowing the synthesized click used by
     // touch input to commit the option.
     listbox.addEventListener("mousedown", (event) => {
-      if ((event.target as Element).closest("[data-index]")) event.preventDefault();
+      if (closestFrom(event, "[data-index]")) event.preventDefault();
     });
 
     this.#overlay = overlay(popup, {
@@ -116,30 +127,32 @@ export class AriaCombobox {
     });
   }
 
-  get open() {
+  /** Whether the popup is currently open. */
+  get open(): boolean {
     return this.#overlay.open;
   }
 
-  get activeIndex() {
+  /** Index of the active option, or `-1` when none is active. */
+  get activeIndex(): number {
     return this.#activeIndex;
   }
 
   /** Mark an existing option active, or pass `null` to clear the active option. */
-  setActive(index: number, optionId: string | null) {
+  setActive(index: number, optionId: string | null): void {
     this.#activeIndex = optionId == null ? -1 : index;
     if (optionId == null) this.#input.removeAttribute("aria-activedescendant");
     else this.#input.setAttribute("aria-activedescendant", optionId);
   }
 
   /** Open once. Returns whether state changed. */
-  show(reason: ChangeReason = "none") {
+  show(reason: ChangeReason = "none"): boolean {
     if (!this.#overlay.show(reason)) return false;
     this.#input.setAttribute("aria-expanded", "true");
     return true;
   }
 
   /** Close once and clear active-descendant state. Returns whether state changed. */
-  hide(reason: ChangeReason = "none") {
+  hide(reason: ChangeReason = "none"): boolean {
     if (!this.#overlay.hide({ reason })) return false;
     this.#input.setAttribute("aria-expanded", "false");
     this.setActive(-1, null);

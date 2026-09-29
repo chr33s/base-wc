@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import "./elements.ts";
+import { must } from "./test-utils.ts";
 
+/** Narrow an indexed lookup the fixture guarantees is present. */
 // happy-dom has no layout (scrollHeight/clientHeight are 0), so overflow
 // detection and thumb sizing are covered by ui.e2e.test.ts. Here we only assert
 // the wiring: elements register and orientation is normalized.
@@ -18,21 +20,21 @@ describe("ui-scroll-area", () => {
         <ui-scroll-scrollbar><ui-scroll-thumb></ui-scroll-thumb></ui-scroll-scrollbar>
       </ui-scroll-area>`;
     await Promise.resolve();
-    const area = document.querySelector("ui-scroll-area")!;
+    const area = must(document.querySelector("ui-scroll-area"));
     const bars = [...document.querySelectorAll("ui-scroll-scrollbar")];
     return { area, bars };
   }
 
   it("normalizes scrollbar orientation (defaulting to vertical)", async () => {
     const { bars } = await mount();
-    expect(bars[0].getAttribute("data-orientation")).toBe("vertical");
-    expect(bars[1].getAttribute("data-orientation")).toBe("vertical");
+    expect(must(bars[0]).getAttribute("data-orientation")).toBe("vertical");
+    expect(must(bars[1]).getAttribute("data-orientation")).toBe("vertical");
   });
 
   it("reports no overflow without layout", async () => {
     const { area, bars } = await mount();
     expect(area.hasAttribute("data-overflow-y")).toBe(false);
-    expect(bars[0].hasAttribute("hidden")).toBe(true); // hidden when nothing overflows
+    expect(must(bars[0]).hasAttribute("hidden")).toBe(true); // hidden when nothing overflows
   });
 
   // The thumb drag runs through the shared trackPointerDrag, so an interrupted
@@ -55,7 +57,7 @@ describe("ui-scroll-area", () => {
 
     try {
       await mount();
-      const thumb = document.querySelector<HTMLElement>("ui-scroll-thumb")!;
+      const thumb = must(document.querySelector<HTMLElement>("ui-scroll-thumb"));
 
       thumb.dispatchEvent(pointer("pointerdown", 0));
       expect(live).toBe(1);
@@ -82,9 +84,9 @@ describe("ui-scroll-area — scrollbar chrome", () => {
       </ui-scroll-area>`;
     await Promise.resolve();
     return {
-      viewport: document.querySelector<HTMLElement>("ui-scroll-viewport")!,
-      bar: document.querySelector("ui-scroll-scrollbar")!,
-      thumb: document.querySelector<HTMLElement>("ui-scroll-thumb")!,
+      viewport: must(document.querySelector<HTMLElement>("ui-scroll-viewport")),
+      bar: must(document.querySelector("ui-scroll-scrollbar")),
+      thumb: must(document.querySelector<HTMLElement>("ui-scroll-thumb")),
     };
   }
 
@@ -117,13 +119,13 @@ describe("ui-scroll-area — scrollbar chrome", () => {
         <ui-scroll-scrollbar data-orientation="horizontal"><ui-scroll-thumb id="h"></ui-scroll-thumb></ui-scroll-scrollbar>
       </ui-scroll-area>`;
     await Promise.resolve();
-    const viewport = document.querySelector<HTMLElement>("ui-scroll-viewport")!;
-    document
-      .querySelector("#v")!
-      .dispatchEvent(new PointerEvent("pointerdown", { pointerId: 1, bubbles: true }));
-    document
-      .querySelector("#h")!
-      .dispatchEvent(new PointerEvent("pointerdown", { pointerId: 2, bubbles: true }));
+    const viewport = must(document.querySelector<HTMLElement>("ui-scroll-viewport"));
+    must(document.querySelector("#v")).dispatchEvent(
+      new PointerEvent("pointerdown", { pointerId: 1, bubbles: true }),
+    );
+    must(document.querySelector("#h")).dispatchEvent(
+      new PointerEvent("pointerdown", { pointerId: 2, bubbles: true }),
+    );
     expect(viewport.style.scrollSnapType).toBe("none");
     window.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1 }));
     // Each thumb is its own drag; the first release must not re-snap under
@@ -144,8 +146,8 @@ describe("ui-scroll-area scrollbar press", () => {
         </ui-scroll-scrollbar>
       </ui-scroll-area>`;
     await Promise.resolve(); // deferred wiring
-    const bar = document.querySelector("ui-scroll-scrollbar")!;
-    const thumb = document.querySelector("ui-scroll-thumb")!;
+    const bar = must(document.querySelector("ui-scroll-scrollbar"));
+    const thumb = must(document.querySelector("ui-scroll-thumb"));
 
     // Native scrollbars never take focus. Bound on the bar, so a press that
     // lands on the thumb is covered by the same handler as one on the track.

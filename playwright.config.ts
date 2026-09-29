@@ -1,6 +1,13 @@
-import { defineConfig, devices } from "@playwright/test";
+import { defineConfig, devices, type LaunchOptions } from "@playwright/test";
 
 const PORT = 5173;
+
+// Fall back to a preinstalled Chromium when the bundled build revision isn't
+// available (e.g. sandboxes); otherwise Playwright's own build.
+const launchOptions: LaunchOptions = { args: ["--no-sandbox"] };
+if (process.env.PLAYWRIGHT_CHROMIUM_PATH) {
+  launchOptions.executablePath = process.env.PLAYWRIGHT_CHROMIUM_PATH;
+}
 
 export default defineConfig({
   testDir: "src",
@@ -27,12 +34,7 @@ export default defineConfig({
       name: "chromium",
       use: {
         ...devices["Desktop Chrome"],
-        // Fall back to a preinstalled Chromium when the bundled build revision
-        // isn't available (e.g. sandboxes); otherwise Playwright's own build.
-        launchOptions: {
-          executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined,
-          args: ["--no-sandbox"],
-        },
+        launchOptions,
       },
     },
   ],

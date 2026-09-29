@@ -13,6 +13,7 @@ export { ChartChildElement } from "./chart-child.ts";
 export {
   type AxisPosition,
   type AxisRegistration,
+  type ChartDimension,
   type ChartInvalidation,
   type ChartListener,
   type ChartRow,
@@ -54,6 +55,7 @@ export {
   type CategoryValue,
   categoryKey,
   type ContinuousScale,
+  type ScaleOptions,
   type DiscreteScale,
   type Scale,
   type ScaleType,
@@ -75,6 +77,7 @@ export { SERIES_ATTRIBUTES, UIChartSeries } from "./chart-series.ts";
 export {
   type ArcParams,
   type CurveType,
+  type GapPolicy,
   type PieOptions,
   type PieSlice,
   type Point,

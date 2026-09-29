@@ -11,6 +11,7 @@
  */
 import { clamp } from "./math.ts";
 
+/** Scale families an axis can use: `band`/`point` for categories, the rest for numbers or time. */
 export type ScaleType = "band" | "point" | "linear" | "log" | "sqrt" | "time";
 
 /** A value a discrete (band/point) domain can hold: one non-null dataset cell. `chart-core.ts`'s `ChartValue` is this plus `null` (a null cell never enters a domain — looking one up simply misses). */
@@ -44,6 +45,7 @@ export interface DiscreteScale {
   step(): number;
 }
 
+/** Either kind of scale; narrow with {@link isDiscreteScale}. */
 export type Scale = ContinuousScale | DiscreteScale;
 
 /** Whether `scale` is a discrete (band/point) scale rather than a continuous one. */
@@ -122,24 +124,27 @@ function makeContinuous(
   forward: (v: number) => number,
   inverse: (v: number) => number,
   ticksFn: (d0: number, d1: number, count: number) => number[],
-) {
+): ContinuousScale {
   const [d0, d1] = domain;
   const [r0, r1] = range;
   const t0 = forward(d0);
   const t1 = forward(d1);
   const m = t1 === t0 ? 0 : (r1 - r0) / (t1 - t0);
 
-  const scale = ((value: number) => r0 + (forward(value) - t0) * m) as ContinuousScale;
-  scale.invert = (position: number) => inverse(m === 0 ? t0 : t0 + (position - r0) / m);
-  scale.domain = () => [d0, d1];
-  scale.range = () => [r0, r1];
-  scale.bandwidth = () => 0;
-  scale.ticks = (count = 10) => ticksFn(d0, d1, count);
-  return scale;
+  return Object.assign((value: number) => r0 + (forward(value) - t0) * m, {
+    invert: (position: number) => inverse(m === 0 ? t0 : t0 + (position - r0) / m),
+    domain: (): readonly [number, number] => [d0, d1],
+    range: (): readonly [number, number] => [r0, r1],
+    bandwidth: () => 0,
+    ticks: (count = 10) => ticksFn(d0, d1, count),
+  });
 }
 
 /** A linear scale: `domain` and `range` are each `[min, max]` in value/pixel space. */
-export function linearScale(domain: readonly [number, number], range: readonly [number, number]) {
+export function linearScale(
+  domain: readonly [number, number],
+  range: readonly [number, number],
+): ContinuousScale {
   return makeContinuous(
     domain,
     range,
@@ -154,14 +159,17 @@ export function powScale(
   domain: readonly [number, number],
   range: readonly [number, number],
   exponent: number,
-) {
+): ContinuousScale {
   const forward = (v: number) => Math.sign(v) * Math.abs(v) ** exponent;
   const inverse = (v: number) => Math.sign(v) * Math.abs(v) ** (1 / exponent);
   return makeContinuous(domain, range, forward, inverse, linearTicks);
 }
 
 /** `sqrt` is `pow` with `exponent = 0.5` (d3-scale's default power scale). */
-export function sqrtScale(domain: readonly [number, number], range: readonly [number, number]) {
+export function sqrtScale(
+  domain: readonly [number, number],
+  range: readonly [number, number],
+): ContinuousScale {
   return powScale(domain, range, 0.5);
 }
 
@@ -190,7 +198,7 @@ export function logScale(
   domain: readonly [number, number],
   range: readonly [number, number],
   base = 10,
-) {
+): ContinuousScale {
   const sign = domain[0] < 0 ? -1 : 1;
   const forward = (v: number) => (sign * Math.log(sign * v)) / Math.log(base);
   const inverse = (v: number) => sign * base ** (sign * v);
@@ -299,15 +307,14 @@ const TIME_STEPS: ReadonlyArray<readonly [TimeInterval, number, number]> = [
 ];
 
 function chooseInterval(target: number): [TimeInterval, number] {
-  let i = 0;
-  while (i < TIME_STEPS.length && TIME_STEPS[i]![2] <= target) i++;
-  if (i === TIME_STEPS.length) {
-    const last = TIME_STEPS[TIME_STEPS.length - 1]!;
-    return [last[0], Math.max(1, Math.round(target / DURATION_YEAR))];
-  }
+  // First candidate longer than `target` (the table is ascending by duration).
+  const i = TIME_STEPS.findIndex((step) => step[2] > target);
+  // Past the largest candidate (a year): whole years.
+  if (i === -1) return [year, Math.max(1, Math.round(target / DURATION_YEAR))];
   if (i === 0) return [second, 1];
-  const below = TIME_STEPS[i - 1]!;
-  const above = TIME_STEPS[i]!;
+  const below = TIME_STEPS[i - 1];
+  const above = TIME_STEPS[i];
+  if (!below || !above) return [second, 1];
   const chooseBelow = target / below[2] < above[2] / target;
   const chosen = chooseBelow ? below : above;
   return [chosen[0], chosen[1]];
@@ -330,7 +337,10 @@ function timeTicks(d0: number, d1: number, count = 10) {
 }
 
 /** A time scale: `domain` is `[startMs, endMs]` (local time), `ticks()` returns calendar-aware timestamps. */
-export function timeScale(domain: readonly [number, number], range: readonly [number, number]) {
+export function timeScale(
+  domain: readonly [number, number],
+  range: readonly [number, number],
+): ContinuousScale {
   return makeContinuous(
     domain,
     range,
@@ -352,7 +362,7 @@ export function timeScale(domain: readonly [number, number], range: readonly [nu
  * produces. Every part of the chart family that groups or looks up categories
  * goes through this, so they all agree on what "the same category" means.
  */
-export function categoryKey(value: CategoryValue) {
+export function categoryKey(value: CategoryValue): string | number {
   return value instanceof Date ? value.getTime() : value;
 }
 
@@ -380,8 +390,8 @@ function discreteLookup(domain: readonly CategoryValue[], start: number, step: n
 export function bandScale(
   domain: readonly CategoryValue[],
   range: readonly [number, number],
-  options: { paddingInner?: number; paddingOuter?: number } = {},
-) {
+  options: { paddingInner?: number | undefined; paddingOuter?: number | undefined } = {},
+): DiscreteScale {
   const paddingInner = clampPadding(options.paddingInner ?? 0);
   const paddingOuter = clampPadding(options.paddingOuter ?? 0);
   const [r0, r1] = range;
@@ -393,33 +403,34 @@ export function bandScale(
 
   const { indexOf, positionAt } = discreteLookup(domain, start, step);
 
-  const scale = ((value: CategoryValue | null) => {
+  const position = (value: CategoryValue | null) => {
     const i = indexOf(value);
     return i < 0 ? undefined : positionAt(i);
-  }) as DiscreteScale;
-  scale.center = (value: CategoryValue | null) => {
-    const p = scale(value);
-    return p === undefined ? undefined : p + bandwidth / 2;
   };
-  scale.invert = (position: number) => {
-    if (step <= 0 || n === 0) return undefined;
-    const i = Math.floor((position - start) / step);
-    return i >= 0 && i < n ? domain[i] : undefined;
-  };
-  scale.ticks = () => domain;
-  scale.domain = () => domain;
-  scale.range = () => [r0, r1];
-  scale.bandwidth = () => Math.max(0, bandwidth);
-  scale.step = () => step;
-  return scale;
+  return Object.assign(position, {
+    center: (value: CategoryValue | null) => {
+      const p = position(value);
+      return p === undefined ? undefined : p + bandwidth / 2;
+    },
+    invert: (at: number) => {
+      if (step <= 0 || n === 0) return undefined;
+      const i = Math.floor((at - start) / step);
+      return i >= 0 && i < n ? domain[i] : undefined;
+    },
+    ticks: () => domain,
+    domain: () => domain,
+    range: (): readonly [number, number] => [r0, r1],
+    bandwidth: () => Math.max(0, bandwidth),
+    step: () => step,
+  });
 }
 
 /** `scalePoint`: like `band` with `bandwidth() === 0` — each value maps to a single point, `padding` on both outer edges (as a fraction of one step). */
 export function pointScale(
   domain: readonly CategoryValue[],
   range: readonly [number, number],
-  options: { padding?: number } = {},
-) {
+  options: { padding?: number | undefined } = {},
+): DiscreteScale {
   const padding = clampPadding(options.padding ?? 0);
   const [r0, r1] = range;
   const n = domain.length;
@@ -429,22 +440,23 @@ export function pointScale(
 
   const { indexOf, positionAt } = discreteLookup(domain, start, step);
 
-  const scale = ((value: CategoryValue | null) => {
+  const position = (value: CategoryValue | null) => {
     const i = indexOf(value);
     return i < 0 ? undefined : positionAt(i);
-  }) as DiscreteScale;
-  scale.center = scale;
-  scale.invert = (position: number) => {
-    if (step <= 0 || n === 0) return undefined;
-    const i = Math.round((position - start) / step);
-    return i >= 0 && i < n ? domain[i] : undefined;
   };
-  scale.ticks = () => domain;
-  scale.domain = () => domain;
-  scale.range = () => [r0, r1];
-  scale.bandwidth = () => 0;
-  scale.step = () => step;
-  return scale;
+  return Object.assign(position, {
+    center: position,
+    invert: (at: number) => {
+      if (step <= 0 || n === 0) return undefined;
+      const i = Math.round((at - start) / step);
+      return i >= 0 && i < n ? domain[i] : undefined;
+    },
+    ticks: () => domain,
+    domain: () => domain,
+    range: (): readonly [number, number] => [r0, r1],
+    bandwidth: () => 0,
+    step: () => step,
+  });
 }
 
 function clampPadding(p: number) {
@@ -464,7 +476,7 @@ export function continuousScale(
   type: ContinuousScaleType,
   domain: readonly [number, number],
   range: readonly [number, number],
-) {
+): ContinuousScale {
   switch (type) {
     case "log":
       return logScale(domain, range);
@@ -488,11 +500,24 @@ export function continuousScale(
  * edges.
  */
 export function createScale(
+  type: "band" | "point",
+  domain: readonly CategoryValue[],
+  range: readonly [number, number],
+  options?: ScaleOptions,
+): DiscreteScale;
+/** Build a continuous scale (`linear`/`log`/`sqrt`/`time`) over a numeric `[min, max]` domain. */
+export function createScale(
+  type: ContinuousScaleType,
+  domain: readonly [number, number],
+  range: readonly [number, number],
+  options?: ScaleOptions,
+): ContinuousScale;
+export function createScale(
   type: ScaleType,
   domain: readonly CategoryValue[] | readonly [number, number],
   range: readonly [number, number],
-  options: { paddingInner?: number; paddingOuter?: number; padding?: number } = {},
-) {
+  options: ScaleOptions = {},
+): Scale {
   switch (type) {
     case "band":
       return bandScale(domain, range, options);
@@ -501,4 +526,11 @@ export function createScale(
     default:
       return continuousScale(type, domain as readonly [number, number], range);
   }
+}
+
+/** Padding options accepted by {@link createScale}; `band` reads inner/outer, `point` reads `padding` (falling back to `paddingOuter`). */
+export interface ScaleOptions {
+  paddingInner?: number | undefined;
+  paddingOuter?: number | undefined;
+  padding?: number | undefined;
 }

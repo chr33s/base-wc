@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import "./elements.ts";
+import { flush, must } from "./test-utils.ts";
 
-const flush = () => new Promise((r) => setTimeout(r, 0));
-
+/** Narrow an indexed lookup the fixture guarantees is present. */
 afterEach(() => {
   document.body.innerHTML = "";
 });
@@ -12,7 +12,7 @@ async function mount(markup: string) {
   document.body.innerHTML = markup;
   await flush();
   await flush();
-  return document.querySelector("ui-table")!;
+  return must(document.querySelector("ui-table"));
 }
 
 describe("ui-table", () => {
@@ -37,10 +37,10 @@ describe("ui-table", () => {
     expect(el.getAttribute("aria-busy")).toBe("true");
     expect(el.querySelector("table")).toBeTruthy();
     const cells = el.querySelectorAll("tbody td");
-    expect(cells[0].getAttribute("data-label")).toBe("Product");
-    expect(cells[0].getAttribute("data-list-slot")).toBe("primary");
-    expect(cells[1].getAttribute("data-list-slot")).toBe("inline");
-    expect(cells[2].getAttribute("data-format")).toBe("numeric");
+    expect(must(cells[0]).getAttribute("data-label")).toBe("Product");
+    expect(must(cells[0]).getAttribute("data-list-slot")).toBe("primary");
+    expect(must(cells[1]).getAttribute("data-list-slot")).toBe("inline");
+    expect(must(cells[2]).getAttribute("data-format")).toBe("numeric");
   });
 
   it("sorts sortable headers by text and numeric formats, toggling aria-sort", async () => {
@@ -64,23 +64,23 @@ describe("ui-table", () => {
       </ui-table>`);
     const headers = el.querySelectorAll<HTMLTableCellElement>("thead tr[data-table-header-row] th");
     const firstColumn = () =>
-      [...el.querySelectorAll("tbody tr")].map((row) => row.children[0].textContent);
+      [...el.querySelectorAll("tbody tr")].map((row) => must(row.children[0]).textContent);
     const orders = () =>
-      [...el.querySelectorAll("tbody tr")].map((row) => row.children[1].textContent);
+      [...el.querySelectorAll("tbody tr")].map((row) => must(row.children[1]).textContent);
 
     // Sortable headers advertise their resting state to assistive tech.
-    expect(headers[0].getAttribute("aria-sort")).toBe("none");
+    expect(must(headers[0]).getAttribute("aria-sort")).toBe("none");
     // Each sortable header is wrapped in a real button for keyboard/SR activation.
-    expect(headers[0].querySelector("button[data-table-sort]")).toBeTruthy();
+    expect(must(headers[0]).querySelector("button[data-table-sort]")).toBeTruthy();
 
-    headers[0].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    must(headers[0]).dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(firstColumn()).toEqual(["Alpha", "Beta"]);
-    expect(headers[0].getAttribute("aria-sort")).toBe("ascending");
+    expect(must(headers[0]).getAttribute("aria-sort")).toBe("ascending");
 
-    headers[1].querySelector<HTMLButtonElement>("button")!.click();
+    must(must(headers[1]).querySelector<HTMLButtonElement>("button")).click();
     expect(orders()).toEqual(["2", "10"]);
-    expect(headers[1].getAttribute("aria-sort")).toBe("ascending");
-    expect(headers[0].getAttribute("aria-sort")).toBe("none");
+    expect(must(headers[1]).getAttribute("aria-sort")).toBe("ascending");
+    expect(must(headers[0]).getAttribute("aria-sort")).toBe("none");
   });
 
   it("toggles to descending sort and emits a directional sort event on re-activation", async () => {
@@ -94,18 +94,18 @@ describe("ui-table", () => {
           </tbody>
         </table>
       </ui-table>`);
-    const header = el.querySelector<HTMLTableCellElement>("th[data-sort-key]")!;
+    const header = must(el.querySelector<HTMLTableCellElement>("th[data-sort-key]"));
     const names = () => [...el.querySelectorAll("tbody tr")].map((r) => r.textContent?.trim());
     const directions: string[] = [];
     el.addEventListener("sort", (event) => {
       if (event instanceof CustomEvent) directions.push(event.detail.direction);
     });
 
-    header.querySelector<HTMLButtonElement>("button")!.click();
+    must(header.querySelector<HTMLButtonElement>("button")).click();
     expect(names()).toEqual(["Alpha", "Beta"]);
     expect(header.getAttribute("aria-sort")).toBe("ascending");
 
-    header.querySelector<HTMLButtonElement>("button")!.click();
+    must(header.querySelector<HTMLButtonElement>("button")).click();
     expect(names()).toEqual(["Beta", "Alpha"]);
     expect(header.getAttribute("aria-sort")).toBe("descending");
     expect(directions).toEqual(["ascending", "descending"]);
@@ -124,10 +124,10 @@ describe("ui-table", () => {
           </tbody>
         </table>
       </ui-table>`);
-    const header = el.querySelector<HTMLTableCellElement>("th[data-sort-key]")!;
+    const header = must(el.querySelector<HTMLTableCellElement>("th[data-sort-key]"));
     const prices = () => [...el.querySelectorAll("tbody tr")].map((r) => r.textContent?.trim());
 
-    header.querySelector<HTMLButtonElement>("button")!.click();
+    must(header.querySelector<HTMLButtonElement>("button")).click();
     expect(prices()).toEqual(["Free", "$99.00", "$1,000.00", "$1,299.00"]);
   });
 
@@ -150,16 +150,16 @@ describe("ui-table", () => {
         <span data-table-selected-count></span>
         <button type="button" data-table-bulk-action>Archive</button>
       </ui-table>`);
-    const controlsRow = el.querySelector<HTMLTableRowElement>("thead tr:first-child")!;
+    const controlsRow = must(el.querySelector<HTMLTableRowElement>("thead tr:first-child"));
     expect(controlsRow.hasAttribute("data-table-controls-row")).toBe(true);
     expect(controlsRow.nextElementSibling?.hasAttribute("data-table-header-row")).toBe(true);
     expect(controlsRow.querySelector("[data-table-filters]")).toBeTruthy();
     expect(controlsRow.querySelector("[data-table-bulk]")).toBeTruthy();
 
-    const selectAll = el.querySelector<HTMLInputElement>("[data-table-select-all]")!;
+    const selectAll = must(el.querySelector<HTMLInputElement>("[data-table-select-all]"));
     const rows = [...el.querySelectorAll<HTMLInputElement>("[data-table-select-row]")];
-    const count = el.querySelector<HTMLElement>("[data-table-selected-count]")!;
-    const action = el.querySelector<HTMLButtonElement>("[data-table-bulk-action]")!;
+    const count = must(el.querySelector<HTMLElement>("[data-table-selected-count]"));
+    const action = must(el.querySelector<HTMLButtonElement>("[data-table-bulk-action]"));
     const stateOf = (input: HTMLInputElement) =>
       input.closest("ui-checkbox")?.getAttribute("data-state");
 
@@ -176,8 +176,8 @@ describe("ui-table", () => {
     expect(stateOf(selectAll)).toBe("checked");
     expect(selected).toBe(2);
 
-    rows[0].click();
-    expect(rows[0].checked).toBe(false);
+    must(rows[0]).click();
+    expect(must(rows[0]).checked).toBe(false);
     expect(stateOf(selectAll)).toBe("indeterminate");
     expect(el.getAttribute("data-selected-count")).toBe("1");
   });
@@ -187,10 +187,10 @@ describe("ui-table", () => {
       <ui-table paginate has-next-page>
         <table><tbody><tr><td>One</td></tr></tbody></table>
       </ui-table>`);
-    const footer = el.querySelector("tfoot")!;
-    const pagination = footer.querySelector("[data-table-pagination]")!;
-    const previous = pagination.querySelector<HTMLButtonElement>("[data-table-previous]")!;
-    const next = pagination.querySelector<HTMLButtonElement>("[data-table-next]")!;
+    const footer = must(el.querySelector("tfoot"));
+    const pagination = must(footer.querySelector("[data-table-pagination]"));
+    const previous = must(pagination.querySelector<HTMLButtonElement>("[data-table-previous]"));
+    const next = must(pagination.querySelector<HTMLButtonElement>("[data-table-next]"));
     const events: string[] = [];
     el.addEventListener("previouspage", () => events.push("previous"));
     el.addEventListener("nextpage", () => events.push("next"));
@@ -212,7 +212,7 @@ describe("ui-table", () => {
       <ui-table paginate has-previous-page has-next-page>
         <table><tbody><tr><td>One</td></tr></tbody></table>
       </ui-table>`);
-    const previous = el.querySelector<HTMLButtonElement>("[data-table-previous]")!;
+    const previous = must(el.querySelector<HTMLButtonElement>("[data-table-previous]"));
     const events: string[] = [];
     el.addEventListener("previouspage", () => events.push("previous"));
 
@@ -231,7 +231,7 @@ describe("ui-table", () => {
       <ui-table paginate has-next-page>
         <table><tbody><tr><td>A</td><td>B</td><td>C</td></tr></tbody></table>
       </ui-table>`);
-    const cell = el.querySelector<HTMLTableCellElement>("[data-table-pagination-cell]")!;
+    const cell = must(el.querySelector<HTMLTableCellElement>("[data-table-pagination-cell]"));
     expect(cell.colSpan).toBe(3);
   });
 
@@ -250,7 +250,7 @@ describe("ui-table", () => {
 
     // Sorting reorders rows inside the observed subtree — with the observer
     // paused, so no refresh loop follows.
-    el.querySelector<HTMLButtonElement>("th[data-sort-key] button")!.click();
+    must(el.querySelector<HTMLButtonElement>("th[data-sort-key] button")).click();
     await flush();
     expect(refresh).not.toHaveBeenCalled();
 
@@ -266,7 +266,7 @@ describe("ui-table", () => {
     // Consumer mutations still re-annotate: the observer stays armed.
     const row = document.createElement("tr");
     row.innerHTML = "<td>Gamma</td>";
-    el.querySelector("tbody")!.append(row);
+    must(el.querySelector("tbody")).append(row);
     await flush();
     expect(refresh).toHaveBeenCalledTimes(1);
   });
@@ -281,14 +281,14 @@ describe("ui-table", () => {
       </ui-table>`);
     const row = document.createElement("tr");
     row.innerHTML = "<td>Beta</td><td>2</td>";
-    el.querySelector("tbody")!.append(row);
+    must(el.querySelector("tbody")).append(row);
     await flush();
 
     const cells = row.querySelectorAll("td");
     expect(row.getAttribute("data-table-row")).toBe("");
-    expect(cells[0].getAttribute("data-label")).toBe("Name");
-    expect(cells[0].getAttribute("data-list-slot")).toBe("primary");
-    expect(cells[1].getAttribute("data-format")).toBe("numeric");
+    expect(must(cells[0]).getAttribute("data-label")).toBe("Name");
+    expect(must(cells[0]).getAttribute("data-list-slot")).toBe("primary");
+    expect(must(cells[1]).getAttribute("data-format")).toBe("numeric");
   });
 
   it("exposes selectedValues and re-annotates on an explicit refresh()", async () => {
@@ -307,11 +307,11 @@ describe("ui-table", () => {
     const row = document.createElement("tr");
     row.innerHTML =
       '<td><input type="checkbox" value="c" data-table-select-row checked></td><td>Gamma</td>';
-    el.querySelector("tbody")!.append(row);
+    must(el.querySelector("tbody")).append(row);
     el.refresh();
 
     expect([...el.selectedValues]).toEqual(["a", "c"]);
-    expect(row.querySelectorAll("td")[1].getAttribute("data-label")).toBe("Name");
+    expect(must(row.querySelectorAll("td")[1]).getAttribute("data-label")).toBe("Name");
   });
 
   it("clears count, live region, and select-all state when the last row is deselected", async () => {
@@ -328,9 +328,9 @@ describe("ui-table", () => {
         </table>
         <span data-table-selected-count></span>
       </ui-table>`);
-    const selectAll = el.querySelector<HTMLInputElement>("[data-table-select-all]")!;
-    const row = el.querySelector<HTMLInputElement>("[data-table-select-row]")!;
-    const count = el.querySelector<HTMLElement>("[data-table-selected-count]")!;
+    const selectAll = must(el.querySelector<HTMLInputElement>("[data-table-select-all]"));
+    const row = must(el.querySelector<HTMLInputElement>("[data-table-select-row]"));
+    const count = must(el.querySelector<HTMLElement>("[data-table-selected-count]"));
     const stateOf = (input: HTMLInputElement) =>
       input.closest("ui-checkbox")?.getAttribute("data-state");
 
@@ -356,7 +356,7 @@ describe("ui-table", () => {
           <tbody></tbody>
         </table>
       </ui-table>`);
-    expect(el.querySelector<HTMLInputElement>("[data-table-select-all]")!.disabled).toBe(true);
+    expect(must(el.querySelector<HTMLInputElement>("[data-table-select-all]")).disabled).toBe(true);
   });
 
   it("delegates row clicks to an in-row primary action without double-firing controls", async () => {
@@ -373,7 +373,7 @@ describe("ui-table", () => {
           </tbody>
         </table>
       </ui-table>`);
-    const link = el.querySelector<HTMLAnchorElement>("#open-alpha")!;
+    const link = must(el.querySelector<HTMLAnchorElement>("#open-alpha"));
     let clicks = 0;
     link.addEventListener("click", (event) => {
       event.preventDefault();
@@ -381,7 +381,7 @@ describe("ui-table", () => {
     });
 
     // A plain cell in the delegated row triggers the primary action once.
-    el.querySelector<HTMLElement>("td.name")!.dispatchEvent(
+    must(el.querySelector<HTMLElement>("td.name")).dispatchEvent(
       new MouseEvent("click", { bubbles: true }),
     );
     expect(clicks).toBe(1);
@@ -389,12 +389,12 @@ describe("ui-table", () => {
     link.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(clicks).toBe(2);
     // A click originating on an interactive child must NOT delegate.
-    el.querySelector<HTMLButtonElement>("#archive-alpha")!.dispatchEvent(
+    must(el.querySelector<HTMLButtonElement>("#archive-alpha")).dispatchEvent(
       new MouseEvent("click", { bubbles: true }),
     );
     expect(clicks).toBe(2);
     // A row without a delegate does nothing.
-    el.querySelector<HTMLElement>("td.beta")!.dispatchEvent(
+    must(el.querySelector<HTMLElement>("td.beta")).dispatchEvent(
       new MouseEvent("click", { bubbles: true }),
     );
     expect(clicks).toBe(2);

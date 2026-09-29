@@ -14,9 +14,11 @@
  */
 import { define } from "./define.ts";
 import { isRTL } from "./direction.ts";
+import { closestFrom } from "./internal/closest.ts";
 import type { UIMenu } from "./menu.ts";
 import { RovingElement, isDisabled, type Orientation, type RovingOptions } from "./roving.ts";
 
+/** Horizontal (or vertical) bar of `ui-menu`s with a shared roving tab stop and hover/arrow cross-navigation. */
 export class UIMenubar extends RovingElement {
   /**
    * The axis the bar lays out on. Unlike a menu or listbox this is always
@@ -112,7 +114,7 @@ export class UIMenubar extends RovingElement {
   }
 
   #onMenuOpen = (e: Event) => {
-    const menu = (e.target as Element)?.closest?.("ui-menu") as UIMenu | null;
+    const menu = closestFrom<UIMenu>(e, "ui-menu");
     const idx = menu ? this.#entries().findIndex((entry) => entry.menu === menu) : -1;
     if (idx >= 0) this.#focusStop(idx);
   };
@@ -134,7 +136,11 @@ export class UIMenubar extends RovingElement {
     const entries = this.#entries();
     const openIdx = entries.findIndex((entry) => entry.menu.open);
     if (openIdx < 0) return; // closed — roving owns trigger navigation
-    if (this.#triggers().includes(document.activeElement as HTMLElement)) return; // roving's job
+    if (
+      document.activeElement instanceof HTMLElement &&
+      this.#triggers().includes(document.activeElement)
+    )
+      return; // roving's job
     e.preventDefault();
     e.stopPropagation();
     const dir = e.key === next ? 1 : -1;

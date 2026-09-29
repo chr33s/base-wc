@@ -9,9 +9,11 @@
  * — a keypress or click is never handled twice.
  */
 import { define } from "./define.ts";
+import { closestFrom } from "./internal/closest.ts";
 import { scopedQuery } from "./query.ts";
 import { RovingElement, type RovingOptions } from "./roving.ts";
 
+/** Pressable `aria-pressed` button; standalone it flips itself, grouped its {@link UIToggleGroup} owns it. */
 export class UIToggle extends HTMLElement {
   static observedAttributes = ["pressed", "disabled"];
 
@@ -21,16 +23,19 @@ export class UIToggle extends HTMLElement {
     return this.closest("ui-toggle-group") !== null;
   }
 
-  get pressed() {
+  /** Whether the toggle is on (the `pressed` attribute). */
+  get pressed(): boolean {
     return this.hasAttribute("pressed");
   }
   set pressed(next: boolean) {
     this.toggleAttribute("pressed", next);
   }
-  get value() {
+  /** Identifier reported in the group's `value` (the `value` attribute). */
+  get value(): string {
     return this.getAttribute("value") ?? "";
   }
-  get disabled() {
+  /** Whether the toggle is disabled. */
+  get disabled(): boolean {
     return this.hasAttribute("disabled");
   }
 
@@ -71,12 +76,14 @@ export class UIToggle extends HTMLElement {
   };
 }
 
+/** Coordinates a set of {@link UIToggle}s: roving focus plus single or `multiple` selection. */
 export class UIToggleGroup extends RovingElement {
   /** `multiple` attribute → any number pressed; otherwise single-select. */
-  get multiple() {
+  get multiple(): boolean {
     return this.hasAttribute("multiple");
   }
-  get value() {
+  /** Pressed toggle values: an array in `multiple` mode, else the single value or `null`. */
+  get value(): string | string[] | null {
     const pressed = this.#allToggles()
       .filter((t) => t.pressed)
       .map((t) => t.value);
@@ -101,7 +108,9 @@ export class UIToggleGroup extends RovingElement {
       items: () => this.#toggles(),
       orientation: "horizontal",
       loop: true,
-      onActivate: (item) => this.#activate(item as UIToggle),
+      onActivate: (item) => {
+        if (item instanceof UIToggle) this.#activate(item);
+      },
     };
   }
 
@@ -114,7 +123,7 @@ export class UIToggleGroup extends RovingElement {
   }
 
   #activate(toggle: UIToggle) {
-    if (!toggle || toggle.disabled) return;
+    if (toggle.disabled) return;
     if (this.multiple) {
       toggle.pressed = !toggle.pressed;
     } else {
@@ -128,8 +137,9 @@ export class UIToggleGroup extends RovingElement {
   }
 
   #onClick = (e: MouseEvent) => {
-    const toggle = (e.target as Element).closest("ui-toggle") as UIToggle | null;
-    if (toggle?.closest("ui-toggle-group") === this) this.#activate(toggle);
+    const toggle = closestFrom(e, "ui-toggle");
+    if (toggle instanceof UIToggle && toggle.closest("ui-toggle-group") === this)
+      this.#activate(toggle);
   };
 }
 

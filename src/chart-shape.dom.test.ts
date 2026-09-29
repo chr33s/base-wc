@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vite-plus/test";
 import { arcPath, areaPath, linePath, pieAngles } from "./chart-shape.ts";
+import { must } from "./test-utils.ts";
 
 // Expected path strings/angles below were captured from real d3-shape
 // (ISC © Mike Bostock) — see chart-shape.ts's own module doc for the port note.
@@ -46,18 +47,18 @@ describe("linePath", () => {
     expect(linePath(withGap, "linear")).toBe("M0,0L10,10M30,30");
   });
 
-  it("skips the gap and connects across it when connectNulls is set", () => {
+  it("skips the gap and connects across it when gaps connect", () => {
     const withGap = [
       { x: 0, y: 0 },
       { x: 10, y: 10 },
       { x: 20, y: null },
       { x: 30, y: 30 },
     ];
-    expect(linePath(withGap, "linear", true)).toBe("M0,0L10,10L30,30");
+    expect(linePath(withGap, "linear", "connect")).toBe("M0,0L10,10L30,30");
   });
 
   it("falls back to a straight line for monotone under 3 points", () => {
-    expect(linePath([PTS[0]!, PTS[1]!], "monotone")).toBe("M0,100L50,20");
+    expect(linePath([must(PTS[0]), must(PTS[1])], "monotone")).toBe("M0,100L50,20");
   });
 });
 
@@ -154,18 +155,18 @@ describe("pieAngles", () => {
   it("carries padAngle through per slice without shrinking the allocated span", () => {
     const slices = pieAngles([1, 1, 1], { padAngle: 0.05 });
     expect(slices.every((s) => s.padAngle === 0.05)).toBe(true);
-    expect(slices[0]!.startAngle).toBe(0);
-    expect(slices[0]!.endAngle).toBeCloseTo(2.0943951023931953, 12);
-    expect(slices[1]!.startAngle).toBeCloseTo(2.0943951023931953, 12);
-    expect(slices[1]!.endAngle).toBeCloseTo(4.1887902047863905, 12);
-    expect(slices[2]!.startAngle).toBeCloseTo(4.1887902047863905, 12);
+    expect(must(slices[0]).startAngle).toBe(0);
+    expect(must(slices[0]).endAngle).toBeCloseTo(2.0943951023931953, 12);
+    expect(must(slices[1]).startAngle).toBeCloseTo(2.0943951023931953, 12);
+    expect(must(slices[1]).endAngle).toBeCloseTo(4.1887902047863905, 12);
+    expect(must(slices[2]).startAngle).toBeCloseTo(4.1887902047863905, 12);
     // The cumulative final boundary can land a ULP off a fresh `2π` due to
     // summation order — not a real discrepancy from d3's own output.
-    expect(slices[2]!.endAngle).toBeCloseTo(Math.PI * 2, 12);
+    expect(must(slices[2]).endAngle).toBeCloseTo(Math.PI * 2, 12);
   });
 
   it("gives a zero-value slice zero angular width", () => {
     const slices = pieAngles([10, 0, 10]);
-    expect(slices[1]!.startAngle).toBe(slices[1]!.endAngle);
+    expect(must(slices[1]).startAngle).toBe(must(slices[1]).endAngle);
   });
 });

@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { ensureButton } from "./parts.ts";
+import { must } from "./test-utils.ts";
 
+/** Narrow a lookup the fixture guarantees is present. */
 afterEach(() => {
   document.body.innerHTML = "";
 });
@@ -40,7 +42,7 @@ describe("ensureButton", () => {
   it("marks generated buttons with the extra generatedMarker and honors insert", () => {
     document.body.innerHTML = `<div><input /></div>`;
     const host = document.body.firstElementChild as HTMLElement;
-    const input = host.querySelector("input")!;
+    const input = must(host.querySelector("input"));
     const btn = ensureButton(host, {
       marker: "data-x-clear",
       generatedMarker: "data-x-generated",

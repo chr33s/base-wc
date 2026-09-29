@@ -20,7 +20,7 @@ const FOCUSABLE = [
 ].join(",");
 
 /** Tabbable descendants of `root`, in DOM order, skipping hidden/inert ones. */
-export function getFocusable(root: Element) {
+export function getFocusable(root: Element): HTMLElement[] {
   return [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
     (el) =>
       !el.hasAttribute("hidden") &&
@@ -29,9 +29,10 @@ export function getFocusable(root: Element) {
   );
 }
 
+/** Options for {@link trapFocus}. */
 export interface FocusTrapOptions {
   /** Element to focus first; defaults to `[autofocus]`, then the first tabbable. */
-  initialFocus?: HTMLElement | null;
+  initialFocus?: HTMLElement | null | undefined;
 }
 
 // Active traps, oldest first. Only the topmost trap handles Tab, so stacked
@@ -46,8 +47,12 @@ const trapStack: symbol[] = [];
  * surface torn down while open (disconnect) must still call release to avoid
  * leaking the document-level capture handler.
  */
-export function trapFocus(container: HTMLElement, options: FocusTrapOptions = {}) {
-  const previouslyFocused = document.activeElement as HTMLElement | null;
+export function trapFocus(
+  container: HTMLElement,
+  options: FocusTrapOptions = {},
+): (restoreFocus?: boolean) => void {
+  const previouslyFocused =
+    document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const token = Symbol("focus-trap");
   trapStack.push(token);
 
@@ -69,7 +74,8 @@ export function trapFocus(container: HTMLElement, options: FocusTrapOptions = {}
       return;
     }
     const first = focusable[0];
-    const last = focusable[focusable.length - 1];
+    const last = focusable.at(-1);
+    if (!first || !last) return;
     const active = document.activeElement;
     if (active && !container.contains(active)) {
       e.preventDefault();

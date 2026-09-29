@@ -4,6 +4,7 @@ import "./chart-bar.ts";
 import "./chart-line.ts";
 import "./chart.ts";
 import type { UIChartBar } from "./chart-bar.ts";
+import { flush, must } from "./test-utils.ts";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -14,14 +15,10 @@ afterEach(() => {
 // and any later mutation defers its re-render the same way. A zero-delay
 // macrotask drains all of it (wiring, registrations, observer deliveries and
 // the coalesced render), so tests assert on settled DOM.
-function flush() {
-  return new Promise((resolve) => setTimeout(resolve));
-}
-
 async function mountChart(inner: string, size = true) {
   document.body.innerHTML = `<ui-chart${size ? ' width="400" height="200"' : ""}>${inner}</ui-chart>`;
   await flush();
-  return document.querySelector("ui-chart")!;
+  return must(document.querySelector("ui-chart"));
 }
 
 function rectAttrs(el: Element) {
@@ -78,8 +75,8 @@ describe("ui-chart-bar: registration", () => {
     );
     const group = chart.querySelector('[data-part="series"]');
     expect(group).not.toBeNull();
-    expect(group!.getAttribute("data-type")).toBe("bar");
-    expect(group!.getAttribute("data-series")).toBe("Revenue");
+    expect(must(group).getAttribute("data-type")).toBe("bar");
+    expect(must(group).getAttribute("data-series")).toBe("Revenue");
     expect((group as HTMLElement).dataset.seriesIndex).toBe("0");
 
     const marks = chart.querySelectorAll('[data-part="mark"]');
@@ -106,14 +103,14 @@ describe("ui-chart-bar: single-series geometry", () => {
     const marks = [...chart.querySelectorAll('[data-part="mark"]')];
     expect(marks.length).toBe(3);
 
-    expect(rectAttrs(marks[0]!)).toEqual({ x: "20", y: "40", width: "93.333", height: "160" });
-    expect(rectAttrs(marks[1]!)).toEqual({
+    expect(rectAttrs(must(marks[0]))).toEqual({ x: "20", y: "40", width: "93.333", height: "160" });
+    expect(rectAttrs(must(marks[1]))).toEqual({
       x: "153.333",
       y: "24",
       width: "93.333",
       height: "176",
     });
-    expect(rectAttrs(marks[2]!)).toEqual({
+    expect(rectAttrs(must(marks[2]))).toEqual({
       x: "286.667",
       y: "65.333",
       width: "93.333",
@@ -149,7 +146,7 @@ describe("ui-chart-bar: single-series geometry", () => {
     // (see the niceLinearDomain regression test below) to [0, 140] rather
     // than the raw [0, 132] — so Feb's bar sits *near* the top with a little
     // headroom, not touching the plot's exact pixel edge.
-    const feb = rectAttrs(marks[1]!);
+    const feb = rectAttrs(must(marks[1]));
     expect(Number(feb.y)).toBeGreaterThan(0);
     expect(Number(feb.y)).toBeCloseTo(11.429, 2);
     expect(Number(feb.height)).toBeCloseTo(188.571, 2);
@@ -177,10 +174,10 @@ describe("ui-chart-bar: stacking", () => {
        <ui-chart-bar key="A" stack="totals"></ui-chart-bar>
        <ui-chart-bar key="B" stack="totals"></ui-chart-bar>`,
     );
-    const groupA = chart.querySelector('[data-series="A"]')!;
-    const groupB = chart.querySelector('[data-series="B"]')!;
-    const markA = rectAttrs(groupA.querySelector('[data-part="mark"][data-index="0"]')!);
-    const markB = rectAttrs(groupB.querySelector('[data-part="mark"][data-index="0"]')!);
+    const groupA = must(chart.querySelector('[data-series="A"]'));
+    const groupB = must(chart.querySelector('[data-series="B"]'));
+    const markA = rectAttrs(must(groupA.querySelector('[data-part="mark"][data-index="0"]')));
+    const markB = rectAttrs(must(groupB.querySelector('[data-part="mark"][data-index="0"]')));
 
     // A: y0=0 -> 200, y1=40 -> 146.667
     expect(markA).toEqual({ x: "20", y: "146.667", width: "93.333", height: "53.333" });
@@ -215,8 +212,8 @@ describe("ui-chart-bar: grouping", () => {
        <ui-chart-bar key="A"></ui-chart-bar>
        <ui-chart-bar key="B"></ui-chart-bar>`,
     );
-    const groupA = chart.querySelector('[data-series="A"]')!;
-    const groupB = chart.querySelector('[data-series="B"]')!;
+    const groupA = must(chart.querySelector('[data-series="A"]'));
+    const groupB = must(chart.querySelector('[data-series="B"]'));
     const marksA = [...groupA.querySelectorAll('[data-part="mark"]')];
     const marksB = [...groupB.querySelectorAll('[data-part="mark"]')];
     expect(marksA.length).toBe(3);
@@ -224,8 +221,8 @@ describe("ui-chart-bar: grouping", () => {
 
     const expectedWidth = "46.667";
     for (let i = 0; i < 3; i++) {
-      const a = rectAttrs(marksA[i]!);
-      const b = rectAttrs(marksB[i]!);
+      const a = rectAttrs(must(marksA[i]));
+      const b = rectAttrs(must(marksB[i]));
       expect(a.width).toBe(expectedWidth);
       expect(b.width).toBe(expectedWidth);
       // Side-by-side, not overlapping: series B starts exactly where A ends
@@ -235,8 +232,8 @@ describe("ui-chart-bar: grouping", () => {
     }
 
     // First category's absolute positions, hand-computed from the band scale.
-    expect(rectAttrs(marksA[0]!).x).toBe("20");
-    expect(rectAttrs(marksB[0]!).x).toBe("66.667");
+    expect(rectAttrs(must(marksA[0])).x).toBe("20");
+    expect(rectAttrs(must(marksB[0])).x).toBe("66.667");
   });
 
   it("regression: re-splits the band across the remaining bars when one is hidden", async () => {
@@ -259,18 +256,20 @@ describe("ui-chart-bar: grouping", () => {
        <ui-chart-bar key="C"></ui-chart-bar>`,
     );
     const firstMark = (key: string) =>
-      rectAttrs(chart.querySelector(`[data-series="${key}"] [data-part="mark"][data-index="0"]`)!);
+      rectAttrs(
+        must(chart.querySelector(`[data-series="${key}"] [data-part="mark"][data-index="0"]`)),
+      );
     // bandwidth 93.333 / 3
     expect(firstMark("A").width).toBe("31.111");
 
-    chart.setSeriesHidden(chart.querySelector<HTMLElement>('ui-chart-bar[key="B"]')!, true);
+    chart.setSeriesHidden(must(chart.querySelector<HTMLElement>('ui-chart-bar[key="B"]')), true);
     await flush();
 
     // bandwidth 93.333 / 2, and C moves up into the freed column.
     expect(firstMark("A")).toMatchObject({ x: "20", width: "46.667" });
     expect(firstMark("C")).toMatchObject({ x: "66.667", width: "46.667" });
 
-    chart.setSeriesHidden(chart.querySelector<HTMLElement>('ui-chart-bar[key="B"]')!, false);
+    chart.setSeriesHidden(must(chart.querySelector<HTMLElement>('ui-chart-bar[key="B"]')), false);
     await flush();
     expect(firstMark("A").width).toBe("31.111");
     expect(firstMark("C").x).toBe("82.222");
@@ -287,12 +286,12 @@ describe("ui-chart-bar: grouping", () => {
        <ui-chart-bar key="A" stack=""></ui-chart-bar>
        <ui-chart-bar key="B" stack=""></ui-chart-bar>`,
     );
-    const b = rectAttrs(chart.querySelector('[data-series="B"] [data-part="mark"]')!);
+    const b = rectAttrs(must(chart.querySelector('[data-series="B"] [data-part="mark"]')));
     // y: linearScale([0,100],[200,0]) -> y(v) = 200 - 2v. Unstacked, B runs
     // from 0 to 30 (y=140, height 60); stacked on A it would start at 40.
     expect(b).toMatchObject({ y: "140", height: "60" });
     // …and they sit side by side, which is what unstacked siblings do.
-    expect(chart.querySelector<UIChartBar>('ui-chart-bar[key="A"]')!.stack).toBeUndefined();
+    expect(must(chart.querySelector<UIChartBar>('ui-chart-bar[key="A"]')).stack).toBeUndefined();
   });
 
   it("gives each stack group its own column alongside unstacked siblings", async () => {
@@ -308,7 +307,7 @@ describe("ui-chart-bar: grouping", () => {
        <ui-chart-bar key="C"></ui-chart-bar>`,
     );
     const firstMark = (key: string) =>
-      rectAttrs(chart.querySelector(`[data-series="${key}"] [data-part="mark"]`)!);
+      rectAttrs(must(chart.querySelector(`[data-series="${key}"] [data-part="mark"]`)));
     // Two slots: the "totals" stack, then the unstacked C — a single band
     // domain (one category) makes the bandwidth the full 400 - padding.
     const a = firstMark("A");
@@ -337,7 +336,9 @@ describe("ui-chart-bar: stack-offset", () => {
     const chart = await mountChart(MIXED);
     // y: linearScale([-50,50],[200,0]) -> y(v) = 100 - 2v
     // B stacks on A's total: y0=40 (y=20), y1=20 (y=60).
-    expect(rectAttrs(chart.querySelector('[data-series="B"] [data-part="mark"]')!)).toMatchObject({
+    expect(
+      rectAttrs(must(chart.querySelector('[data-series="B"] [data-part="mark"]'))),
+    ).toMatchObject({
       y: "20",
       height: "40",
     });
@@ -346,11 +347,13 @@ describe("ui-chart-bar: stack-offset", () => {
   it('splits above/below the baseline with stack-offset="diverging"', async () => {
     document.body.innerHTML = `<ui-chart width="400" height="200" stack-offset="diverging">${MIXED}</ui-chart>`;
     await flush();
-    const chart = document.querySelector("ui-chart")!;
+    const chart = must(document.querySelector("ui-chart"));
     expect(chart.stackOffset).toBe("diverging");
     // B is negative, so it starts at the zero baseline and goes down:
     // y0=-20 (y=140), y1=0 (y=100).
-    expect(rectAttrs(chart.querySelector('[data-series="B"] [data-part="mark"]')!)).toMatchObject({
+    expect(
+      rectAttrs(must(chart.querySelector('[data-series="B"] [data-part="mark"]'))),
+    ).toMatchObject({
       y: "100",
       height: "40",
     });
@@ -367,17 +370,17 @@ describe("ui-chart-bar: identity", () => {
       <ui-chart-axis position="bottom" key="Month" scale="band"></ui-chart-axis>
       <ui-chart-axis position="left" min="0" max="150"></ui-chart-axis>
       <ui-chart-bar key="Revenue"></ui-chart-bar>`;
-    document.querySelector("#from")!.append(chart);
+    must(document.querySelector("#from")).append(chart);
     await flush();
 
-    const bar = chart.querySelector<HTMLElement>("ui-chart-bar")!;
+    const bar = must(chart.querySelector<HTMLElement>("ui-chart-bar"));
     chart.setSeriesHidden(bar, true);
     expect(chart.isSeriesHidden(bar)).toBe(true);
 
     // Moving unregisters and re-registers every child series; a series hidden
     // through the legend must not come back visible because of it. The flag
     // is the element's own native `hidden`, so it travels with the element.
-    document.querySelector("#to")!.append(chart);
+    must(document.querySelector("#to")).append(chart);
     await flush();
     expect(chart.isSeriesHidden(bar)).toBe(true);
     expect(chart.querySelectorAll('[data-part="mark"]').length).toBe(0);
@@ -393,7 +396,7 @@ describe("ui-chart-bar: identity", () => {
        <ui-chart-axis position="left" min="0" max="150"></ui-chart-axis>
        <ui-chart-bar key="Revenue" hidden></ui-chart-bar>`,
     );
-    const bar = chart.querySelector<HTMLElement>("ui-chart-bar")!;
+    const bar = must(chart.querySelector<HTMLElement>("ui-chart-bar"));
     expect(chart.isSeriesHidden(bar)).toBe(true);
     expect(chart.querySelectorAll('[data-part="mark"]').length).toBe(0);
 
@@ -475,7 +478,7 @@ describe("ui-chart-bar: interaction", () => {
     const events: unknown[] = [];
     chart.addEventListener("select", (e) => events.push((e as CustomEvent).detail));
 
-    const mark = chart.querySelectorAll('[data-part="mark"]')[1]!; // Feb, value 132
+    const mark = must(chart.querySelectorAll('[data-part="mark"]')[1]); // Feb, value 132
     mark.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
     expect(events).toEqual([{ series: "Revenue", seriesIndex: 0, index: 1, value: 132 }]);

@@ -1,9 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import "./elements.ts";
-
-const key = (target: EventTarget, k: string) =>
-  target.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
+import { key, must } from "./test-utils.ts";
 
 async function mount(attrs = "") {
   document.body.innerHTML = `
@@ -22,9 +20,19 @@ async function mount(attrs = "") {
       </ui-accordion-item>
     </ui-accordion>`;
   await Promise.resolve();
-  const accordion = document.querySelector("ui-accordion")!;
-  const triggers = [...document.querySelectorAll<HTMLButtonElement>("[data-accordion-trigger]")];
-  const contents = [...document.querySelectorAll<HTMLElement>("[data-accordion-content]")];
+  const accordion = must(document.querySelector("ui-accordion"));
+  const all = document.querySelectorAll<HTMLButtonElement>("[data-accordion-trigger]");
+  const triggers: [HTMLButtonElement, HTMLButtonElement, HTMLButtonElement] = [
+    must(all[0]),
+    must(all[1]),
+    must(all[2]),
+  ];
+  const bodies = document.querySelectorAll<HTMLElement>("[data-accordion-content]");
+  const contents: [HTMLElement, HTMLElement, HTMLElement] = [
+    must(bodies[0]),
+    must(bodies[1]),
+    must(bodies[2]),
+  ];
   return { accordion, triggers, contents };
 }
 
@@ -113,11 +121,11 @@ describe("ui-accordion", () => {
         </ui-accordion-item>
       </ui-accordion>`;
     await Promise.resolve();
-    const outer = document.querySelector<HTMLElement & { value: unknown }>("#outer")!;
-    const innerTrigger = document.querySelector<HTMLButtonElement>("#in-a-trigger")!;
-    const innerContent = document.querySelector<HTMLElement>("#in-a-content")!;
+    const outer = must(document.querySelector<HTMLElement & { value: unknown }>("#outer"));
+    const innerTrigger = must(document.querySelector<HTMLButtonElement>("#in-a-trigger"));
+    const innerContent = must(document.querySelector<HTMLElement>("#in-a-content"));
     const changes: EventTarget[] = [];
-    outer.addEventListener("change", (e) => changes.push(e.target!));
+    outer.addEventListener("change", (e) => changes.push(must(e.target)));
 
     // The outer accordion's value only reads its own items.
     expect(outer.value).toBe("out-a");
@@ -127,7 +135,7 @@ describe("ui-accordion", () => {
     // the only change event is the inner one bubbling through.
     innerTrigger.click();
     expect(innerContent.hidden).toBe(false);
-    expect(document.querySelector("[value='out-a']")!.hasAttribute("open")).toBe(true);
+    expect(must(document.querySelector("[value='out-a']")).hasAttribute("open")).toBe(true);
     expect(outer.value).toBe("out-a"); // inner open state is invisible to outer
     expect(changes).toEqual([document.querySelector("#inner")]);
   });
@@ -157,7 +165,7 @@ describe("ui-accordion", () => {
 
   it("wires children that arrive after the connect microtask", async () => {
     document.body.innerHTML = "<ui-accordion></ui-accordion>";
-    const accordion = document.querySelector("ui-accordion")!;
+    const accordion = must(document.querySelector("ui-accordion"));
     await Promise.resolve(); // wiring attempt runs against the empty host
     accordion.innerHTML = `
       <ui-accordion-item value="late">
@@ -166,7 +174,7 @@ describe("ui-accordion", () => {
       </ui-accordion-item>`;
     await new Promise((r) => setTimeout(r, 0)); // MutationObserver retry
 
-    const trigger = accordion.querySelector<HTMLButtonElement>("[data-accordion-trigger]")!;
+    const trigger = must(accordion.querySelector<HTMLButtonElement>("[data-accordion-trigger]"));
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
     trigger.click();
     expect(accordion.value).toBe("late");

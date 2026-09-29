@@ -4,8 +4,8 @@
  * under RTL. Prefers the nearest `[dir]` attribute, falling back to the computed
  * `direction` style.
  */
-export function isRTL(el: Element) {
+export function isRTL(el: Element): boolean {
   const dir = el.closest("[dir]")?.getAttribute("dir");
   if (dir) return dir.toLowerCase() === "rtl";
-  return typeof getComputedStyle === "function" && getComputedStyle(el).direction === "rtl";
+  return typeof getComputedStyle !== "undefined" && getComputedStyle(el).direction === "rtl";
 }

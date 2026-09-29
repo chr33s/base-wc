@@ -21,14 +21,14 @@ import * as ui from "./index.ts";
 function roster() {
   const source = readFileSync(resolve(import.meta.dirname, "elements.ts"), "utf8");
   const block = source.slice(source.indexOf("const constructors"), source.indexOf("];"));
-  return new Set([...block.matchAll(/\bui\.(UI\w+)\b/g)].map((m) => m[1]));
+  return new Set([...block.matchAll(/\bui\.(UI\w+)\b/g)].flatMap((m) => (m[1] ? [m[1]] : [])));
 }
 
 /** Barrel exports that are actually registered custom elements, by export name. */
 function registeredExports() {
   const found = new Set<string>();
   for (const [name, value] of Object.entries(ui)) {
-    if (typeof value !== "function") continue;
+    if (!(value instanceof Function)) continue;
     // `getName` is the authority on "this class is a registered element", so
     // the shared bases (`UIPopupElement`, `UIChartSeries`, …) are excluded
     // without having to list them.

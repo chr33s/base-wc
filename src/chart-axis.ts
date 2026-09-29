@@ -40,35 +40,45 @@
  * is removed.
  */
 import { ChartChildElement } from "./chart-child.ts";
-import type { AxisRegistration, ChartValue } from "./chart-core.ts";
+import {
+  type AxisPosition,
+  type AxisRegistration,
+  type ChartDimension,
+  type ChartValue,
+  parseChartDimension,
+} from "./chart-core.ts";
 import { numberAttribute } from "./math.ts";
 import { DEFAULT_TICK_COUNT } from "./chart-domain.ts";
-import { type Scale, isDiscreteScale } from "./chart-scale.ts";
+import { type Scale, type ScaleType, isDiscreteScale } from "./chart-scale.ts";
 import type { UIChart } from "./chart.ts";
 import { define } from "./define.ts";
 import { connectOwned } from "./lifecycle.ts";
 
-function formatTick(value: ChartValue) {
+function formatTick(value: ChartValue): string {
   if (value instanceof Date) return value.toLocaleDateString();
   return String(value);
 }
 
+/** A chart axis that registers itself with `ui-chart` and draws its own HTML ticks. */
 export class UIChartAxis extends ChartChildElement implements AxisRegistration {
   static observedAttributes = ["position", "key", "scale", "min", "max", "ticks"];
 
   /** Override the default tick text (`toLocaleDateString` for dates, `String` otherwise). */
   formatter: ((value: ChartValue, index: number) => string) | null = null;
 
-  get position() {
+  /** Edge the axis sits on (`position` attribute, default `bottom`). */
+  get position(): AxisPosition {
     const value = this.getAttribute("position");
     return value === "top" || value === "left" || value === "right" ? value : "bottom";
   }
 
-  get key() {
+  /** Dataset column the domain is read from (`key` attribute); `undefined` for a series-driven axis. */
+  get key(): string | undefined {
     return this.getAttribute("key") ?? undefined;
   }
 
-  get scaleType() {
+  /** Scale family from the `scale` attribute (default `linear`). */
+  get scaleType(): ScaleType {
     const value = this.getAttribute("scale");
     return value === "band" ||
       value === "point" ||
@@ -80,21 +90,21 @@ export class UIChartAxis extends ChartChildElement implements AxisRegistration {
   }
 
   /** Pin the lower end of the domain — a pinned end is never rounded outward. `undefined` (unauthored) means "derive it". */
-  get min() {
+  get min(): number | undefined {
     return numberAttribute(this, "min");
   }
 
   /** Pin the upper end of the domain — a pinned end is never rounded outward. `undefined` (unauthored) means "derive it". */
-  get max() {
+  get max(): number | undefined {
     return numberAttribute(this, "max");
   }
 
   /** Target tick count for a continuous scale (`ticks` attribute); `undefined` falls back to the family default. */
-  get tickCount() {
+  get tickCount(): number | undefined {
     return numberAttribute(this, "ticks");
   }
 
-  protected override register(chart: UIChart) {
+  protected override register(chart: UIChart): () => void {
     return chart.registerAxis(this);
   }
 
@@ -105,7 +115,7 @@ export class UIChartAxis extends ChartChildElement implements AxisRegistration {
    * the registration; tick elements are reused in place, so a re-render
    * updates text/position rather than replacing the DOM.
    */
-  render(scale: Scale | undefined) {
+  render(scale: Scale | undefined): void {
     if (!scale) {
       for (const tick of this.querySelectorAll(':scope > [data-part="tick"]')) tick.remove();
       return;
@@ -137,25 +147,30 @@ export class UIChartAxis extends ChartChildElement implements AxisRegistration {
   }
 }
 
+/** Opts one dimension of the chart into rendered grid lines. */
 export class UIChartGrid extends HTMLElement {
   static observedAttributes = ["axis"];
 
   #unregister: (() => void) | null = null;
 
-  get axis() {
-    return this.getAttribute("axis") === "x" ? "x" : "y";
+  /** The dimension whose grid lines are drawn (`axis` attribute, default `y`). */
+  get axis(): ChartDimension {
+    return parseChartDimension(this.getAttribute("axis"));
   }
 
-  connectedCallback() {
+  /** Register the grid dimension with the owning chart. */
+  connectedCallback(): void {
     this.#connect();
   }
 
-  disconnectedCallback() {
+  /** Remove the grid dimension from the chart. */
+  disconnectedCallback(): void {
     this.#unregister?.();
     this.#unregister = null;
   }
 
-  attributeChangedCallback() {
+  /** Re-register under the new dimension. */
+  attributeChangedCallback(): void {
     // The dimension is the registration here (unlike an axis, which the chart
     // reads back off the element), so a change has to re-register rather than
     // only ask for a re-render.

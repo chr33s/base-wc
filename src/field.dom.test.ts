@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import "./elements.ts";
+import { must } from "./test-utils.ts";
 
+/** The value, or a failure naming the missing element. */
 async function mount(controlAttrs = "required") {
   document.body.innerHTML = `
     <ui-field>
@@ -11,11 +13,11 @@ async function mount(controlAttrs = "required") {
       <p data-field-error>Please enter a valid email.</p>
     </ui-field>`;
   await Promise.resolve();
-  const field = document.querySelector("ui-field")!;
-  const label = document.querySelector<HTMLLabelElement>("[data-field-label]")!;
-  const control = document.querySelector<HTMLInputElement>("[data-field-control]")!;
-  const description = document.querySelector<HTMLElement>("[data-field-description]")!;
-  const error = document.querySelector<HTMLElement>("[data-field-error]")!;
+  const field = must(document.querySelector("ui-field"));
+  const label = must(document.querySelector<HTMLLabelElement>("[data-field-label]"));
+  const control = must(document.querySelector<HTMLInputElement>("[data-field-control]"));
+  const description = must(document.querySelector<HTMLElement>("[data-field-description]"));
+  const error = must(document.querySelector<HTMLElement>("[data-field-error]"));
   return { field, label, control, description, error };
 }
 
@@ -72,9 +74,9 @@ describe("ui-field", () => {
         <p data-field-error>Enter the code.</p>
       </ui-field>`;
     await new Promise((r) => setTimeout(r, 0));
-    const field = document.querySelector("ui-field")!;
-    const otp = document.querySelector("ui-otp-field")!;
-    const error = document.querySelector<HTMLElement>("[data-field-error]")!;
+    const field = must(document.querySelector("ui-field"));
+    const otp = must(document.querySelector("ui-otp-field"));
+    const error = must(document.querySelector<HTMLElement>("[data-field-error]"));
 
     expect(field.reportValidity()).toBe(false); // empty + required → valueMissing
     expect(error.hidden).toBe(false);
@@ -111,7 +113,7 @@ describe("ui-field state attributes", () => {
     document.body.innerHTML = `
       <ui-field><input data-field-control value="preset" /></ui-field>`;
     await Promise.resolve();
-    const field = document.querySelector("ui-field")!;
+    const field = must(document.querySelector("ui-field"));
     // Populated from markup is not the user having changed anything.
     expect(field.hasAttribute("data-dirty")).toBe(false);
   });
@@ -197,8 +199,8 @@ describe("ui-field custom validation", () => {
     control.value = "second@x.com";
     field.reportValidity();
 
-    pending[1](null); // the newer check clears
-    pending[0]("stale error"); // the older one answers late
+    must(pending[1])(null); // the newer check clears
+    must(pending[0])("stale error"); // the older one answers late
     await Promise.resolve();
     await Promise.resolve();
 

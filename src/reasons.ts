@@ -47,3 +47,10 @@ export type ChangeReason =
 export interface OpenChangeDetail {
   readonly reason: ChangeReason;
 }
+
+/**
+ * Whether a programmatic state change should notify listeners: `"emit"` for a
+ * user-driven change that dispatches its `change` event, `"silent"` for a
+ * setter or reset that — like a native control's — dispatches nothing.
+ */
+export type ChangeNotification = "emit" | "silent";

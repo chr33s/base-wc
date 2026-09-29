@@ -1,10 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import "./elements.ts";
+import { key, must } from "./test-utils.ts";
 
-const key = (target: EventTarget, k: string) =>
-  target.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
-
+/** Narrow an indexed lookup the fixture guarantees is present. */
 afterEach(() => {
   document.body.innerHTML = "";
 });
@@ -12,7 +11,7 @@ afterEach(() => {
 describe("ui-toggle (standalone)", () => {
   function mount(attrs = "") {
     document.body.innerHTML = `<ui-toggle value="bold" ${attrs}>B</ui-toggle>`;
-    return document.querySelector("ui-toggle")!;
+    return must(document.querySelector("ui-toggle"));
   }
 
   it("is an aria-pressed button, unpressed and focusable", () => {
@@ -52,59 +51,59 @@ describe("ui-toggle-group", () => {
         <ui-toggle value="underline">U</ui-toggle>
       </ui-toggle-group>`;
     await Promise.resolve();
-    const group = document.querySelector("ui-toggle-group")!;
+    const group = must(document.querySelector("ui-toggle-group"));
     const toggles = [...document.querySelectorAll("ui-toggle")];
     return { group, toggles };
   }
 
   it("keeps a single roving tab stop", async () => {
     const { toggles } = await mount();
-    expect(toggles[0].tabIndex).toBe(0);
-    expect(toggles[1].tabIndex).toBe(-1);
+    expect(must(toggles[0]).tabIndex).toBe(0);
+    expect(must(toggles[1]).tabIndex).toBe(-1);
   });
 
   it("single-select: pressing one releases the others", async () => {
     const { group, toggles } = await mount();
-    toggles[0].click();
-    expect(toggles[0].pressed).toBe(true);
+    must(toggles[0]).click();
+    expect(must(toggles[0]).pressed).toBe(true);
     expect(group.value).toBe("bold");
-    toggles[1].click();
-    expect(toggles[0].pressed).toBe(false);
-    expect(toggles[1].pressed).toBe(true);
+    must(toggles[1]).click();
+    expect(must(toggles[0]).pressed).toBe(false);
+    expect(must(toggles[1]).pressed).toBe(true);
     expect(group.value).toBe("italic");
-    toggles[1].click(); // deselect
-    expect(toggles[1].pressed).toBe(false);
+    must(toggles[1]).click(); // deselect
+    expect(must(toggles[1]).pressed).toBe(false);
     expect(group.value).toBe(null);
   });
 
   it("arrow keys move focus without activating; Space activates", async () => {
     const { group, toggles } = await mount();
-    toggles[0].focus();
+    must(toggles[0]).focus();
     key(group, "ArrowRight");
     expect(document.activeElement).toBe(toggles[1]);
-    expect(toggles[1].pressed).toBe(false); // navigation ≠ activation
+    expect(must(toggles[1]).pressed).toBe(false); // navigation ≠ activation
     key(group, " ");
-    expect(toggles[1].pressed).toBe(true);
+    expect(must(toggles[1]).pressed).toBe(true);
     expect(group.value).toBe("italic");
   });
 
   it("prevents Space's default action on activate so the page doesn't scroll", async () => {
     const { group, toggles } = await mount();
-    toggles[0].focus();
+    must(toggles[0]).focus();
     const e = new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true });
     group.dispatchEvent(e);
     // The grouped toggle defers keys to the group's roving; roving must suppress
     // the default Space action (page scroll) itself.
     expect(e.defaultPrevented).toBe(true);
-    expect(toggles[0].pressed).toBe(true);
+    expect(must(toggles[0]).pressed).toBe(true);
   });
 
   it("multiple-select keeps several pressed and reports an array", async () => {
     const { group, toggles } = await mount("multiple");
-    toggles[0].click();
-    toggles[2].click();
-    expect(toggles[0].pressed).toBe(true);
-    expect(toggles[2].pressed).toBe(true);
+    must(toggles[0]).click();
+    must(toggles[2]).click();
+    expect(must(toggles[0]).pressed).toBe(true);
+    expect(must(toggles[2]).pressed).toBe(true);
     expect(group.value).toEqual(["bold", "underline"]);
   });
 
@@ -124,6 +123,6 @@ describe("ui-toggle-group", () => {
     expect(late.pressed).toBe(true);
     expect(group.value).toEqual(["strike"]);
     expect(onChange).toHaveBeenCalledTimes(1);
-    expect(onChange.mock.calls[0][0].target).toBe(group);
+    expect(must(onChange.mock.calls[0])[0].target).toBe(group);
   });
 });

@@ -43,9 +43,17 @@ import {
 } from "./chart-core.ts";
 import { isDiscreteScale } from "./chart-scale.ts";
 import { SERIES_ATTRIBUTES, UIChartSeries } from "./chart-series.ts";
-import { type Point, areaPath, linePath, round } from "./chart-shape.ts";
+import {
+  type CurveType,
+  type GapPolicy,
+  type Point,
+  areaPath,
+  linePath,
+  round,
+} from "./chart-shape.ts";
 import { define } from "./define.ts";
 
+/** A line series with optional area fill, point marks, stacking and step/monotone curves. */
 export class UIChartLine extends UIChartSeries {
   static observedAttributes = [
     ...SERIES_ATTRIBUTES,
@@ -65,7 +73,7 @@ export class UIChartLine extends UIChartSeries {
    * `undefined` when unauthored, in which case this series reads the normal
    * `key` column against the chart's registered axes instead.
    */
-  get values() {
+  get values(): number[] | undefined {
     const raw = this.getAttribute("values");
     if (raw === null) return undefined;
     const parsed = raw
@@ -76,7 +84,8 @@ export class UIChartLine extends UIChartSeries {
     return parsed.length > 0 ? parsed : undefined;
   }
 
-  get curve() {
+  /** Interpolation from the `curve` attribute (default `linear`). */
+  get curve(): CurveType {
     const value = this.getAttribute("curve");
     return value === "step" ||
       value === "step-before" ||
@@ -86,20 +95,23 @@ export class UIChartLine extends UIChartSeries {
       : "linear";
   }
 
-  get area() {
+  /** Whether the region under the line is filled (`area` attribute). */
+  get area(): boolean {
     return this.hasAttribute("area");
   }
 
-  get marks() {
+  /** Whether a circle is drawn at each point (`marks` attribute). */
+  get marks(): boolean {
     return this.hasAttribute("marks");
   }
 
   /** The stack group this area belongs to — `undefined` unless `area` is also set (a stacked *bare* line has no visual meaning, so only an area stacks). An empty attribute is not an id — `stack=""` means unstacked. */
-  get stack() {
+  get stack(): string | undefined {
     return this.area ? this.getAttribute("stack") || undefined : undefined;
   }
 
-  get connectNulls() {
+  /** Whether the line bridges missing values instead of breaking (`connect-nulls` attribute). */
+  get connectNulls(): boolean {
     return this.hasAttribute("connect-nulls");
   }
 }
@@ -112,7 +124,10 @@ export class UIChartLine extends UIChartSeries {
  * sparkline is `<ui-chart><ui-chart-line values="…"></ui-chart-line></ui-chart>`
  * with no `<ui-chart-axis>` children).
  */
-function sparklinePoints(values: readonly number[], plot: { width: number; height: number }) {
+function sparklinePoints(
+  values: readonly number[],
+  plot: { width: number; height: number },
+): Point[] {
   const finite = values.filter((v) => Number.isFinite(v));
   const lo = finite.length > 0 ? Math.min(...finite) : 0;
   const hi = finite.length > 0 ? Math.max(...finite) : 1;
@@ -150,21 +165,26 @@ function cartesianPoints(context: SeriesRenderContext, line: UIChartLine) {
 }
 
 /** This series' marks for a resolved set of points: the optional area fill (down to `baseline`), the stroke, and the optional per-point circles. */
-function lineMarks(points: readonly Point[], baseline: number | number[], line: UIChartLine) {
+function lineMarks(
+  points: readonly Point[],
+  baseline: number | number[],
+  line: UIChartLine,
+): MarkDescriptor[] {
+  const gaps: GapPolicy = line.connectNulls ? "connect" : "break";
   const marks: MarkDescriptor[] = [];
   if (line.area) {
     marks.push({
       key: "area",
       tag: "path",
       part: "area",
-      attrs: { d: areaPath(points, baseline, line.curve, line.connectNulls) },
+      attrs: { d: areaPath(points, baseline, line.curve, gaps) },
     });
   }
   marks.push({
     key: "stroke",
     tag: "path",
     part: "stroke",
-    attrs: { d: linePath(points, line.curve, line.connectNulls), fill: "none" },
+    attrs: { d: linePath(points, line.curve, gaps), fill: "none" },
   });
   if (line.marks) {
     points.forEach((point, i) => {

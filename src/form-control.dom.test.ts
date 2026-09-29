@@ -2,9 +2,9 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { FORM_CONTROL_TAGS } from "./form-control.ts";
 import "./elements.ts";
+import { flush, must } from "./test-utils.ts";
 
-const flush = () => new Promise((r) => setTimeout(r, 0));
-
+/** The value, or a failure naming the missing element. */
 afterEach(() => {
   document.body.innerHTML = "";
 });
@@ -34,7 +34,7 @@ describe("required / valueMissing (via ui-otp-field)", () => {
   it("reports valueMissing while empty and turns valid once filled", async () => {
     document.body.innerHTML = `<ui-otp-field name="code" length="4" required></ui-otp-field>`;
     await flush();
-    const otp = document.querySelector("ui-otp-field")!;
+    const otp = must(document.querySelector("ui-otp-field"));
     expect(otp.validity.valueMissing).toBe(true);
     expect(otp.validity.valid).toBe(false);
     expect(otp.validationMessage).toBe("Please fill out this field.");
@@ -57,7 +57,7 @@ describe("adopted-native mode stays inert", () => {
     document.body.innerHTML = `
       <ui-slider required><input type="range" name="v" value="40" /></ui-slider>`;
     await flush();
-    const slider = document.querySelector("ui-slider")!;
+    const slider = must(document.querySelector("ui-slider"));
     // The adopted native input is the submitting control; the host's own
     // constraint validation must not double up on top of it.
     expect(slider.validity.valid).toBe(true);

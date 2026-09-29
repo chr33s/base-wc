@@ -2,9 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { AutocompleteChangeDetail } from "./autocomplete.ts";
 import "./elements.ts";
-
-const key = (target: EventTarget, k: string) =>
-  target.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
+import { key, must } from "./test-utils.ts";
 
 const type = (input: HTMLInputElement, value: string) => {
   input.value = value;
@@ -23,11 +21,11 @@ async function mount() {
       </ui-autocomplete-popup>
     </ui-autocomplete>`;
   await Promise.resolve();
-  const ac = document.querySelector("ui-autocomplete")!;
+  const ac = must(document.querySelector("ui-autocomplete"));
   ac.items = CITIES;
-  const input = document.querySelector<HTMLInputElement>("[data-autocomplete-input]")!;
-  const list = document.querySelector("ui-autocomplete-list")!;
-  const empty = document.querySelector("ui-autocomplete-empty")!;
+  const input = must(document.querySelector<HTMLInputElement>("[data-autocomplete-input]"));
+  const list = must(document.querySelector("ui-autocomplete-list"));
+  const empty = must(document.querySelector("ui-autocomplete-empty"));
   return { ac, input, list, empty };
 }
 
@@ -76,13 +74,13 @@ describe("ui-autocomplete", () => {
     expect(input.value).toBe("Lisbon");
     expect(ac.value).toBe("Lisbon");
     expect(input.getAttribute("aria-expanded")).toBe("false");
-    expect(onChange.mock.calls[0][0]).toEqual({ value: "Lisbon", reason: "item-press" });
+    expect(onChange.mock.calls[0]?.[0]).toEqual({ value: "Lisbon", reason: "item-press" });
   });
 
   it("commits a suggestion on click", async () => {
     const { input, list } = await mount();
     type(input, "l");
-    const row = list.querySelector<HTMLElement>('[data-index="2"]')!; // Lisbon
+    const row = must(list.querySelector<HTMLElement>('[data-index="2"]')); // Lisbon
     row.click();
     expect(input.value).toBe("Lisbon");
   });

@@ -17,6 +17,7 @@ import { define } from "./define.ts";
 import { numberAttribute } from "./math.ts";
 import { FormAssociatedElement, type FormControlOptions } from "./form-control.ts";
 
+/** Form-associated one-time-code field: `length` single-character cells behind one `value`. */
 export class UIOtpField extends FormAssociatedElement {
   static observedAttributes = ["disabled", "length", "mode", "mask"];
 
@@ -33,10 +34,12 @@ export class UIOtpField extends FormAssociatedElement {
   /** Cells whose listeners are already attached (cells persist across re-syncs). */
   #cellWired = new WeakSet<HTMLInputElement>();
 
-  get length() {
+  /** Number of cells (`length` attribute, default 6, at least 1). */
+  get length(): number {
     return Math.max(1, numberAttribute(this, "length", 6));
   }
-  get value() {
+  /** The concatenated cell characters. Setting distributes a normalized string across the cells. */
+  get value(): string {
     return this.#cells.map((c) => c.value).join("");
   }
   set value(next: string) {
@@ -91,8 +94,10 @@ export class UIOtpField extends FormAssociatedElement {
       this.#cellWired.add(cell);
       // Listeners resolve the cell's index at event time: a `length` change can
       // re-rank cells, and a cell past the current length must be inert.
-      cell.addEventListener("input", () => this.#withIndex(cell, (n) => this.#onInput(n)));
-      cell.addEventListener("keydown", (e) => this.#withIndex(cell, (n) => this.#onKeydown(n, e)));
+      cell.addEventListener("input", () => this.#withIndex(cell, (n) => this.#onInput(cell, n)));
+      cell.addEventListener("keydown", (e) =>
+        this.#withIndex(cell, (n) => this.#onKeydown(cell, n, e)),
+      );
       cell.addEventListener("paste", (e) => this.#withIndex(cell, (n) => this.#onPaste(n, e)));
       cell.addEventListener("focus", () => cell.select?.());
     });
@@ -117,12 +122,11 @@ export class UIOtpField extends FormAssociatedElement {
       .join("");
   }
 
-  #onInput(index: number) {
-    const cell = this.#cells[index];
+  #onInput(cell: HTMLInputElement, index: number) {
     const normalized = this.#normalize(cell.value);
     if (normalized.length <= 1) {
       cell.value = normalized;
-      if (normalized && index < this.length - 1) this.#cells[index + 1].focus();
+      if (normalized && index < this.length - 1) this.#cells[index + 1]?.focus();
     } else {
       this.#distribute(index, normalized); // fast typing / autofill of multiple chars
     }
@@ -132,27 +136,27 @@ export class UIOtpField extends FormAssociatedElement {
   #distribute(start: number, chars: string) {
     let i = start;
     for (const char of chars) {
-      if (i >= this.length) break;
-      this.#cells[i].value = char;
+      const cell = this.#cells[i];
+      if (i >= this.length || !cell) break;
+      cell.value = char;
       i += 1;
     }
-    this.#cells[Math.min(i, this.length - 1)].focus();
+    this.#cells[Math.min(i, this.length - 1)]?.focus();
   }
 
-  #onKeydown(index: number, e: KeyboardEvent) {
-    const cell = this.#cells[index];
-    if (e.key === "Backspace" && cell.value === "" && index > 0) {
+  #onKeydown(cell: HTMLInputElement, index: number, e: KeyboardEvent) {
+    const prev = this.#cells[index - 1];
+    if (e.key === "Backspace" && cell.value === "" && prev) {
       e.preventDefault();
-      const prev = this.#cells[index - 1];
       prev.value = "";
       prev.focus();
       this.#commit();
-    } else if (e.key === "ArrowLeft" && index > 0) {
+    } else if (e.key === "ArrowLeft" && prev) {
       e.preventDefault();
-      this.#cells[index - 1].focus();
+      prev.focus();
     } else if (e.key === "ArrowRight" && index < this.length - 1) {
       e.preventDefault();
-      this.#cells[index + 1].focus();
+      this.#cells[index + 1]?.focus();
     }
   }
 

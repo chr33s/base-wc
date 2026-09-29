@@ -31,6 +31,7 @@ import { clampSnap, numberAttribute, toNumber } from "./math.ts";
 import { adoptedControl, fireNativeChange, managedDisabled } from "./native.ts";
 import { trackPointerDrag } from "./pointer-drag.ts";
 import { scopedQuery } from "./query.ts";
+import type { ChangeNotification } from "./reasons.ts";
 
 /** The mode-dependent surface, bound once at wire time. */
 interface NumberMode {
@@ -46,22 +47,22 @@ interface NumberMode {
   step(steps: number): void;
 }
 
+/** Form-associated numeric input with steppers, keyboard stepping and a drag-to-scrub area. */
 export class UINumberField extends FormAssociatedElement {
   static observedAttributes = ["disabled"];
 
   protected override formControlOptions(): FormControlOptions {
     return {
       adopted: () => this.#nativeMode,
-      value: () => (this.#ready ? this.#input.value : null),
+      value: () => this.#input?.value ?? null,
       onReset: () => this.#onFormReset(),
     };
   }
   protected override onFormDisabled() {
-    if (this.#ready) this.#applyDisabled();
+    if (this.#input) this.#applyDisabled();
   }
-  /** True once the input is adopted; `wired` only flips when initialize() returns. */
-  #ready = false;
-  #input!: HTMLInputElement;
+  /** The adopted input; set once in initialize(), before `wired` flips. */
+  #input: HTMLInputElement | null = null;
   #inc: HTMLElement | null = null;
   #dec: HTMLElement | null = null;
   #scrub: HTMLElement | null = null;
@@ -82,10 +83,10 @@ export class UINumberField extends FormAssociatedElement {
     form: () => this.formControl.form,
     name: () => this.getAttribute("name"),
     get: () => this.#value,
-    set: (n) => this.#commit(n, false),
+    set: (n) => this.#commit(n, "silent"),
     disabled: () => this.hasAttribute("disabled") || this.formDisabled,
     bound: (attr) => this.getAttribute(attr),
-    step: (steps) => this.#stepBy(steps, false),
+    step: (steps) => this.#stepBy(steps, "step"),
   };
 
   /** Native-first strategy: the adopted input is the source of truth. */
@@ -104,19 +105,20 @@ export class UINumberField extends FormAssociatedElement {
     };
   }
 
-  override get form() {
+  override get form(): HTMLFormElement | null {
     return this.#mode.form();
   }
-  override get name() {
+  override get name(): string | null {
     return this.#mode.name();
   }
-  get value() {
+  /** Committed numeric value, or `null` when empty. Setting never dispatches events. */
+  get value(): number | null {
     return this.#mode.get();
   }
   set value(next: number | null) {
     this.#mode.set(next);
   }
-  override get disabled() {
+  override get disabled(): boolean {
     return this.#mode.disabled();
   }
 
@@ -150,7 +152,6 @@ export class UINumberField extends FormAssociatedElement {
     this.#inc = scopedQuery(this, "[data-number-increment]")[0] ?? null;
     this.#dec = scopedQuery(this, "[data-number-decrement]")[0] ?? null;
     this.#scrub = scopedQuery(this, "[data-number-scrub]")[0] ?? null;
-    this.#ready = true;
     this.#wireScrub();
 
     // Native-first: a `type="number"` input is the control (typing/arrows/spinner
@@ -158,7 +159,7 @@ export class UINumberField extends FormAssociatedElement {
     this.#nativeMode = input.type === "number";
     if (this.#nativeMode) {
       this.#mode = this.#nativeStrategy(input);
-      this.#wireNative();
+      this.#wireNative(input);
       return true;
     }
 
@@ -175,10 +176,10 @@ export class UINumberField extends FormAssociatedElement {
     input.addEventListener("input", this.#onInput);
     input.addEventListener("keydown", this.#onKeydown);
     input.addEventListener("blur", this.#onBlur);
-    this.#inc?.addEventListener("click", () => this.#stepBy(1, false));
-    this.#dec?.addEventListener("click", () => this.#stepBy(-1, false));
+    this.#inc?.addEventListener("click", () => this.#stepBy(1, "step"));
+    this.#dec?.addEventListener("click", () => this.#stepBy(-1, "step"));
 
-    this.#commit(this.#parse(this.getAttribute("value") ?? input.value), false);
+    this.#commit(this.#parse(this.getAttribute("value") ?? input.value), "silent");
     return true;
   }
 
@@ -188,23 +189,24 @@ export class UINumberField extends FormAssociatedElement {
    * and the scrub area (both via native `stepUp()`/`stepDown()`), and reflect the
    * buttons' disabled state at the bounds.
    */
-  #wireNative() {
+  #wireNative(input: HTMLInputElement) {
     // Honor a `disabled` authored on either the host or the native input itself;
     // never clobber an input the author disabled directly.
     this.#applyDisabled();
     this.#inc?.addEventListener("click", () => this.#nativeStep(1));
     this.#dec?.addEventListener("click", () => this.#nativeStep(-1));
-    this.#input.addEventListener("input", this.#reflectButtons);
+    input.addEventListener("input", this.#reflectButtons);
     this.#reflectButtons();
   }
 
   #nativeStep(steps: number) {
-    if (this.disabled || steps === 0) return;
+    const input = this.#input;
+    if (!input || this.disabled || steps === 0) return;
     const method = steps > 0 ? "stepUp" : "stepDown";
-    for (let i = 0; i < Math.abs(steps); i++) this.#input[method]();
+    for (let i = 0; i < Math.abs(steps); i++) input[method]();
     // Stepping emulates user input, so fire the events a form expects from it
     // (unlike the programmatic value setter, which stays silent).
-    fireNativeChange(this.#input);
+    fireNativeChange(input);
   }
 
   override disconnectedCallback() {
@@ -235,7 +237,7 @@ export class UINumberField extends FormAssociatedElement {
       // same reset pass; re-reflect the stepper bounds once it has.
       queueMicrotask(() => this.#reflectButtons());
     } else {
-      this.#commit(this.#parse(this.getAttribute("value")), false);
+      this.#commit(this.#parse(this.getAttribute("value")), "silent");
     }
   }
 
@@ -275,22 +277,23 @@ export class UINumberField extends FormAssociatedElement {
     return Number.isFinite(n) ? n : null;
   }
 
-  #commit(n: number | null, emit: boolean) {
-    if (!this.#ready) return;
+  #commit(n: number | null, notify: ChangeNotification) {
+    const input = this.#input;
+    if (!input) return;
     if (n == null) {
       this.#value = null;
-      this.#input.value = "";
-      this.#input.removeAttribute("aria-valuenow");
+      input.value = "";
+      input.removeAttribute("aria-valuenow");
       this.formControl.setValue(null);
     } else {
       const v = clampSnap(n, { min: this.#min(), max: this.#max(), step: this.#step() });
       this.#value = v;
-      this.#input.value = String(v);
-      this.#input.setAttribute("aria-valuenow", String(v));
+      input.value = String(v);
+      input.setAttribute("aria-valuenow", String(v));
       this.formControl.setValue(String(v));
     }
     this.#reflectButtons();
-    if (emit) {
+    if (notify === "emit") {
       this.dispatchEvent(
         new CustomEvent("change", { bubbles: true, detail: { value: this.#value } }),
       );
@@ -307,46 +310,48 @@ export class UINumberField extends FormAssociatedElement {
     this.#dec?.toggleAttribute("disabled", this.disabled || atMin);
   };
 
-  #stepBy(direction: number, large: boolean) {
+  #stepBy(direction: number, size: "step" | "large") {
     if (this.disabled) return;
-    const amount = large ? this.#largeStep() : this.#step();
+    const amount = size === "large" ? this.#largeStep() : this.#step();
     const current = this.#value ?? this.#min() ?? 0;
-    this.#commit(current + direction * amount, true);
+    this.#commit(current + direction * amount, "emit");
   }
 
   #onInput = () => {
     // Free-form while typing; reflect the raw text as the form value and update
     // aria-valuenow when it parses, but defer clamping/snapping to commit.
-    this.formControl.setValue(this.#input.value);
-    const n = this.#parse(this.#input.value);
-    if (n != null) this.#input.setAttribute("aria-valuenow", String(n));
+    const input = this.#input;
+    if (!input) return;
+    this.formControl.setValue(input.value);
+    const n = this.#parse(input.value);
+    if (n != null) input.setAttribute("aria-valuenow", String(n));
   };
 
-  #onBlur = () => this.#commit(this.#parse(this.#input.value), true);
+  #onBlur = () => this.#commit(this.#parse(this.#input?.value ?? null), "emit");
 
   #onKeydown = (e: KeyboardEvent) => {
     switch (e.key) {
       case "ArrowUp":
         e.preventDefault();
-        this.#stepBy(1, false);
+        this.#stepBy(1, "step");
         break;
       case "ArrowDown":
         e.preventDefault();
-        this.#stepBy(-1, false);
+        this.#stepBy(-1, "step");
         break;
       case "PageUp":
         e.preventDefault();
-        this.#stepBy(1, true);
+        this.#stepBy(1, "large");
         break;
       case "PageDown":
         e.preventDefault();
-        this.#stepBy(-1, true);
+        this.#stepBy(-1, "large");
         break;
       case "Home": {
         const min = this.#min();
         if (min != null) {
           e.preventDefault();
-          this.#commit(min, true);
+          this.#commit(min, "emit");
         }
         break;
       }
@@ -354,12 +359,12 @@ export class UINumberField extends FormAssociatedElement {
         const max = this.#max();
         if (max != null) {
           e.preventDefault();
-          this.#commit(max, true);
+          this.#commit(max, "emit");
         }
         break;
       }
       case "Enter":
-        this.#commit(this.#parse(this.#input.value), true);
+        this.#commit(this.#parse(this.#input?.value ?? null), "emit");
         break;
     }
   };

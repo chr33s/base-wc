@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import "./elements.ts";
+import { must } from "./test-utils.ts";
 
+/** The value, or a failure naming the missing element. */
 async function mount(attrs = "") {
   document.body.innerHTML = `
     <ui-collapsible ${attrs}>
@@ -9,9 +11,9 @@ async function mount(attrs = "") {
       <div data-collapsible-content>Body</div>
     </ui-collapsible>`;
   await Promise.resolve();
-  const collapsible = document.querySelector("ui-collapsible")!;
-  const trigger = document.querySelector<HTMLButtonElement>("[data-collapsible-trigger]")!;
-  const content = document.querySelector<HTMLElement>("[data-collapsible-content]")!;
+  const collapsible = must(document.querySelector("ui-collapsible"));
+  const trigger = must(document.querySelector<HTMLButtonElement>("[data-collapsible-trigger]"));
+  const content = must(document.querySelector<HTMLElement>("[data-collapsible-content]"));
   return { collapsible, trigger, content };
 }
 

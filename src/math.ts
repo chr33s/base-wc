@@ -17,7 +17,7 @@
  */
 
 /** `n` clamped into `[min, max]`. */
-export function clamp(n: number, min: number, max: number) {
+export function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
 }
 
@@ -31,9 +31,11 @@ export function clamp(n: number, min: number, max: number) {
  * does not come from `getAttribute` (`ui-slider` reads an adopted
  * `<input type="range">`'s `min`/`max`/`step` properties).
  */
+/** Parse `raw`, yielding `undefined` when it carries no finite number. */
 export function toNumber(raw: string | null | undefined): number | undefined;
+/** Parse `raw`, yielding `fallback` when it carries no finite number. */
 export function toNumber(raw: string | null | undefined, fallback: number): number;
-export function toNumber(raw: string | null | undefined, fallback?: number) {
+export function toNumber(raw: string | null | undefined, fallback?: number): number | undefined {
   if (raw == null || raw.trim() === "") return fallback;
   const n = Number(raw);
   return Number.isFinite(n) ? n : fallback;
@@ -43,12 +45,20 @@ export function toNumber(raw: string | null | undefined, fallback?: number) {
  * Read a numeric attribute with {@link toNumber}'s rules. Omit `fallback` to
  * get `undefined` for "unauthored, derive it".
  */
+/** Read attribute `name` as a finite number, or `undefined` when unauthored or unparsable. */
 export function numberAttribute(element: Element, name: string): number | undefined;
+/** Read attribute `name` as a finite number, or `fallback` when unauthored or unparsable. */
 export function numberAttribute(element: Element, name: string, fallback: number): number;
-export function numberAttribute(element: Element, name: string, fallback?: number) {
-  return toNumber(element.getAttribute(name), fallback as number);
+export function numberAttribute(
+  element: Element,
+  name: string,
+  fallback?: number,
+): number | undefined {
+  const raw = element.getAttribute(name);
+  return fallback === undefined ? toNumber(raw) : toNumber(raw, fallback);
 }
 
+/** Bounds and step grid for {@link clampSnap}. */
 export interface ClampSnapBounds {
   /** Lower bound; also anchors the step grid. `null`/absent → unbounded (grid anchors at 0). */
   min?: number | null;
@@ -59,7 +69,7 @@ export interface ClampSnapBounds {
 }
 
 /** Snap `n` to the step grid, clamp into `[min, max]`, and trim float noise. */
-export function clampSnap(n: number, { min, max, step }: ClampSnapBounds) {
+export function clampSnap(n: number, { min, max, step }: ClampSnapBounds): number {
   const base = min ?? 0;
   let v = base + Math.round((n - base) / step) * step;
   if (min != null) v = Math.max(min, v);

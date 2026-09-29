@@ -34,6 +34,7 @@ import { syncRangeState } from "./range.ts";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const DEG2RAD = Math.PI / 180;
 
+/** Read-only scalar gauge drawn as an SVG arc, exposed as `role=meter`. */
 export class UIGauge extends HTMLElement {
   static observedAttributes = ["value", "min", "max", "start-angle", "end-angle", "thickness"];
 
@@ -43,21 +44,27 @@ export class UIGauge extends HTMLElement {
   #viewBoxWidth = 200;
   #viewBoxHeight = 200;
 
+  /** Range minimum (default 0). */
   get min() {
     return numberAttribute(this, "min", 0);
   }
+  /** Range maximum (default 100). */
   get max() {
     return numberAttribute(this, "max", 100);
   }
+  /** Current value (default 0). */
   get value() {
     return numberAttribute(this, "value", 0);
   }
+  /** Arc start angle in degrees (default -120). */
   get startAngle() {
     return numberAttribute(this, "start-angle", -120);
   }
+  /** Arc end angle in degrees (default 120). */
   get endAngle() {
     return numberAttribute(this, "end-angle", 120);
   }
+  /** Arc stroke thickness in viewBox units (default 12). */
   get thickness() {
     return numberAttribute(this, "thickness", 12);
   }

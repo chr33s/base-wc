@@ -40,16 +40,17 @@ export type DragDirection = 1 | -1;
 /** Axis a slop-gated gesture must travel along to count as a drag. */
 export type DragAxis = "x" | "y";
 
+/** Callbacks and gates configuring one {@link trackPointerDrag} arm. */
 export interface PointerDragOptions {
   /** Called with the `pointerdown`; return `false` to reject the drag (e.g. disabled). */
-  onStart?: (e: PointerEvent) => boolean | void;
+  onStart?: ((e: PointerEvent) => boolean | void) | undefined;
   /**
    * Called once when a slop-gated gesture is recognised as a drag, with the
    * `pointermove` that recognised it — the point to measure from, since an
    * origin at the press would carry the slop into the very first offset. Fires
    * immediately after `onStart` when there is no slop.
    */
-  onCommit?: (e: PointerEvent) => void;
+  onCommit?: ((e: PointerEvent) => void) | undefined;
   /** Called for every `pointermove` while the drag is committed. */
   onMove: (e: PointerEvent) => void;
   /**
@@ -58,19 +59,19 @@ export interface PointerDragOptions {
    * caller that suspended something on the press always gets to restore it.
    * `committed` says whether the gesture ever became a drag.
    */
-  onEnd?: (e: PointerEvent | undefined, committed: boolean) => void;
+  onEnd?: ((e: PointerEvent | undefined, committed: boolean) => void) | undefined;
   /**
    * Travel (px) along an axis before the press counts as a drag rather than a
    * tap or the start of a scroll. Default `0` — the drag commits on the press.
    */
-  slop?: number;
+  slop?: number | undefined;
   /**
    * Restrict a slop-gated gesture to one axis: the stroke commits only if that
    * axis clears the slop first (ties go to it). Read per gesture when passed as
    * a function, so a component whose axis follows a live attribute stays
    * correct. Default: either axis commits.
    */
-  axis?: DragAxis | (() => DragAxis | undefined);
+  axis?: DragAxis | (() => DragAxis | undefined) | undefined;
   /**
    * Which *way* along {@link PointerDragOptions.axis} counts as this control's
    * gesture: `1` for increasing coordinates (right / down), `-1` for decreasing
@@ -81,7 +82,7 @@ export interface PointerDragOptions {
    * pointer and cycles the panel open and shut with zero reveal. Read per
    * gesture when passed as a function. Default: either way commits.
    */
-  direction?: DragDirection | (() => DragDirection | undefined);
+  direction?: DragDirection | (() => DragDirection | undefined) | undefined;
   /**
    * What to do when the cross axis wins the race. `"end"` (the default)
    * releases the gesture immediately, so the browser's own scrolling takes over
@@ -90,7 +91,7 @@ export interface PointerDragOptions {
    * for a caller that suspended something at press time and wants it restored
    * then rather than mid-stroke.
    */
-  crossAxis?: "end" | "await-release";
+  crossAxis?: "end" | "await-release" | undefined;
 }
 
 /**
@@ -100,7 +101,7 @@ export interface PointerDragOptions {
  * on `el` (inert while detached, collected with the element), so a component
  * moved and re-inserted keeps working without re-wiring.
  */
-export function trackPointerDrag(el: HTMLElement, options: PointerDragOptions) {
+export function trackPointerDrag(el: HTMLElement, options: PointerDragOptions): () => void {
   const slop = options.slop ?? 0;
   /**
    * `pending` is armed but unproven, `dragging` is committed, and `disowned` is
@@ -183,21 +184,20 @@ export function trackPointerDrag(el: HTMLElement, options: PointerDragOptions) {
     const dx = e.clientX - origin.x;
     const dy = e.clientY - origin.y;
     if (Math.abs(dx) < slop && Math.abs(dy) < slop) return null;
-    const wanted = typeof options.axis === "function" ? options.axis() : options.axis;
+    const wanted = options.axis instanceof Function ? options.axis() : options.axis;
     if (!wanted) return "commit";
     const along = wanted === "y" ? dy : dx;
     const across = wanted === "y" ? dx : dy;
     // Ties go to the wanted axis: a perfectly diagonal stroke is far likelier
     // to be a deliberate drag than an incidental scroll.
     if (Math.abs(across) > Math.abs(along)) return "reject";
-    const sign = typeof options.direction === "function" ? options.direction() : options.direction;
+    const sign = options.direction instanceof Function ? options.direction() : options.direction;
     return sign && Math.sign(along) !== sign ? "reject" : "commit";
   };
 
   // Only the pointer that started the gesture drives it — a second finger
   // landing mid-drag must not yank the value to its own coordinates.
-  const onMove = (e: Event) => {
-    const move = e as PointerEvent;
+  const onMove = (move: PointerEvent) => {
     if (!isActive(move) || phase === "disowned") return;
     if (phase === "pending") {
       const verdict = classify(move);
@@ -211,13 +211,11 @@ export function trackPointerDrag(el: HTMLElement, options: PointerDragOptions) {
     }
     options.onMove(move);
   };
-  const onUp = (e: Event) => {
-    const up = e as PointerEvent;
+  const onUp = (up: PointerEvent) => {
     if (isActive(up)) end(up);
   };
 
-  const onDown = (e: Event) => {
-    const down = e as PointerEvent;
+  const onDown = (down: PointerEvent) => {
     if (phase !== "idle") {
       // A live drag holds capture for its pointer, so ignore the newcomer. No
       // capture on an identified drag means the release went missing entirely

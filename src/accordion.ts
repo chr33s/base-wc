@@ -16,11 +16,14 @@ import { scopedQuery } from "./query.ts";
 import { resolveNavKey } from "./roving.ts";
 import { syncDisclosure } from "./collapsible.ts";
 
+/** The accordion host: owns single/multiple open policy and header keyboard navigation. */
 export class UIAccordion extends LightDomElement {
-  get multiple() {
+  /** Whether several items may be open at once (`multiple` attribute). */
+  get multiple(): boolean {
     return this.hasAttribute("multiple");
   }
-  get value() {
+  /** Open item values: an array in `multiple` mode, else the single open value or `null`. */
+  get value(): string[] | string | null {
     const open = this.#items()
       .filter((item) => item.open)
       .map((item) => item.value);
@@ -97,7 +100,7 @@ export class UIAccordion extends LightDomElement {
 
   #onKeydown = (e: KeyboardEvent) => {
     const triggers = this.#triggers();
-    const current = triggers.indexOf(document.activeElement as HTMLElement);
+    const current = triggers.findIndex((trigger) => trigger === document.activeElement);
     if (current < 0) return;
     const target = resolveNavKey(e.key, triggers.length, current, {
       orientation: "vertical",
@@ -105,16 +108,19 @@ export class UIAccordion extends LightDomElement {
     });
     if (target !== null) {
       e.preventDefault();
-      triggers[target].focus();
+      triggers[target]?.focus();
     }
   };
 }
 
+/** One collapsible section; `open` reflects its expanded state. */
 export class UIAccordionItem extends HTMLElement {
-  get open() {
+  /** Whether the item is expanded (`open` attribute). */
+  get open(): boolean {
     return this.hasAttribute("open");
   }
-  get value() {
+  /** The `value` attribute, or the item's index among the owning accordion's items. */
+  get value(): string {
     const explicit = this.getAttribute("value");
     if (explicit != null) return explicit;
     // Fall back to the index within the owning accordion's own items (nested

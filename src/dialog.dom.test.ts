@@ -1,10 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import "./elements.ts";
+import { key, must } from "./test-utils.ts";
 
-const key = (target: EventTarget, k: string) =>
-  target.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
-
+/** The value, or a failure naming the missing element. */
 async function mount(attrs = "") {
   document.body.innerHTML = `
     <ui-dialog ${attrs}>
@@ -17,10 +16,10 @@ async function mount(attrs = "") {
       </ui-dialog-popup>
     </ui-dialog>`;
   await Promise.resolve();
-  const dialog = document.querySelector("ui-dialog")!;
-  const trigger = document.querySelector<HTMLButtonElement>("[data-dialog-trigger]")!;
-  const popup = document.querySelector("ui-dialog-popup")!;
-  const ok = document.querySelector<HTMLButtonElement>("#ok")!;
+  const dialog = must(document.querySelector("ui-dialog"));
+  const trigger = must(document.querySelector<HTMLButtonElement>("[data-dialog-trigger]"));
+  const popup = must(document.querySelector("ui-dialog-popup"));
+  const ok = must(document.querySelector<HTMLButtonElement>("#ok"));
   return { dialog, trigger, popup, ok };
 }
 
@@ -35,10 +34,10 @@ describe("ui-dialog", () => {
     expect(popup.getAttribute("role")).toBe("dialog");
     expect(popup.getAttribute("aria-modal")).toBe("true");
     expect(popup.getAttribute("aria-labelledby")).toBe(
-      document.querySelector("[data-dialog-title]")!.id,
+      must(document.querySelector("[data-dialog-title]")).id,
     );
     expect(popup.getAttribute("aria-describedby")).toBe(
-      document.querySelector("[data-dialog-description]")!.id,
+      must(document.querySelector("[data-dialog-description]")).id,
     );
     expect(trigger.getAttribute("aria-controls")).toBe(popup.id);
   });
@@ -101,14 +100,14 @@ describe("ui-dialog", () => {
         </ui-dialog-popup>
       </ui-dialog>`;
     await Promise.resolve();
-    document.querySelector<HTMLButtonElement>("[data-dialog-trigger]")!.click();
+    must(document.querySelector<HTMLButtonElement>("[data-dialog-trigger]")).click();
     expect(document.activeElement).toBe(document.querySelector("#first"));
-    document.querySelector<HTMLButtonElement>("#last")!.focus();
+    must(document.querySelector<HTMLButtonElement>("#last")).focus();
     document.dispatchEvent(
       new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }),
     );
     expect(document.activeElement).toBe(document.querySelector("#first")); // wrapped
-    document.querySelector("ui-dialog")!.hide(); // balance the scroll lock
+    must(document.querySelector("ui-dialog")).hide(); // balance the scroll lock
   });
 
   it("opens in the same task as connection (sync-wire guard)", async () => {
@@ -116,10 +115,10 @@ describe("ui-dialog", () => {
       <ui-dialog>
         <ui-dialog-popup><button id="ok">OK</button></ui-dialog-popup>
       </ui-dialog>`;
-    const dialog = document.querySelector("ui-dialog")!;
+    const dialog = must(document.querySelector("ui-dialog"));
     dialog.show(); // no microtask wait — must wire synchronously
     expect(dialog.open).toBe(true);
-    expect(document.querySelector("ui-dialog-popup")!.hasAttribute("data-open")).toBe(true);
+    expect(must(document.querySelector("ui-dialog-popup")).hasAttribute("data-open")).toBe(true);
     dialog.hide();
   });
 
@@ -144,9 +143,9 @@ describe("ui-dialog change reasons", () => {
         <ui-dialog-popup><p>Body</p></ui-dialog-popup>
       </ui-dialog>`;
     await Promise.resolve();
-    const dialog = document.querySelector("ui-dialog")!;
-    const trigger = document.querySelector<HTMLButtonElement>("[data-dialog-trigger]")!;
-    const popup = document.querySelector("ui-dialog-popup")!;
+    const dialog = must(document.querySelector("ui-dialog"));
+    const trigger = must(document.querySelector<HTMLButtonElement>("[data-dialog-trigger]"));
+    const popup = must(document.querySelector("ui-dialog-popup"));
     const reasons: string[] = [];
     for (const type of ["open", "close"]) {
       dialog.addEventListener(type, (e) =>

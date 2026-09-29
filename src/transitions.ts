@@ -25,7 +25,7 @@ function durationMs(value: string, delay: string) {
 
 /** Longest transition or animation on `el`, in ms (0 when none / unsupported). */
 function maxDurationMs(el: Element) {
-  if (typeof getComputedStyle !== "function") return 0;
+  if (typeof getComputedStyle === "undefined") return 0;
   const s = getComputedStyle(el);
   return Math.max(
     durationMs(s.transitionDuration, s.transitionDelay),

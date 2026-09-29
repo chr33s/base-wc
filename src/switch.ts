@@ -19,6 +19,7 @@
 import { define } from "./define.ts";
 import { NativeCheckboxElement } from "./form-control.ts";
 
+/** Custom element `ui-switch`: enhances a native checkbox with `role="switch"` semantics. */
 export class UISwitch extends NativeCheckboxElement {
   protected override adopt(input: HTMLInputElement) {
     input.setAttribute("role", "switch");

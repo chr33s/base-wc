@@ -25,6 +25,7 @@ interface NavItem {
   readonly content: HTMLElement | null;
 }
 
+/** Site navigation with hover-intent triggers revealing `ui-nav-content` panels; roving focus across triggers. */
 export class UINavigationMenu extends RovingElement {
   /**
    * The authored items, keyed by trigger and rebuilt whenever the light DOM
@@ -277,8 +278,11 @@ export class UINavigationMenu extends RovingElement {
   };
 }
 
+/** Custom element `ui-nav-list`: the container roving focus attaches to. */
 export class UINavList extends HTMLElement {}
+/** Custom element `ui-nav-item`: groups one trigger with its content panel. */
 export class UINavItem extends HTMLElement {}
+/** Custom element `ui-nav-content`: the panel revealed by an item's trigger. */
 export class UINavContent extends HTMLElement {}
 
 define("ui-navigation-menu", UINavigationMenu);

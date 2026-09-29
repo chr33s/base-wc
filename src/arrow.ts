@@ -11,8 +11,10 @@
  */
 import { define } from "./define.ts";
 
+/** A decorative caret; `anchor()` sets its cross-axis offset and `data-side`. */
 export class UIArrow extends HTMLElement {
-  connectedCallback() {
+  /** Mark decorative and default `data-side` to `bottom`. */
+  connectedCallback(): void {
     this.setAttribute("aria-hidden", "true");
     if (!this.hasAttribute("data-side")) this.setAttribute("data-side", "bottom");
   }

@@ -5,6 +5,7 @@ import { getSeriesType } from "./chart-core.ts";
 import { linearScale } from "./chart-scale.ts";
 import "./chart.ts";
 import "./chart-scatter.ts";
+import { flush, must } from "./test-utils.ts";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -15,14 +16,10 @@ afterEach(() => {
 // and any later mutation defers its re-render the same way. A zero-delay
 // macrotask drains all of it (wiring, registrations, observer deliveries and
 // the coalesced render), so tests assert on settled DOM.
-function flush() {
-  return new Promise((resolve) => setTimeout(resolve));
-}
-
 async function mountChart(inner: string, size = true) {
   document.body.innerHTML = `<ui-chart${size ? ' width="400" height="200"' : ""}>${inner}</ui-chart>`;
   await flush();
-  return document.querySelector("ui-chart")!;
+  return must(document.querySelector("ui-chart"));
 }
 
 const TABLE = `
@@ -72,7 +69,7 @@ describe("ui-chart-scatter inside ui-chart", () => {
       `${TABLE}${AXES}<ui-chart-scatter x-key="X" key="Y"></ui-chart-scatter>`,
     );
 
-    const group = chart.querySelector('[data-part="series"][data-series="Y"]')!;
+    const group = must(chart.querySelector('[data-part="series"][data-series="Y"]'));
     expect(group).not.toBeNull();
     expect(group.getAttribute("data-type")).toBe("scatter");
 
@@ -81,17 +78,17 @@ describe("ui-chart-scatter inside ui-chart", () => {
     const marks = [...chart.querySelectorAll('[data-part="mark"]')];
     expect(marks.length).toBe(3); // rows 3 (missing X) and 4 (non-numeric Y) are skipped
 
-    expect(marks[0]!.tagName.toLowerCase()).toBe("circle");
-    expect(marks[0]!.getAttribute("cx")).toBe("0");
-    expect(marks[0]!.getAttribute("cy")).toBe("200");
+    expect(must(marks[0]).tagName.toLowerCase()).toBe("circle");
+    expect(must(marks[0]).getAttribute("cx")).toBe("0");
+    expect(must(marks[0]).getAttribute("cy")).toBe("200");
     expect((marks[0] as HTMLElement).dataset.index).toBe("0");
 
-    expect(marks[1]!.getAttribute("cx")).toBe("200");
-    expect(marks[1]!.getAttribute("cy")).toBe("0");
+    expect(must(marks[1]).getAttribute("cx")).toBe("200");
+    expect(must(marks[1]).getAttribute("cy")).toBe("0");
     expect((marks[1] as HTMLElement).dataset.index).toBe("1");
 
-    expect(marks[2]!.getAttribute("cx")).toBe("400");
-    expect(marks[2]!.getAttribute("cy")).toBe("100");
+    expect(must(marks[2]).getAttribute("cx")).toBe("400");
+    expect(must(marks[2]).getAttribute("cy")).toBe("100");
     expect((marks[2] as HTMLElement).dataset.index).toBe("2");
   });
 
@@ -112,7 +109,7 @@ describe("ui-chart-scatter inside ui-chart", () => {
     const marksDefault = [...chart.querySelectorAll('[data-part="mark"]')];
     for (const mark of marksDefault) expect(mark.getAttribute("r")).toBe("4");
 
-    const scatter = chart.querySelector("ui-chart-scatter")!;
+    const scatter = must(chart.querySelector("ui-chart-scatter"));
     scatter.setAttribute("r", "9");
     await flush();
     const marksUpdated = [...chart.querySelectorAll('[data-part="mark"]')];
@@ -138,7 +135,7 @@ describe("ui-chart-scatter: axis-trigger hover", () => {
     const chart = await mountChart(
       `${TABLE}${AXES}<ui-chart-scatter x-key="X" key="Y"></ui-chart-scatter>`,
     );
-    const svg = chart.querySelector("svg")!;
+    const svg = must(chart.querySelector("svg"));
     // happy-dom has no layout engine, so the plot needs a box for the
     // pointer→local-coordinate mapping to have anything to map through.
     svg.getBoundingClientRect = () =>
@@ -164,7 +161,7 @@ describe("ui-chart-scatter: axis-trigger hover", () => {
       <ui-chart-scatter x-key="X" key="A"></ui-chart-scatter>
       <ui-chart-scatter x-key="X" key="B"></ui-chart-scatter>
     `);
-    chart.querySelector("svg")!.getBoundingClientRect = () =>
+    must(chart.querySelector("svg")).getBoundingClientRect = () =>
       ({ x: 0, y: 0, top: 0, left: 0, width: 400, height: 200 }) as DOMRect;
 
     const events: unknown[] = [];
@@ -189,7 +186,7 @@ describe("ui-chart-scatter: axis-trigger hover", () => {
     const chart = await mountChart(
       `${TABLE}${AXES}<ui-chart-scatter x-key="X" key="Y"></ui-chart-scatter>`,
     );
-    chart.querySelector("svg")!.getBoundingClientRect = () =>
+    must(chart.querySelector("svg")).getBoundingClientRect = () =>
       ({ x: 0, y: 0, top: 0, left: 0, width: 400, height: 200 }) as DOMRect;
 
     const events: unknown[] = [];
@@ -241,35 +238,38 @@ describe("scatter series type hitTest", () => {
   ];
 
   it("returns the nearest plotted point, and how far away it is", () => {
-    const scatter = getSeriesType("scatter")!;
+    const scatter = must(getSeriesType("scatter"));
     const context = makeContext(DATA);
     // The distance comes back with the index so `ui-chart` can compare hits
     // across several series and take the closest.
-    expect(scatter.hitTest!(context, 10, 190)).toEqual({ index: 0, distance: Math.hypot(10, 10) });
-    expect(scatter.hitTest!(context, 190, 10)).toMatchObject({ index: 1 });
-    expect(scatter.hitTest!(context, 390, 110)).toMatchObject({ index: 2 });
+    expect(scatter.hitTest?.(context, 10, 190)).toEqual({
+      index: 0,
+      distance: Math.hypot(10, 10),
+    });
+    expect(scatter.hitTest?.(context, 190, 10)).toMatchObject({ index: 1 });
+    expect(scatter.hitTest?.(context, 390, 110)).toMatchObject({ index: 2 });
   });
 
   it("returns null when the dataset is empty", () => {
-    const scatter = getSeriesType("scatter")!;
+    const scatter = must(getSeriesType("scatter"));
     const context = makeContext([]);
-    expect(scatter.hitTest!(context, 100, 100)).toBeNull();
+    expect(scatter.hitTest?.(context, 100, 100)).toBeNull();
   });
 
   it("returns null when every row lacks both coordinates", () => {
-    const scatter = getSeriesType("scatter")!;
+    const scatter = must(getSeriesType("scatter"));
     const context = makeContext([
       { X: null, Y: "n/a" },
       { X: "oops", Y: null },
     ]);
-    expect(scatter.hitTest!(context, 100, 100)).toBeNull();
+    expect(scatter.hitTest?.(context, 100, 100)).toBeNull();
   });
 
   it("skips rows lacking a coordinate but still finds the nearest among the valid ones", () => {
-    const scatter = getSeriesType("scatter")!;
-    const context = makeContext([DATA[0]!, { X: null, Y: 5 }, DATA[1]!, DATA[2]!]);
+    const scatter = must(getSeriesType("scatter"));
+    const context = makeContext([must(DATA[0]), { X: null, Y: 5 }, must(DATA[1]), must(DATA[2])]);
     // The invalid row (index 1) is excluded; nearest to (190, 10) is still
     // the point originally at index 2 ({X:10, Y:20} -> cx=200, cy=0).
-    expect(scatter.hitTest!(context, 190, 10)).toMatchObject({ index: 2 });
+    expect(scatter.hitTest?.(context, 190, 10)).toMatchObject({ index: 2 });
   });
 });

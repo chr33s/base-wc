@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { roving } from "./roving.ts";
+import { must } from "./test-utils.ts";
 
+/** Narrow an indexed lookup the fixture guarantees is present. */
 afterEach(() => {
   document.body.innerHTML = "";
 });
@@ -11,7 +13,7 @@ function mount(count = 3) {
     { length: count },
     (_, i) => `<button id="b${i}">${i}</button>`,
   ).join("")}</div>`;
-  const container = document.querySelector<HTMLElement>("#bar")!;
+  const container = must(document.querySelector<HTMLElement>("#bar"));
   const items = () => [...container.querySelectorAll<HTMLElement>("button")];
   const nav = roving(container, { items, orientation: "horizontal", loop: true });
   nav.refresh(0);
@@ -31,7 +33,7 @@ describe("roving — tab stop invariant", () => {
     const { items, nav } = mount();
     nav.focusItem(1);
     expect(tabbable(items())).toEqual([items()[1]]);
-    items()[1].remove();
+    must(items()[1]).remove();
     await Promise.resolve(); // observers deliver on a microtask
     // Losing the only tabindex=0 would drop the whole group out of the tab
     // sequence — unreachable by keyboard with no visible sign anything is wrong.
@@ -63,7 +65,7 @@ describe("roving — tab stop invariant", () => {
   it("re-homes the stop when the held item leaves the navigable set", async () => {
     document.body.innerHTML = `<div id="bar">
       <button id="b0">0</button><button id="b1">1</button></div>`;
-    const container = document.querySelector<HTMLElement>("#bar")!;
+    const container = must(document.querySelector<HTMLElement>("#bar"));
     const items = () =>
       [...container.querySelectorAll<HTMLElement>("button")].filter(
         (el) => !el.hasAttribute("disabled"),
@@ -71,7 +73,7 @@ describe("roving — tab stop invariant", () => {
     const nav = roving(container, { items });
     nav.refresh(1);
     expect(tabbable(items())).toHaveLength(1);
-    container.querySelector("#b1")!.setAttribute("disabled", "");
+    must(container.querySelector("#b1")).setAttribute("disabled", "");
     await Promise.resolve();
     expect(tabbable(items())).toEqual([container.querySelector("#b0")]);
     nav.destroy();
@@ -80,12 +82,12 @@ describe("roving — tab stop invariant", () => {
   it("takes the stop off an item that left the set but stayed in the DOM", async () => {
     document.body.innerHTML = `<div id="bar">
       <div role="button" id="b0">0</div><div role="button" id="b1">1</div></div>`;
-    const container = document.querySelector<HTMLElement>("#bar")!;
+    const container = must(document.querySelector<HTMLElement>("#bar"));
     const all = () => [...container.querySelectorAll<HTMLElement>("[role=button]")];
     const items = () => all().filter((el) => el.getAttribute("aria-disabled") !== "true");
     const nav = roving(container, { items });
     nav.refresh(1);
-    container.querySelector("#b1")!.setAttribute("aria-disabled", "true");
+    must(container.querySelector("#b1")).setAttribute("aria-disabled", "true");
     await Promise.resolve();
     // A non-native element stays focusable with tabindex=0, so leaving it on
     // the disabled item would give the group two tab stops, one of them dead.
@@ -104,7 +106,7 @@ describe("roving — teardown and re-attach", () => {
     // A destroyed helper must also stop watching: an observer left running on a
     // detached subtree keeps firing for as long as anything mutates it, and
     // keeps the whole component reachable from the mutation record.
-    items()[0].remove();
+    must(items()[0]).remove();
     await Promise.resolve();
     expect(tabbable(items())).toHaveLength(0);
   });

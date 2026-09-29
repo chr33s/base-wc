@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
+import { must } from "./test-utils.ts";
 
+/** Narrow a lookup the fixture guarantees is present. */
 /**
  * Real-browser (Chromium) coverage for what happy-dom cannot model: the
  * colocated `*.dom.test.ts` suites have no `ElementInternals`, no Popover top
@@ -109,9 +111,9 @@ test.describe("ui — real browser", () => {
       </form>`,
       );
       const result = await page.evaluate((multi) => {
-        const host = document.querySelector("ui-select")!;
-        const native = host.querySelector("select")!;
-        const form = document.querySelector<HTMLFormElement>("#native-form")!;
+        const host = must(document.querySelector("ui-select"));
+        const native = must(host.querySelector("select"));
+        const form = must(document.querySelector<HTMLFormElement>("#native-form"));
         let inputEvents = 0;
         let changeEvents = 0;
         native.addEventListener("input", () => inputEvents++);
@@ -135,9 +137,11 @@ test.describe("ui — real browser", () => {
         inputEvents: 0,
         changeEvents: 1,
       });
-      await page.evaluate(() => document.querySelector<HTMLFormElement>("#native-form")!.reset());
+      await page.evaluate(() =>
+        must(document.querySelector<HTMLFormElement>("#native-form")).reset(),
+      );
       await expect(page.locator("[data-select-value]")).toHaveText("Banana");
-      expect(await page.evaluate(() => document.querySelector("ui-select")!.value)).toEqual(
+      expect(await page.evaluate(() => must(document.querySelector("ui-select")).value)).toEqual(
         multiple ? ["banana"] : "banana",
       );
     });
@@ -286,12 +290,12 @@ test.describe("ui — menu family (real browser)", () => {
     );
 
     const target = page.locator("#target");
-    const targetBox = (await target.boundingBox())!;
+    const targetBox = must(await target.boundingBox());
     await target.click({ button: "right", position: { x: 30, y: 20 } });
 
     const popup = page.locator("ui-menu-popup");
     await expect(popup).toBeVisible();
-    const popupBox = (await popup.boundingBox())!;
+    const popupBox = must(await popup.boundingBox());
     // The popup's top-left tracks the click point (target origin + local offset).
     expect(Math.abs(popupBox.x - (targetBox.x + 30))).toBeLessThan(24);
     expect(Math.abs(popupBox.y - (targetBox.y + 20))).toBeLessThan(24);
@@ -328,8 +332,8 @@ test.describe("ui — menu family (real browser)", () => {
 
     const subPopup = page.locator("ui-menu-popup").nth(1);
     await expect(subPopup).toBeVisible();
-    const moreBox = (await page.locator("#more").boundingBox())!;
-    const subBox = (await subPopup.boundingBox())!;
+    const moreBox = must(await page.locator("#more").boundingBox());
+    const subBox = must(await subPopup.boundingBox());
     expect(subBox.x).toBeGreaterThanOrEqual(moreBox.x + moreBox.width - 8); // placed to the right
 
     await page.locator("ui-menu-item", { hasText: "Align right" }).click();
@@ -384,7 +388,7 @@ test.describe("ui — layout & gestures (real browser)", () => {
 
     const popup = page.locator("ui-drawer-popup");
     const drag = async (dx: number) => {
-      const box = (await page.locator("#handle").boundingBox())!;
+      const box = must(await page.locator("#handle").boundingBox());
       await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
       await page.mouse.down();
       await page.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2, { steps: 5 });
@@ -439,7 +443,7 @@ test.describe("ui — layout & gestures (real browser)", () => {
 
     // Dragging the thumb scrolls the viewport.
     const before = await page.locator("ui-scroll-viewport").evaluate((vp) => vp.scrollTop);
-    const box = (await page.locator("#thumb").boundingBox())!;
+    const box = must(await page.locator("#thumb").boundingBox());
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 40, { steps: 5 });
@@ -663,7 +667,7 @@ test.describe("ui — multi-select & new controls (real browser)", () => {
 
     await page.evaluate(() => {
       const vp = document.querySelector("ui-toast-viewport") as
-        | (Element & { add: (o: Record<string, unknown>) => void })
+        | (Element & { add: (o: { title: string; description: string; duration: number }) => void })
         | null;
       vp?.add({ title: "Saved", description: "All good", duration: 400 });
     });
@@ -694,9 +698,7 @@ test.describe("ui — multi-select & new controls (real browser)", () => {
     );
 
     const val = (id: string) =>
-      page
-        .locator(`#${id}`)
-        .evaluate((el) => (el as unknown as { value: number | number[] }).value);
+      page.locator(`#${id}`).evaluate((el) => ("value" in el ? el.value : undefined));
 
     // Single: click at 75% of the 200px track → ~75.
     await page.locator("#track1").click({ position: { x: 150, y: 10 } });
@@ -725,7 +727,7 @@ test.describe("ui — multi-select & new controls (real browser)", () => {
     // headless; the movementX path is what changes the value).
     const before = await page.locator("#ni").inputValue();
     await page.evaluate(() => {
-      const scrub = document.querySelector("#scrub")!;
+      const scrub = must(document.querySelector("#scrub"));
       scrub.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
       for (let i = 0; i < 5; i++) {
         const e = new PointerEvent("pointermove", { bubbles: true });
@@ -754,7 +756,7 @@ test.describe("ui — multi-select & new controls (real browser)", () => {
     await expect(popup).toBeHidden();
 
     // Grab the right-edge zone and drag inward (leftward) past the threshold.
-    const box = (await page.locator("#swipe").boundingBox())!;
+    const box = must(await page.locator("#swipe").boundingBox());
     await page.mouse.move(box.x + box.width / 2, box.y + 200);
     await page.mouse.down();
     await page.mouse.move(box.x - 200, box.y + 200, { steps: 8 });

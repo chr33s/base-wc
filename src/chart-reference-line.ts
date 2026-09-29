@@ -36,7 +36,12 @@
  * (a `<text>`, offset a few pixels off the line for legibility). This module
  * dispatches no events of its own.
  */
-import { type MarkDescriptor, registerSeriesType } from "./chart-core.ts";
+import {
+  type ChartDimension,
+  type MarkDescriptor,
+  parseChartDimension,
+  registerSeriesType,
+} from "./chart-core.ts";
 import { type Scale, isDiscreteScale } from "./chart-scale.ts";
 import { SERIES_ATTRIBUTES, UIChartSeries } from "./chart-series.ts";
 import { round } from "./chart-shape.ts";
@@ -44,7 +49,7 @@ import { define } from "./define.ts";
 import { nextId } from "./id.ts";
 
 /** Parse an axis value: a plain number, or (for a time-scaled axis) an ISO date string. `NaN` if neither parses. */
-function parseReferenceValue(raw: string) {
+function parseReferenceValue(raw: string): number {
   const trimmed = raw.trim();
   if (trimmed === "") return Number.NaN;
   const numeric = Number(trimmed);
@@ -53,11 +58,12 @@ function parseReferenceValue(raw: string) {
 }
 
 /** Where `value` sits on `scale`: the band's center for a discrete scale (a line through the middle of the category it names), the scaled position for a continuous one. `undefined` if the axis is absent or the value is outside a discrete domain. */
-function toPixel(scale: Scale | undefined, value: number) {
+function toPixel(scale: Scale | undefined, value: number): number | undefined {
   if (!scale) return undefined;
   return isDiscreteScale(scale) ? scale.center(value) : scale(value);
 }
 
+/** A constant-value line (with optional label) annotating a chart axis; carries no data. */
 export class UIChartReferenceLine extends UIChartSeries {
   static observedAttributes = [...SERIES_ATTRIBUTES, "axis", "value"];
 
@@ -66,15 +72,17 @@ export class UIChartReferenceLine extends UIChartSeries {
   #id = nextId("reference-line");
 
   /** A reference line plots no dataset column, so it reports an id of its own as its key — that is what shows up as `data-series` on its rendered group. */
-  override get key() {
+  override get key(): string {
     return this.#id;
   }
 
-  get axis() {
-    return this.getAttribute("axis") === "x" ? "x" : "y";
+  /** The axis the value is read from (`axis` attribute, default `y`); `y` draws a horizontal line. */
+  get axis(): ChartDimension {
+    return parseChartDimension(this.getAttribute("axis"));
   }
 
-  get value() {
+  /** The raw `value` attribute, or `null` when absent. */
+  get value(): string | null {
     return this.getAttribute("value");
   }
 }

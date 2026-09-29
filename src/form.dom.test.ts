@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import "./elements.ts";
+import { must } from "./test-utils.ts";
 
+/** The value, or a failure naming the missing element. */
 async function mount() {
   document.body.innerHTML = `
     <ui-form>
@@ -21,10 +23,10 @@ async function mount() {
       </form>
     </ui-form>`;
   await Promise.resolve();
-  const uiForm = document.querySelector("ui-form")!;
-  const form = document.querySelector("form")!;
-  const name = document.querySelector<HTMLInputElement>("#name")!;
-  const summary = document.querySelector<HTMLElement>("[data-form-error-summary]")!;
+  const uiForm = must(document.querySelector("ui-form"));
+  const form = must(document.querySelector("form"));
+  const name = must(document.querySelector<HTMLInputElement>("#name"));
+  const summary = must(document.querySelector<HTMLElement>("[data-form-error-summary]"));
   return { uiForm, form, name, summary };
 }
 

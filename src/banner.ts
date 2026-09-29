@@ -16,12 +16,14 @@ import { LightDomElement } from "./lifecycle.ts";
 import { ensureButton } from "./parts.ts";
 import { runExit, setOpenState } from "./transitions.ts";
 
+/** A persistent inline status message with an optional dismiss button. */
 export class UIBanner extends LightDomElement {
-  get dismissible() {
+  /** Whether a dismiss button is provided (`dismissible` attribute). */
+  get dismissible(): boolean {
     return this.hasAttribute("dismissible");
   }
 
-  override connectedCallback() {
+  override connectedCallback(): void {
     const assertive = this.dataset.type === "error" || this.dataset.type === "warning";
     if (!this.getAttribute("role")) this.setAttribute("role", assertive ? "alert" : "status");
     if (!this.hasAttribute("aria-live")) {
@@ -59,7 +61,7 @@ export class UIBanner extends LightDomElement {
   }
 
   /** Dismiss the banner, playing its exit animation before removal. */
-  close() {
+  close(): void {
     if (!this.hasAttribute("data-open")) return;
     this.removeAttribute("data-open");
     this.dispatchEvent(new CustomEvent("dismiss", { bubbles: true }));

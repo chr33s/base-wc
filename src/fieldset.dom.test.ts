@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import "./elements.ts";
+import { must } from "./test-utils.ts";
 
+/** The value, or a failure naming the missing element. */
 async function mount(attrs = "") {
   document.body.innerHTML = `
     <ui-fieldset ${attrs}>
@@ -10,10 +12,10 @@ async function mount(attrs = "") {
       <input id="street" disabled />
     </ui-fieldset>`;
   await Promise.resolve();
-  const fieldset = document.querySelector("ui-fieldset")!;
-  const legend = document.querySelector<HTMLElement>("[data-fieldset-legend]")!;
-  const name = document.querySelector<HTMLInputElement>("#name")!;
-  const street = document.querySelector<HTMLInputElement>("#street")!;
+  const fieldset = must(document.querySelector("ui-fieldset"));
+  const legend = must(document.querySelector<HTMLElement>("[data-fieldset-legend]"));
+  const name = must(document.querySelector<HTMLInputElement>("#name"));
+  const street = must(document.querySelector<HTMLInputElement>("#street"));
   return { fieldset, legend, name, street };
 }
 
@@ -49,11 +51,11 @@ describe("ui-fieldset", () => {
         <ui-calendar name="date" value="2026-07-15"></ui-calendar>
       </ui-fieldset>`;
     await new Promise((r) => setTimeout(r, 0));
-    const fieldset = document.querySelector("ui-fieldset")!;
-    const otp = document.querySelector("ui-otp-field")!;
-    const calendar = document.querySelector("ui-calendar")!;
-    const cell = otp.querySelector("input")!;
-    const day = () => calendar.querySelector<HTMLButtonElement>("[data-calendar-day]")!;
+    const fieldset = must(document.querySelector("ui-fieldset"));
+    const otp = must(document.querySelector("ui-otp-field"));
+    const calendar = must(document.querySelector("ui-calendar"));
+    const cell = must(otp.querySelector("input"));
+    const day = () => must(calendar.querySelector<HTMLButtonElement>("[data-calendar-day]"));
 
     fieldset.setAttribute("disabled", "");
     expect(otp.hasAttribute("disabled")).toBe(true);

@@ -24,6 +24,7 @@ import { isRTL } from "./direction.ts";
 import { LightDomElement } from "./lifecycle.ts";
 import { clamp } from "./math.ts";
 
+/** Arrow-key axis a composite navigates along; `"both"` accepts all four arrows. */
 export type Orientation = "horizontal" | "vertical" | "both";
 
 /**
@@ -34,13 +35,14 @@ export function isDisabled(el: Element): boolean {
   return el.hasAttribute("disabled") || el.getAttribute("aria-disabled") === "true";
 }
 
+/** Tuning for {@link resolveNavKey}. */
 export interface NavKeyOptions {
   /** Arrow-key axis. Default `"horizontal"`. */
-  orientation?: Orientation;
+  orientation?: Orientation | undefined;
   /** Wrap past the ends (else clamp). Default `true`. */
-  loop?: boolean;
+  loop?: boolean | undefined;
   /** Swap the horizontal arrows for right-to-left contexts. Default `false`. */
-  rtl?: boolean;
+  rtl?: boolean | undefined;
 }
 
 /**
@@ -56,7 +58,7 @@ export function resolveNavKey(
   count: number,
   current: number,
   { orientation = "horizontal", loop = true, rtl = false }: NavKeyOptions = {},
-) {
+): number | null {
   if (count <= 0) return null;
   if (key === "Home") return 0;
   if (key === "End") return count - 1;
@@ -86,28 +88,29 @@ export function resolveNavKey(
 const NON_TEXT_INPUT_TYPES = new Set(["button", "checkbox", "radio", "submit", "reset", "image"]);
 
 /** Whether the target is a text field that owns its own caret/typing keys. */
-function isTextEntry(target: EventTarget | null) {
+function isTextEntry(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable) return true;
   if (target.tagName === "TEXTAREA") return true;
-  if (target.tagName === "INPUT")
-    return !NON_TEXT_INPUT_TYPES.has((target as HTMLInputElement).type);
+  if (target instanceof HTMLInputElement) return !NON_TEXT_INPUT_TYPES.has(target.type);
   return false;
 }
 
+/** Configuration for {@link roving}. */
 export interface RovingOptions {
   /** Live list of navigable (enabled) items, in DOM order. */
   items: () => HTMLElement[];
   /** Arrow-key axis. Default `"horizontal"`. */
-  orientation?: Orientation;
+  orientation?: Orientation | undefined;
   /** Wrap past the ends. Default `true`. */
-  loop?: boolean;
+  loop?: boolean | undefined;
   /** Fired when focus moves to an item (e.g. radio selection follows focus). */
-  onMove?: (item: HTMLElement, index: number) => void;
+  onMove?: ((item: HTMLElement, index: number) => void) | undefined;
   /** Fired on Enter/Space on the focused item. */
-  onActivate?: (item: HTMLElement, index: number) => void;
+  onActivate?: ((item: HTMLElement, index: number) => void) | undefined;
 }
 
+/** Handle returned by {@link roving}: re-assert the tab stop, move focus, or tear down. */
 export interface Roving {
   /**
    * Re-assert the roving tab stop so exactly one item is tabbable. With an
@@ -129,7 +132,7 @@ export interface Roving {
 }
 
 /** Attach roving-tabindex keyboard navigation to `container`. */
-export function roving(container: HTMLElement, options: RovingOptions) {
+export function roving(container: HTMLElement, options: RovingOptions): Roving {
   const orientation = options.orientation ?? "horizontal";
   const loop = options.loop ?? true;
   /** The element that currently holds the tab stop, tracked across item changes. */
@@ -183,6 +186,7 @@ export function roving(container: HTMLElement, options: RovingOptions) {
     else i = clamp(i, 0, items.length - 1);
     apply(items, i);
     const target = items[i];
+    if (!target) return;
     target.focus();
     options.onMove?.(target, i);
   };
@@ -193,8 +197,10 @@ export function roving(container: HTMLElement, options: RovingOptions) {
     // Only navigate when focus is on one of the roving items. Keydowns bubbling
     // up from nested content (a link inside an open panel, a control's own
     // children) keep their native behavior.
-    const current = items.indexOf(document.activeElement as HTMLElement);
-    if (current < 0) return;
+    const active = document.activeElement;
+    const current = active instanceof HTMLElement ? items.indexOf(active) : -1;
+    const currentItem = items[current];
+    if (!currentItem) return;
     // A focused text field owns its arrow/Home/End/Space keys for caret
     // movement and typing.
     if (isTextEntry(e.target)) return;
@@ -214,7 +220,7 @@ export function roving(container: HTMLElement, options: RovingOptions) {
       // Suppress the default action (Space scrolls the page on non-button
       // custom-element items) before activating.
       e.preventDefault();
-      options.onActivate(items[current], current);
+      options.onActivate(currentItem, current);
     }
   };
 
@@ -275,7 +281,7 @@ export abstract class RovingElement extends LightDomElement {
   }
 
   /** Create the helper unless one already exists. Call it from `initialize`. */
-  protected attachRoving() {
+  protected attachRoving(): void {
     this.#roving ??= roving(this.rovingContainer, this.rovingOptions());
   }
 

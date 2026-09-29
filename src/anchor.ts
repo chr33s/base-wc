@@ -17,10 +17,7 @@ import { nextId } from "./id.ts";
 import { clamp } from "./math.ts";
 
 /** True where CSS Anchor Positioning is natively supported. */
-export const SUPPORTS_ANCHOR =
-  typeof CSS !== "undefined" &&
-  typeof CSS.supports === "function" &&
-  CSS.supports("anchor-name: --a");
+export const SUPPORTS_ANCHOR = typeof CSS !== "undefined" && CSS.supports("anchor-name: --a");
 
 /**
  * Pair a trigger and popup for **CSS** anchor positioning — the declarative half
@@ -30,7 +27,7 @@ export const SUPPORTS_ANCHOR =
  * it doesn't, this is a no-op and the caller's JS fallback runs instead.
  * `prefix` only names the generated custom property for debuggability.
  */
-export function pairAnchor(reference: HTMLElement, popup: HTMLElement, prefix = "ui") {
+export function pairAnchor(reference: HTMLElement, popup: HTMLElement, prefix = "ui"): void {
   if (!SUPPORTS_ANCHOR) return;
   const name = `--${prefix}-${nextId("anchor")}`;
   reference.style.setProperty("anchor-name", name);
@@ -46,31 +43,32 @@ export interface VirtualElement {
   getBoundingClientRect(): DOMRect;
 }
 
+/** Placement options for {@link anchor}. */
 export interface AnchorOptions {
   /** Gap between the reference and the floating element, in px. */
-  offset?: number;
+  offset?: number | undefined;
   /** Minimum distance kept from every viewport edge, in px. */
-  padding?: number;
+  padding?: number | undefined;
   /** Constrain the floating element to the available space and scroll overflow. */
-  constrainHeight?: boolean;
+  constrainHeight?: boolean | undefined;
   /**
    * Preferred side: `"bottom"` (menus/selects, flips above), `"right"` (LTR
    * submenus, flips left when it will not fit) or `"left"` (RTL submenus, flips
    * right). Default `"bottom"`.
    */
-  placement?: "bottom" | "right" | "left";
+  placement?: "bottom" | "right" | "left" | undefined;
   /**
    * A caret element to align to the reference's center along the floating
    * element's edge. Its cross-axis position is set inline and `data-side`
    * reflects which side of the reference the floating element landed on, so
    * consumer CSS can point it the right way.
    */
-  arrow?: HTMLElement | null;
+  arrow?: HTMLElement | null | undefined;
 }
 
 /** A DOMRect-like zero-size rect at a viewport point, for virtual anchoring. */
-export function rectAt(x: number, y: number) {
-  return { x, y, top: y, left: x, right: x, bottom: y, width: 0, height: 0 } as DOMRect;
+export function rectAt(x: number, y: number): DOMRect {
+  return new DOMRect(x, y, 0, 0);
 }
 
 /**
@@ -85,7 +83,7 @@ export function arrowOffset(
   floatSize: number,
   arrowSize: number,
   padding: number,
-) {
+): number {
   const ideal = refCenter - floatStart - arrowSize / 2;
   const max = Math.max(padding, floatSize - arrowSize - padding);
   return clamp(ideal, padding, max);
@@ -106,7 +104,7 @@ export function anchor(
     placement = "bottom",
     arrow,
   }: AnchorOptions = {},
-) {
+): () => void {
   const vv = window.visualViewport;
 
   // Center a caret on the reference along the floating element's edge, marking
@@ -213,8 +211,8 @@ export function anchor(
   // reads layout after the previous one wrote styles — running it per event
   // forces a synchronous reflow every time. The first placement stays
   // synchronous so the popup is positioned before it paints.
-  const raf = typeof requestAnimationFrame === "function" ? requestAnimationFrame : null;
-  const caf = typeof cancelAnimationFrame === "function" ? cancelAnimationFrame : null;
+  const raf = typeof requestAnimationFrame !== "undefined" ? requestAnimationFrame : null;
+  const caf = typeof cancelAnimationFrame !== "undefined" ? cancelAnimationFrame : null;
   let frame = 0;
   const schedule = raf
     ? () => {

@@ -6,6 +6,7 @@ import { getSeriesType, registerSeriesType } from "./chart-core.ts";
 import type { UIChart } from "./chart.ts";
 import { bandScale, linearScale } from "./chart-scale.ts";
 import { type Point, areaPath, linePath, round } from "./chart-shape.ts";
+import { flush, must } from "./test-utils.ts";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -16,14 +17,10 @@ afterEach(() => {
 // and any later mutation defers its re-render the same way. A zero-delay
 // macrotask drains all of it (wiring, registrations, observer deliveries and
 // the coalesced render), so tests assert on settled DOM.
-function flush() {
-  return new Promise((resolve) => setTimeout(resolve));
-}
-
 async function mountChart(inner: string, size = true) {
   document.body.innerHTML = `<ui-chart${size ? ' width="400" height="200"' : ""}>${inner}</ui-chart>`;
   await flush();
-  return document.querySelector("ui-chart")!;
+  return must(document.querySelector("ui-chart"));
 }
 
 const AXES = `
@@ -67,9 +64,11 @@ function expectedScales() {
 }
 
 function strokeOf(chart: UIChart, key = "Revenue") {
-  return chart.querySelector<SVGPathElement>(
-    `[data-part="series"][data-series="${key}"] [data-part="stroke"]`,
-  )!;
+  return must(
+    chart.querySelector<SVGPathElement>(
+      `[data-part="series"][data-series="${key}"] [data-part="stroke"]`,
+    ),
+  );
 }
 
 describe("ui-chart-line", () => {
@@ -78,15 +77,15 @@ describe("ui-chart-line", () => {
 
     const group = chart.querySelector('[data-part="series"][data-series="Revenue"]');
     expect(group).not.toBeNull();
-    expect(group!.getAttribute("data-type")).toBe("line");
+    expect(must(group).getAttribute("data-type")).toBe("line");
 
     const { xScale, yScale } = expectedScales();
     const points: Point[] = [
-      { x: xScale.center("Jan")!, y: yScale(120) },
-      { x: xScale.center("Feb")!, y: yScale(132) },
-      { x: xScale.center("Mar")!, y: yScale(101) },
+      { x: must(xScale.center("Jan")), y: yScale(120) },
+      { x: must(xScale.center("Feb")), y: yScale(132) },
+      { x: must(xScale.center("Mar")), y: yScale(101) },
     ];
-    const expectedD = linePath(points, "linear", false);
+    const expectedD = linePath(points, "linear", "break");
 
     const stroke = strokeOf(chart);
     expect(stroke).not.toBeNull();
@@ -101,11 +100,11 @@ describe("ui-chart-line", () => {
 
     const { xScale, yScale } = expectedScales();
     const points: Point[] = [
-      { x: xScale.center("Jan")!, y: yScale(120) },
-      { x: xScale.center("Feb")!, y: yScale(132) },
-      { x: xScale.center("Mar")!, y: yScale(101) },
+      { x: must(xScale.center("Jan")), y: yScale(120) },
+      { x: must(xScale.center("Feb")), y: yScale(132) },
+      { x: must(xScale.center("Mar")), y: yScale(101) },
     ];
-    const expectedD = linePath(points, "monotone", false);
+    const expectedD = linePath(points, "monotone", "break");
 
     expect(strokeOf(chart).getAttribute("d")).toBe(expectedD);
   });
@@ -117,12 +116,12 @@ describe("ui-chart-line", () => {
 
     const { xScale, yScale } = expectedScales();
     const points: Point[] = [
-      { x: xScale.center("Jan")!, y: yScale(120) },
-      { x: xScale.center("Feb")!, y: null },
-      { x: xScale.center("Mar")!, y: yScale(101) },
+      { x: must(xScale.center("Jan")), y: yScale(120) },
+      { x: must(xScale.center("Feb")), y: null },
+      { x: must(xScale.center("Mar")), y: yScale(101) },
     ];
-    const expectedD = linePath(points, "linear", false);
-    const d = strokeOf(chart).getAttribute("d")!;
+    const expectedD = linePath(points, "linear", "break");
+    const d = must(strokeOf(chart).getAttribute("d"));
 
     expect(d).toBe(expectedD);
     expect((d.match(/M/g) ?? []).length).toBe(2);
@@ -135,12 +134,12 @@ describe("ui-chart-line", () => {
 
     const { xScale, yScale } = expectedScales();
     const points: Point[] = [
-      { x: xScale.center("Jan")!, y: yScale(120) },
-      { x: xScale.center("Feb")!, y: null },
-      { x: xScale.center("Mar")!, y: yScale(101) },
+      { x: must(xScale.center("Jan")), y: yScale(120) },
+      { x: must(xScale.center("Feb")), y: null },
+      { x: must(xScale.center("Mar")), y: yScale(101) },
     ];
-    const expectedD = linePath(points, "linear", true);
-    const d = strokeOf(chart).getAttribute("d")!;
+    const expectedD = linePath(points, "linear", "connect");
+    const d = must(strokeOf(chart).getAttribute("d"));
 
     expect(d).toBe(expectedD);
     expect((d.match(/M/g) ?? []).length).toBe(1);
@@ -151,10 +150,10 @@ describe("ui-chart-line", () => {
       `${TABLE}${AXES}<ui-chart-line key="Revenue" area></ui-chart-line>`,
     );
 
-    const group = chart.querySelector('[data-part="series"][data-series="Revenue"]')!;
+    const group = must(chart.querySelector('[data-part="series"][data-series="Revenue"]'));
     const children = Array.from(group.children);
-    const areaEl = group.querySelector('[data-part="area"]')!;
-    const strokeEl = group.querySelector('[data-part="stroke"]')!;
+    const areaEl = must(group.querySelector('[data-part="area"]'));
+    const strokeEl = must(group.querySelector('[data-part="stroke"]'));
     expect(areaEl).not.toBeNull();
     // area paints first (behind the stroke) — earlier in document order.
     expect(children.indexOf(areaEl)).toBeLessThan(children.indexOf(strokeEl));
@@ -162,11 +161,11 @@ describe("ui-chart-line", () => {
 
     const { xScale, yScale } = expectedScales();
     const points: Point[] = [
-      { x: xScale.center("Jan")!, y: yScale(120) },
-      { x: xScale.center("Feb")!, y: yScale(132) },
-      { x: xScale.center("Mar")!, y: yScale(101) },
+      { x: must(xScale.center("Jan")), y: yScale(120) },
+      { x: must(xScale.center("Feb")), y: yScale(132) },
+      { x: must(xScale.center("Mar")), y: yScale(101) },
     ];
-    const expectedD = areaPath(points, yScale(0), "linear", false);
+    const expectedD = areaPath(points, yScale(0), "linear", "break");
     expect(areaEl.getAttribute("d")).toBe(expectedD);
   });
 
@@ -175,7 +174,7 @@ describe("ui-chart-line", () => {
       `${TABLE_WITH_GAP}${AXES}<ui-chart-line key="Revenue" marks></ui-chart-line>`,
     );
 
-    const group = chart.querySelector('[data-part="series"][data-series="Revenue"]')!;
+    const group = must(chart.querySelector('[data-part="series"][data-series="Revenue"]'));
     const marks = group.querySelectorAll('[data-part="mark"]');
     // 3 rows, 1 null -> 2 non-null marks.
     expect(marks.length).toBe(2);
@@ -184,15 +183,15 @@ describe("ui-chart-line", () => {
     // digits), the same rounding the path generators already applied — every
     // series type emits coordinates the same way.
     const { xScale, yScale } = expectedScales();
-    expect(marks[0]!.getAttribute("cx")).toBe(String(round(xScale.center("Jan")!)));
-    expect(marks[0]!.getAttribute("cy")).toBe(String(round(yScale(120))));
-    expect(marks[0]!.getAttribute("data-index")).toBe("0");
-    expect(marks[1]!.getAttribute("data-index")).toBe("2");
+    expect(must(marks[0]).getAttribute("cx")).toBe(String(round(must(xScale.center("Jan")))));
+    expect(must(marks[0]).getAttribute("cy")).toBe(String(round(yScale(120))));
+    expect(must(marks[0]).getAttribute("data-index")).toBe("0");
+    expect(must(marks[1]).getAttribute("data-index")).toBe("2");
   });
 
   it("omits marks and area by default", async () => {
     const chart = await mountChart(`${TABLE}${AXES}<ui-chart-line key="Revenue"></ui-chart-line>`);
-    const group = chart.querySelector('[data-part="series"][data-series="Revenue"]')!;
+    const group = must(chart.querySelector('[data-part="series"][data-series="Revenue"]'));
     expect(group.querySelectorAll('[data-part="mark"]').length).toBe(0);
     expect(group.querySelector('[data-part="area"]')).toBeNull();
   });
@@ -204,12 +203,12 @@ describe("ui-chart-line", () => {
     `);
     const { xScale, yScale } = expectedScales();
     const points: Point[] = [
-      { x: xScale.center("Jan")!, y: yScale(120) },
-      { x: xScale.center("Feb")!, y: yScale(132) },
-      { x: xScale.center("Mar")!, y: yScale(101) },
+      { x: must(xScale.center("Jan")), y: yScale(120) },
+      { x: must(xScale.center("Feb")), y: yScale(132) },
+      { x: must(xScale.center("Mar")), y: yScale(101) },
     ];
     // Unstacked expectation (raw values), since stack must be ignored without `area`.
-    const expectedD = linePath(points, "linear", false);
+    const expectedD = linePath(points, "linear", "break");
     expect(strokeOf(chart).getAttribute("d")).toBe(expectedD);
   });
 
@@ -217,7 +216,7 @@ describe("ui-chart-line", () => {
     const chart = await mountChart(
       `${TABLE}${AXES}<ui-chart-line key="Revenue" label="Rev"></ui-chart-line>`,
     );
-    const line = chart.querySelector("ui-chart-line")!;
+    const line = must(chart.querySelector("ui-chart-line"));
     line.setAttribute("label", "Revenue ($)");
     // Registration mutation doesn't change DOM directly, but requestRender()
     // must not throw and the series group must still be present/consistent.
@@ -243,12 +242,15 @@ describe("ui-chart-line: highlight state", () => {
       <ui-chart-line key="A"></ui-chart-line>
       <ui-chart-line key="B"></ui-chart-line>
     `);
-    const groupA = chart.querySelector('[data-series="A"]')!;
-    const groupB = chart.querySelector('[data-series="B"]')!;
-    const strokeA = groupA.querySelector('[data-part="stroke"]')!;
-    const strokeB = groupB.querySelector('[data-part="stroke"]')!;
+    const groupA = must(chart.querySelector('[data-series="A"]'));
+    const groupB = must(chart.querySelector('[data-series="B"]'));
+    const strokeA = must(groupA.querySelector('[data-part="stroke"]'));
+    const strokeB = must(groupB.querySelector('[data-part="stroke"]'));
 
-    chart.setHighlight({ index: null, series: chart.querySelector<HTMLElement>("ui-chart-line")! });
+    chart.setHighlight({
+      index: null,
+      series: must(chart.querySelector<HTMLElement>("ui-chart-line")),
+    });
     expect(strokeA.hasAttribute("data-highlighted")).toBe(true);
     expect(strokeA.hasAttribute("data-faded")).toBe(false);
     expect(strokeB.hasAttribute("data-faded")).toBe(true);
@@ -277,8 +279,8 @@ describe("ui-chart-line: highlight state", () => {
       <ui-chart-axis position="left" min="0" max="10"></ui-chart-axis>
       <ui-chart-line key="A" marks></ui-chart-line>
     `);
-    const group = chart.querySelector('[data-series="A"]')!;
-    const line = chart.querySelector<HTMLElement>("ui-chart-line")!;
+    const group = must(chart.querySelector('[data-series="A"]'));
+    const line = must(chart.querySelector<HTMLElement>("ui-chart-line"));
 
     chart.setHighlight({ index: 0, series: line });
     expect(group.hasAttribute("data-highlighted")).toBe(false);
@@ -299,10 +301,15 @@ describe("ui-chart-line: highlight state", () => {
       <ui-chart-line key="A" marks></ui-chart-line>
       <ui-chart-line key="B" marks></ui-chart-line>
     `);
-    chart.setHighlight({ index: null, series: chart.querySelector<HTMLElement>("ui-chart-line")! });
+    chart.setHighlight({
+      index: null,
+      series: must(chart.querySelector<HTMLElement>("ui-chart-line")),
+    });
 
-    const groupB = chart.querySelector('[data-series="B"]')!;
-    expect(groupB.querySelector('[data-part="stroke"]')!.hasAttribute("data-faded")).toBe(true);
+    const groupB = must(chart.querySelector('[data-series="B"]'));
+    expect(must(groupB.querySelector('[data-part="stroke"]')).hasAttribute("data-faded")).toBe(
+      true,
+    );
     for (const mark of groupB.querySelectorAll('[data-part="mark"]')) {
       expect(mark.hasAttribute("data-faded")).toBe(true);
     }
@@ -312,7 +319,7 @@ describe("ui-chart-line: highlight state", () => {
 describe("ui-chart-line: sparkline recipe (values attribute, no dataset/axes)", () => {
   it("plots values evenly across the plot width with no ui-chart-axis children at all", async () => {
     const chart = await mountChart(`<ui-chart-line values="0 10 20 30"></ui-chart-line>`);
-    const stroke = chart.querySelector('[data-part="stroke"]')!;
+    const stroke = must(chart.querySelector('[data-part="stroke"]'));
     // 4 values over width 400 -> step 133.333; y spans [0,30] over height 200,
     // inverted (higher value = smaller y): y(0)=200, y(30)=0.
     const points: Point[] = [
@@ -321,12 +328,12 @@ describe("ui-chart-line: sparkline recipe (values attribute, no dataset/axes)", 
       { x: 266.667, y: 66.667 },
       { x: 400, y: 0 },
     ];
-    expect(stroke.getAttribute("d")).toBe(linePath(points, "linear", false));
+    expect(stroke.getAttribute("d")).toBe(linePath(points, "linear", "break"));
   });
 
   it("supports area fill against the plot's bottom edge in sparkline mode", async () => {
     const chart = await mountChart(`<ui-chart-line values="1 2 3" area></ui-chart-line>`);
-    const area = chart.querySelector('[data-part="area"]')!;
+    const area = must(chart.querySelector('[data-part="area"]'));
     expect(area).not.toBeNull();
     // Baseline is the plot's bottom edge (height), not a data-derived y=0.
     expect(area.getAttribute("d")).toContain(",200");
@@ -372,7 +379,7 @@ describe("ui-chart-line: regression — a sharp spike to the data max must not t
     expect(marks.length).toBe(6);
     // Jun (230) is the data max — its mark must sit strictly below the
     // plot's top edge (y=0), not on it.
-    const jun = marks[5]!;
+    const jun = must(marks[5]);
     expect(Number(jun.getAttribute("cy"))).toBeGreaterThan(0);
     // Domain [90,230] nice-domains (tickCount 6) to [80,240] — every mark
     // stays within that headroom-padded range, none touch y=0 or y=200.
@@ -408,7 +415,7 @@ describe("ui-chart-line: unstacked area zero baseline", () => {
     const chart = await mountChart(
       `${HIGH_TABLE}${AUTO_AXES}<ui-chart-line key="Revenue" area></ui-chart-line>`,
     );
-    const area = chart.querySelector('[data-part="area"]')!;
+    const area = must(chart.querySelector('[data-part="area"]'));
     const ys = [...area.getAttribute("d")!.matchAll(/,(-?[\d.]+)/g)].map((m) => Number(m[1]));
     expect(ys.length).toBeGreaterThan(0);
     for (const y of ys) {
@@ -425,7 +432,7 @@ describe("ui-chart-line: unstacked area zero baseline", () => {
       `${HIGH_TABLE}${AUTO_AXES}<ui-chart-line key="Revenue"></ui-chart-line>`,
     );
     // The raw [101, 134] extent nice-rounds to [100, 140] — no tick at 0.
-    const axis = chart.querySelectorAll("ui-chart-axis")[1]!;
+    const axis = must(chart.querySelectorAll("ui-chart-axis")[1]);
     const ticks = [...axis.querySelectorAll<HTMLElement>('[data-part="tick"]')].map(
       (t) => t.textContent,
     );
@@ -440,7 +447,7 @@ describe("ui-chart: batched rendering", () => {
     // exactly once per visible series per full render, so K renders for a
     // 2-line chart would show up as 2K calls here. Mounting used to render
     // once per registration (~7 full renders before first paint).
-    const lineType = getSeriesType("line")!;
+    const lineType = must(getSeriesType("line"));
     let calls = 0;
     registerSeriesType({
       ...lineType,

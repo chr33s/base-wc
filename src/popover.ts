@@ -19,16 +19,19 @@ import { UIPopupElement } from "./popup.ts";
 import { LightDomElement } from "./lifecycle.ts";
 import { getFocusable } from "./focus-trap.ts";
 import { labelFrom } from "./id.ts";
+import { closestFrom } from "./internal/closest.ts";
 import { type Overlay, overlay } from "./overlay.ts";
 import type { ChangeReason } from "./reasons.ts";
 
+/** Anchored non-modal popover: a `[data-popover-trigger]` toggling a `<ui-popover-popup>`. */
 export class UIPopover extends LightDomElement {
   #trigger: HTMLElement | null = null;
   #popup: HTMLElement | null = null;
   #arrow: HTMLElement | null = null;
   #overlay: Overlay | null = null;
 
-  get open() {
+  /** Whether the popup is currently open. */
+  get open(): boolean {
     return this.#overlay?.open ?? false;
   }
 
@@ -57,13 +60,13 @@ export class UIPopover extends LightDomElement {
     // focus stays on the trigger, and a popup-only listener would never hear it.
     this.addEventListener("keydown", this.#onKeydown);
     this.#popup.addEventListener("click", (e) => {
-      if ((e.target as Element).closest("[data-popover-close]")) this.hide("close-press");
+      if (closestFrom(e, "[data-popover-close]")) this.hide("close-press");
     });
 
     this.#overlay = overlay(this.#popup, {
       anchor: {
         ref: () => this.#trigger,
-        options: { offset: 6, padding: 8, arrow: this.#arrow },
+        options: { arrow: this.#arrow },
         pair: "popover",
       },
       dismiss: {
@@ -81,22 +84,26 @@ export class UIPopover extends LightDomElement {
     this.#close({ restoreFocus: false });
   }
 
-  show(reason: ChangeReason = "none") {
+  /** Open the popup and move focus into it (or onto the popup itself when it has no focusable content). */
+  show(reason: ChangeReason = "none"): void {
     // Wire synchronously if `show()` is called in the same task as connection,
     // before the deferred wiring microtask has run — otherwise the overlay is
     // still missing and the open would silently no-op.
     this.ensureInitialized();
-    if (!this.#overlay?.show(reason)) return;
+    const popup = this.#popup;
+    if (!this.#overlay?.show(reason) || !popup) return;
     // Focus the popup itself when it holds no focusable content, so Escape
     // still reaches the host instead of dying on the (blurred) page.
-    (getFocusable(this.#popup!)[0] ?? this.#popup!).focus();
+    (getFocusable(popup)[0] ?? popup).focus();
   }
 
-  hide(reason: ChangeReason = "none") {
+  /** Close the popup, returning focus to the trigger when focus was inside it. */
+  hide(reason: ChangeReason = "none"): void {
     this.#close({ reason });
   }
 
-  toggle(reason: ChangeReason = "none") {
+  /** Open the popup if closed, close it if open. */
+  toggle(reason: ChangeReason = "none"): void {
     if (this.open) this.#close({ reason });
     else this.show(reason);
   }
@@ -107,7 +114,9 @@ export class UIPopover extends LightDomElement {
   }: { restoreFocus?: boolean; reason?: ChangeReason } = {}) {
     if (!this.#overlay?.open) return;
     const restore =
-      restoreFocus && this.#trigger != null && this.#popup!.contains(document.activeElement);
+      restoreFocus &&
+      this.#trigger != null &&
+      (this.#popup?.contains(document.activeElement) ?? false);
     this.#overlay.hide({ reason });
     if (restore) this.#trigger?.focus();
   }
@@ -122,6 +131,7 @@ export class UIPopover extends LightDomElement {
   };
 }
 
+/** Custom element `ui-popover-popup`: the focusable `role="dialog"` surface. */
 export class UIPopoverPopup extends UIPopupElement {
   static override role = "dialog";
   static override focusable = true;

@@ -21,12 +21,14 @@ import { labelFrom } from "./id.ts";
 import { type Overlay, overlay } from "./overlay.ts";
 import type { ChangeReason } from "./reasons.ts";
 
+/** Modal dialog: a trigger opens a top-layer popup with focus trapping, title/description labelling and dismissal. */
 export class UIDialog extends LightDomElement {
   #trigger: HTMLElement | null = null;
   #popup: HTMLElement | null = null;
   #overlay: Overlay | null = null;
 
-  get open() {
+  /** Whether the dialog is currently open. */
+  get open(): boolean {
     return this.#overlay?.open ?? false;
   }
   /**
@@ -81,7 +83,8 @@ export class UIDialog extends LightDomElement {
     this.#overlay?.hide({ restoreFocus: false });
   }
 
-  show(reason: ChangeReason = "none") {
+  /** Open the dialog, tagging the resulting event with `reason`. */
+  show(reason: ChangeReason = "none"): void {
     // Wire synchronously if `show()` is called in the same task as connection,
     // before the deferred wiring microtask has run — otherwise #popup is still
     // null and the open would silently no-op.
@@ -89,7 +92,8 @@ export class UIDialog extends LightDomElement {
     this.#overlay?.show(reason);
   }
 
-  hide(reason: ChangeReason = "none") {
+  /** Close the dialog, tagging the resulting event with `reason`. */
+  hide(reason: ChangeReason = "none"): void {
     this.#close(reason);
   }
 
@@ -110,8 +114,10 @@ export class UIDialog extends LightDomElement {
   };
 }
 
+/** The dialog's top-layer surface (`role=dialog`, focus-trapped). */
 export class UIDialogPopup extends UIModalPopupElement {}
 
+/** Dimming layer behind the dialog popup. */
 export class UIDialogBackdrop extends HTMLElement {}
 
 define("ui-dialog", UIDialog);

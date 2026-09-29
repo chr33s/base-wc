@@ -40,7 +40,10 @@ import { scopedFirst } from "./query.ts";
  * `host.localName` ancestor is `host` itself — so a component nested inside
  * another's markup never adopts the wrong control.
  */
-export function adoptedControl<T extends Element = HTMLElement>(host: Element, selector: string) {
+export function adoptedControl<T extends Element = HTMLElement>(
+  host: Element,
+  selector: string,
+): T | null {
   return scopedFirst<T>(host, selector);
 }
 
@@ -51,7 +54,7 @@ export function adoptedControl<T extends Element = HTMLElement>(host: Element, s
  * of layout and the a11y tree while still submitting — unlike `disabled`, which
  * would drop it from submission entirely.
  */
-export function retireNative(el: HTMLElement) {
+export function retireNative(el: HTMLElement): void {
   el.hidden = true;
   el.tabIndex = -1;
   el.setAttribute("aria-hidden", "true");
@@ -63,7 +66,7 @@ export function retireNative(el: HTMLElement) {
  * form (and any listeners / constraint validation) expect from user input, so
  * the enhanced widget and the native control stay indistinguishable to hosts.
  */
-export function fireNativeChange(el: HTMLElement) {
+export function fireNativeChange(el: HTMLElement): void {
   el.dispatchEvent(new Event("input", { bubbles: true }));
   el.dispatchEvent(new Event("change", { bubbles: true }));
 }
@@ -81,7 +84,7 @@ export function fireNativeChange(el: HTMLElement) {
  * Returns the setter; the flag lives in the closure, so the component keeps no
  * field of its own. Create it once the control is adopted, in `wire`.
  */
-export function managedDisabled(control: HTMLInputElement) {
+export function managedDisabled(control: HTMLInputElement): (disabled: boolean) => void {
   let managed = false;
   return (disabled: boolean) => {
     if (disabled) {

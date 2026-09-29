@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import "./elements.ts";
+import { must } from "./test-utils.ts";
 
+/** Narrow a lookup the fixture guarantees is present. */
 const pointer = (el: EventTarget, type: "pointerenter" | "pointerleave") =>
   el.dispatchEvent(new Event(type));
 const fire = (el: EventTarget, type: string) => el.dispatchEvent(new Event(type));
@@ -13,9 +15,9 @@ async function mount(attrs = "") {
       <ui-tooltip-content>Explanation</ui-tooltip-content>
     </ui-tooltip>`;
   await Promise.resolve();
-  const tooltip = document.querySelector("ui-tooltip")!;
-  const trigger = document.querySelector<HTMLButtonElement>("[data-tooltip-trigger]")!;
-  const content = document.querySelector("ui-tooltip-content")!;
+  const tooltip = must(document.querySelector("ui-tooltip"));
+  const trigger = must(document.querySelector<HTMLButtonElement>("[data-tooltip-trigger]"));
+  const content = must(document.querySelector("ui-tooltip-content"));
   return { tooltip, trigger, content };
 }
 
@@ -84,8 +86,9 @@ describe("ui-tooltip", () => {
       </ui-tooltip>`;
     await Promise.resolve();
     const [a, b] = [...document.querySelectorAll("ui-tooltip")];
-    const ta = document.querySelector<HTMLElement>("#ta")!;
-    const tb = document.querySelector<HTMLElement>("#tb")!;
+    if (!a || !b) throw new Error("expected two tooltips");
+    const ta = must(document.querySelector<HTMLElement>("#ta"));
+    const tb = must(document.querySelector<HTMLElement>("#tb"));
 
     pointer(ta, "pointerenter");
     vi.advanceTimersByTime(600); // A opens the full delay → group warms

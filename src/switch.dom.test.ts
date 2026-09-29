@@ -1,15 +1,17 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import "./elements.ts";
+import { must } from "./test-utils.ts";
 
+/** Narrow a lookup the fixture guarantees is present. */
 // `ui-switch` is a pure enhancer of an authored native checkbox. Wiring is
 // deferred a microtask (so the child has parsed); tests await it.
 async function mount(inputAttrs = "") {
   document.body.innerHTML = `<form><ui-switch><input type="checkbox" name="notify" ${inputAttrs} /></ui-switch></form>`;
   await Promise.resolve();
-  const form = document.querySelector("form")!;
-  const el = document.querySelector("ui-switch")!;
-  const input = document.querySelector<HTMLInputElement>("input")!;
+  const form = must(document.querySelector("form"));
+  const el = must(document.querySelector("ui-switch"));
+  const input = must(document.querySelector<HTMLInputElement>("input"));
   return { form, el, input };
 }
 
@@ -82,7 +84,7 @@ describe("ui-switch", () => {
   it("no-ops without an authored native control", async () => {
     document.body.innerHTML = `<ui-switch></ui-switch>`;
     await Promise.resolve();
-    const el = document.querySelector("ui-switch")!;
+    const el = must(document.querySelector("ui-switch"));
     expect(el.checked).toBe(false);
     expect(el.getAttribute("data-state")).toBe(null);
   });

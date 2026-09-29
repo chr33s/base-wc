@@ -36,7 +36,7 @@ export function localeOf(element: Element | null | undefined): string | undefine
 }
 
 /** Fold `value` for comparison: locale-lowercased, diacritics dropped, trimmed. */
-export function normalize(value: string, locale?: string) {
+export function normalize(value: string, locale?: string): string {
   const lowered = locale ? value.toLocaleLowerCase(locale) : value.toLowerCase();
   return lowered
     .normalize("NFD")

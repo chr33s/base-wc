@@ -12,6 +12,7 @@ import { define } from "./define.ts";
 import { LightDomElement } from "./lifecycle.ts";
 import type { UIMenu } from "./menu.ts";
 
+/** Opens its inner `ui-menu` at the pointer on right-click or touch long-press of the target region. */
 export class UIContextMenu extends LightDomElement {
   #menu: UIMenu | null = null;
   #target: HTMLElement | null = null;

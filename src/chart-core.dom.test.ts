@@ -15,12 +15,13 @@ import {
   stackSeries,
   toNumeric,
 } from "./chart-core.ts";
+import { must } from "./test-utils.ts";
 
 const ITEM_GLOBAL = { highlight: "item", fade: "global" } as const;
 
 function tableFrom(html: string) {
   document.body.innerHTML = html;
-  return document.querySelector("table")!;
+  return must(document.querySelector("table"));
 }
 
 describe("parseTable", () => {
@@ -62,12 +63,12 @@ describe("parseTable", () => {
       </table>
     `);
     const rows = parseTable(table);
-    expect(rows[0]!.Day).toBeInstanceOf(Date);
+    expect(must(rows[0]).Day).toBeInstanceOf(Date);
     // A bare `YYYY-MM-DD` is the calendar day the author wrote, read at *local*
     // midnight — `new Date("2026-01-01")` would be UTC midnight, which reads
     // back as 31 December anywhere west of UTC and sits a timezone offset away
     // from the local-time ticks meant to label it.
-    const day = rows[0]!.Day as Date;
+    const day = must(rows[0]).Day as Date;
     expect([day.getFullYear(), day.getMonth(), day.getDate()]).toEqual([2026, 0, 1]);
     expect(day.getHours()).toBe(0);
     expect(day.toLocaleDateString()).toBe(new Date(2026, 0, 1).toLocaleDateString());
@@ -82,7 +83,7 @@ describe("parseTable", () => {
         </tbody>
       </table>
     `);
-    expect((parseTable(table)[0]!.Day as Date).getTime()).toBe(
+    expect((must(parseTable(table)[0]).Day as Date).getTime()).toBe(
       new Date("2026-01-01T12:30:00Z").getTime(),
     );
   });
@@ -94,7 +95,7 @@ describe("parseTable", () => {
         <tbody><tr><td>Jan</td><td></td></tr></tbody>
       </table>
     `);
-    expect(parseTable(table)[0]!.Revenue).toBeNull();
+    expect(must(parseTable(table)[0]).Revenue).toBeNull();
   });
 
   it("works without an explicit thead (first row is the header)", () => {

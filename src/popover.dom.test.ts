@@ -1,10 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import "./elements.ts";
+import { key, must } from "./test-utils.ts";
 
-const key = (target: EventTarget, k: string) =>
-  target.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
-
+/** Narrow a lookup the fixture guarantees is present. */
 async function mount() {
   document.body.innerHTML = `
     <button id="outside">outside</button>
@@ -18,12 +17,12 @@ async function mount() {
       </ui-popover-popup>
     </ui-popover>`;
   await Promise.resolve();
-  const popover = document.querySelector("ui-popover")!;
-  const trigger = document.querySelector<HTMLButtonElement>("[data-popover-trigger]")!;
-  const popup = document.querySelector("ui-popover-popup")!;
-  const inside = document.querySelector<HTMLButtonElement>("#inside")!;
-  const outside = document.querySelector<HTMLButtonElement>("#outside")!;
-  const closeBtn = document.querySelector<HTMLButtonElement>("#close")!;
+  const popover = must(document.querySelector("ui-popover"));
+  const trigger = must(document.querySelector<HTMLButtonElement>("[data-popover-trigger]"));
+  const popup = must(document.querySelector("ui-popover-popup"));
+  const inside = must(document.querySelector<HTMLButtonElement>("#inside"));
+  const outside = must(document.querySelector<HTMLButtonElement>("#outside"));
+  const closeBtn = must(document.querySelector<HTMLButtonElement>("#close"));
   return { popover, trigger, popup, inside, outside, closeBtn };
 }
 
@@ -59,8 +58,8 @@ describe("ui-popover", () => {
 
   it("labels and describes the dialog from its title/description", async () => {
     const { popup } = await mount();
-    const title = document.querySelector("[data-popover-title]")!;
-    const description = document.querySelector("[data-popover-description]")!;
+    const title = must(document.querySelector("[data-popover-title]"));
+    const description = must(document.querySelector("[data-popover-description]"));
     expect(popup.getAttribute("aria-labelledby")).toBe(title.id);
     expect(popup.getAttribute("aria-describedby")).toBe(description.id);
     expect(title.id).toBeTruthy();
@@ -105,14 +104,14 @@ describe("ui-popover", () => {
         <ui-popover-popup><p>Plain text only</p></ui-popover-popup>
       </ui-popover>`;
     await Promise.resolve();
-    const trigger = document.querySelector<HTMLButtonElement>("[data-popover-trigger]")!;
-    const popup = document.querySelector("ui-popover-popup")!;
+    const trigger = must(document.querySelector<HTMLButtonElement>("[data-popover-trigger]"));
+    const popup = must(document.querySelector("ui-popover-popup"));
     trigger.click();
     expect(popup.hasAttribute("data-open")).toBe(true);
     // With nothing focusable inside, focus falls back to the popup itself…
     expect(document.activeElement).toBe(popup);
     // …so Escape (listened on the host) still has a live path to dismissal.
-    key(document.activeElement!, "Escape");
+    key(must(document.activeElement), "Escape");
     expect(popup.hasAttribute("data-open")).toBe(false);
     expect(document.activeElement).toBe(trigger);
   });
@@ -123,10 +122,10 @@ describe("ui-popover", () => {
         <button data-popover-trigger>Open</button>
         <ui-popover-popup><button id="inside">Go</button></ui-popover-popup>
       </ui-popover>`;
-    const popover = document.querySelector("ui-popover")!;
+    const popover = must(document.querySelector("ui-popover"));
     popover.show(); // no microtask wait — must wire synchronously
     expect(popover.open).toBe(true);
-    expect(document.querySelector("ui-popover-popup")!.hasAttribute("data-open")).toBe(true);
+    expect(must(document.querySelector("ui-popover-popup")).hasAttribute("data-open")).toBe(true);
   });
 
   it("stays interactive (non-modal): does not lock scroll", async () => {

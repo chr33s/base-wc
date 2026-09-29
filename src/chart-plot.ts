@@ -25,6 +25,7 @@
  * column keep entirely separate elements.
  */
 import {
+  type ChartDimension,
   type HighlightState,
   type MarkDescriptor,
   type SeriesRegistration,
@@ -42,8 +43,11 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 
 /** One dimension's grid lines: the continuous scale to tick, and how many ticks to aim for. */
 export interface GridSpec {
-  dim: "x" | "y";
+  /** Which dimension the lines mark: `x` draws vertical lines, `y` horizontal ones. */
+  dim: ChartDimension;
+  /** Scale whose ticks position the lines. */
   scale: ContinuousScale;
+  /** Target number of ticks. */
   tickCount: number;
 }
 
@@ -56,12 +60,21 @@ interface SeriesView {
   isAnnotation: boolean;
 }
 
-function svgElement<K extends keyof SVGElementTagNameMap>(tag: K, part: string) {
+function svgElement<K extends keyof SVGElementTagNameMap>(
+  tag: K,
+  part: string,
+): SVGElementTagNameMap[K] {
   const element = document.createElementNS(SVG_NS, tag);
   element.setAttribute("data-part", part);
   return element;
 }
 
+/** Endpoints of a full-span grid line at pixel offset `at` along `dim`. */
+function gridLineEnds(dim: ChartDimension, at: number, width: number, height: number) {
+  return dim === "x" ? { x1: at, y1: 0, x2: at, y2: height } : { x1: 0, y1: at, x2: width, y2: at };
+}
+
+/** Owns the plot's `<svg>` and reconciles grid lines, band hit rects and series marks into it in place. */
 export class ChartPlot {
   /** The generated surface — `aria-hidden`, because the authored `<table>` stays the accessible representation of the data. */
   readonly svg: SVGSVGElement;
@@ -85,22 +98,22 @@ export class ChartPlot {
     this.svg.append(this.#grid, this.#bands, this.#seriesRoot);
   }
 
-  resize(width: number, height: number) {
+  /** Match the SVG viewBox to the plot box. */
+  resize(width: number, height: number): void {
     this.svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   }
 
   /** Replace the grid lines. Only dimensions with a `ui-chart-grid` and a continuous scale draw any — the rest of the group is emptied. */
-  renderGrid(lines: readonly GridSpec[], width: number, height: number) {
+  renderGrid(lines: readonly GridSpec[], width: number, height: number): void {
     this.#grid.replaceChildren();
     for (const { dim, scale, tickCount } of lines) {
       for (const value of scale.ticks(tickCount)) {
         const at = round(scale(value));
         const line = svgElement("line", "grid-line");
         line.setAttribute("data-axis", dim);
-        line.setAttribute("x1", String(dim === "x" ? at : 0));
-        line.setAttribute("x2", String(dim === "x" ? at : width));
-        line.setAttribute("y1", String(dim === "x" ? 0 : at));
-        line.setAttribute("y2", String(dim === "x" ? height : at));
+        for (const [name, value] of Object.entries(gridLineEnds(dim, at, width, height))) {
+          line.setAttribute(name, String(value));
+        }
         this.#grid.append(line);
       }
     }
@@ -115,7 +128,7 @@ export class ChartPlot {
    * `chart-domain.ts`'s `categoryRows`): a band reports the row a highlight
    * should land on, never its own position in the domain.
    */
-  renderBands(scale: Scale | undefined, height: number, rows: readonly number[]) {
+  renderBands(scale: Scale | undefined, height: number, rows: readonly number[]): void {
     if (!scale || !isDiscreteScale(scale)) {
       this.#bands.replaceChildren();
       this.#bandRects.clear();
@@ -170,7 +183,7 @@ export class ChartPlot {
     context: SeriesRenderContext,
     marks: readonly MarkDescriptor[],
     paletteIndex: number,
-  ) {
+  ): void {
     let view = this.#views.get(registration);
     if (!view) {
       view = { group: svgElement("g", "series"), marks: new Map(), context, isAnnotation: false };
@@ -215,7 +228,7 @@ export class ChartPlot {
   }
 
   /** Remove the rendered DOM of every series not in `keep` — hidden ones, and those that have unregistered. */
-  retainSeries(keep: readonly SeriesRegistration[]) {
+  retainSeries(keep: readonly SeriesRegistration[]): void {
     for (const [registration, view] of this.#views) {
       if (!keep.includes(registration)) {
         view.group.remove();
@@ -225,7 +238,7 @@ export class ChartPlot {
   }
 
   /** Drop one series' rendered DOM (it unregistered). */
-  removeSeries(registration: SeriesRegistration) {
+  removeSeries(registration: SeriesRegistration): void {
     this.#views.get(registration)?.group.remove();
     this.#views.delete(registration);
   }
@@ -245,7 +258,7 @@ export class ChartPlot {
    * that element rather than to an ancestor. Nothing here ever sets either
    * attribute on the series' own group — see this module's top doc for why.
    */
-  applyHighlight(highlight: HighlightState) {
+  applyHighlight(highlight: HighlightState): void {
     for (const [registration, view] of this.#views) {
       if (view.isAnnotation) continue;
       const scope = registration.highlightScope;
@@ -281,7 +294,7 @@ export class ChartPlot {
   }
 
   /** The series whose rendered group contains `node`, if any. */
-  seriesAt(node: Element) {
+  seriesAt(node: Element): SeriesRegistration | undefined {
     const group = node.closest<SVGGElement>('[data-part="series"]');
     if (!group) return undefined;
     for (const [registration, view] of this.#views) {

@@ -50,16 +50,19 @@ import { SERIES_ATTRIBUTES, UIChartSeries } from "./chart-series.ts";
 import { round } from "./chart-shape.ts";
 import { define } from "./define.ts";
 
+/** A scatter series: one circle per row, positioned by an x column and a y column. */
 export class UIChartScatter extends UIChartSeries {
   static observedAttributes = [...SERIES_ATTRIBUTES, "x-key", "r"];
 
   readonly type = "scatter";
 
-  get xKey() {
+  /** Dataset column plotted on the x axis (`x-key` attribute). */
+  get xKey(): string {
     return this.getAttribute("x-key") ?? "";
   }
 
-  get r() {
+  /** Circle radius as authored (`r` attribute, default `4`). */
+  get r(): string {
     return this.getAttribute("r") ?? "4";
   }
 }
@@ -75,7 +78,7 @@ interface ScatterPoint {
  * missing either coordinate. `[]` when either axis scale is missing/discrete
  * or the series has no `xKey` — a scatter series is meaningless without both.
  */
-function scatterPoints(context: SeriesRenderContext) {
+function scatterPoints(context: SeriesRenderContext): ScatterPoint[] {
   const { xScale, yScale, config, data } = context;
   const xKey = config.xKey;
   if (!xKey || !xScale || !yScale || isDiscreteScale(xScale) || isDiscreteScale(yScale)) return [];

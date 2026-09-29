@@ -1,10 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import "./elements.ts";
+import { key, must } from "./test-utils.ts";
 
-const key = (target: EventTarget, k: string) =>
-  target.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
-
+/** The value, or a failure naming the missing element. */
 afterEach(() => {
   document.body.innerHTML = "";
 });
@@ -27,28 +26,30 @@ describe("ui-menu — submenu", () => {
       </ui-menu>`;
     await Promise.resolve();
     await Promise.resolve(); // parent then nested wiring
-    const root = document.querySelector("ui-menu")!;
-    const rootPopup = document.querySelector("ui-menu-popup")!;
-    const more = document.querySelector<HTMLElement>("#more")!;
-    const sub = document.querySelectorAll("ui-menu")[1]!;
-    const subPopup = document.querySelectorAll("ui-menu-popup")[1]!;
+    const root = must(document.querySelector("ui-menu"));
+    const rootPopup = must(document.querySelector("ui-menu-popup"));
+    const more = must(document.querySelector<HTMLElement>("#more"));
+    const sub = must(document.querySelectorAll("ui-menu")[1]);
+    const subPopup = must(document.querySelectorAll("ui-menu-popup")[1]);
     return { root, rootPopup, more, sub, subPopup };
   }
 
   it("scopes parent navigation to its own items (submenu items excluded)", async () => {
     const { root, rootPopup, more } = await mount();
-    root.querySelector<HTMLButtonElement>("#root-trigger")!.click();
+    must(root.querySelector<HTMLButtonElement>("#root-trigger")).click();
     // Parent items are [Edit, More]; ArrowDown from Edit lands on the submenu trigger.
     key(rootPopup, "ArrowDown"); // Edit → More
     expect(more.hasAttribute("data-highlighted")).toBe(true);
     // "Left"/"Right" live in the nested popup and are not part of parent nav.
     key(rootPopup, "ArrowDown"); // wraps back to Edit (only 2 parent items)
-    expect(document.querySelector("ui-menu-item")!.hasAttribute("data-highlighted")).toBe(true);
+    expect(must(document.querySelector("ui-menu-item")).hasAttribute("data-highlighted")).toBe(
+      true,
+    );
   });
 
   it("opens the submenu on ArrowRight and focuses its first item", async () => {
     const { root, more, subPopup } = await mount();
-    root.querySelector<HTMLButtonElement>("#root-trigger")!.click();
+    must(root.querySelector<HTMLButtonElement>("#root-trigger")).click();
     more.setAttribute("data-highlighted", ""); // pretend it's active
     more.focus();
     key(more, "ArrowRight");
@@ -58,7 +59,7 @@ describe("ui-menu — submenu", () => {
 
   it("closes the submenu on ArrowLeft, keeping the parent open", async () => {
     const { root, rootPopup, more, subPopup } = await mount();
-    root.querySelector<HTMLButtonElement>("#root-trigger")!.click();
+    must(root.querySelector<HTMLButtonElement>("#root-trigger")).click();
     more.focus();
     key(more, "ArrowRight");
     expect(subPopup.hasAttribute("data-open")).toBe(true);
@@ -70,7 +71,7 @@ describe("ui-menu — submenu", () => {
   it("mirrors the open/close keys under RTL (ArrowLeft opens, ArrowRight closes)", async () => {
     const { root, rootPopup, more, subPopup } = await mount();
     root.setAttribute("dir", "rtl");
-    root.querySelector<HTMLButtonElement>("#root-trigger")!.click();
+    must(root.querySelector<HTMLButtonElement>("#root-trigger")).click();
     more.focus();
     key(more, "ArrowLeft"); // RTL: the submenu opens toward the left
     expect(subPopup.hasAttribute("data-open")).toBe(true);
@@ -95,9 +96,9 @@ describe("ui-menubar", () => {
       </ui-menubar>`;
     await Promise.resolve();
     await Promise.resolve();
-    const bar = document.querySelector("ui-menubar")!;
-    const file = document.querySelector<HTMLButtonElement>("#file")!;
-    const edit = document.querySelector<HTMLButtonElement>("#edit")!;
+    const bar = must(document.querySelector("ui-menubar"));
+    const file = must(document.querySelector<HTMLButtonElement>("#file"));
+    const edit = must(document.querySelector<HTMLButtonElement>("#edit"));
     const menus = [...document.querySelectorAll("ui-menu")];
     return { bar, file, edit, menus };
   }
@@ -137,8 +138,8 @@ describe("ui-menubar", () => {
       </ui-menu>`;
     await Promise.resolve();
     await Promise.resolve();
-    const root = document.querySelector("ui-menu")!;
-    const more = document.querySelector<HTMLElement>("#more")!;
+    const root = must(document.querySelector("ui-menu"));
+    const more = must(document.querySelector<HTMLElement>("#more"));
     expect(more.getAttribute("aria-disabled")).toBe("true");
     root.setAttribute("disabled", "");
     root.removeAttribute("disabled");
@@ -167,10 +168,10 @@ describe("ui-menubar", () => {
     await Promise.resolve();
     await Promise.resolve();
     const menus = [...document.querySelectorAll("ui-menu")];
-    const a = document.querySelector<HTMLButtonElement>("#a")!;
+    const a = must(document.querySelector<HTMLButtonElement>("#a"));
     a.click();
-    expect(menus[0].open).toBe(true);
-    key(document.querySelector("#i1")!, "ArrowRight");
+    expect(must(menus[0]).open).toBe(true);
+    key(must(document.querySelector("#i1")), "ArrowRight");
     // Landing on the disabled B would close A, fail to open B, and strand
     // focus on a disabled trigger with every menu shut.
     expect(menus.map((m) => m.open)).toEqual([false, false, true]);
@@ -194,9 +195,9 @@ describe("ui-menubar", () => {
       </ui-menubar>`;
     await Promise.resolve();
     await Promise.resolve();
-    const a = document.querySelector<HTMLButtonElement>("#a")!;
-    const b = document.querySelector<HTMLButtonElement>("#b")!;
-    const c = document.querySelector<HTMLButtonElement>("#c")!;
+    const a = must(document.querySelector<HTMLButtonElement>("#a"));
+    const b = must(document.querySelector<HTMLButtonElement>("#b"));
+    const c = must(document.querySelector<HTMLButtonElement>("#c"));
     a.focus();
     key(a, "ArrowRight");
     expect(document.activeElement).toBe(c); // straight past the disabled B
@@ -215,12 +216,12 @@ describe("ui-menubar", () => {
   it("crosses to the sibling menu and opens it when one is already open", async () => {
     const { file, edit, menus } = await mount();
     file.click(); // opens File
-    expect(menus[0].open).toBe(true);
+    expect(must(menus[0]).open).toBe(true);
     // Focus is now in File's popup; ArrowRight crosses to Edit and opens it.
-    const filePopup = menus[0].querySelector("ui-menu-popup")!;
+    const filePopup = must(must(menus[0]).querySelector("ui-menu-popup"));
     key(filePopup, "ArrowRight");
-    expect(menus[0].open).toBe(false);
-    expect(menus[1].open).toBe(true);
+    expect(must(menus[0]).open).toBe(false);
+    expect(must(menus[1]).open).toBe(true);
     expect(document.activeElement).toBe(edit.parentElement?.querySelector("ui-menu-item") ?? edit);
   });
 
@@ -249,20 +250,18 @@ describe("ui-context-menu", () => {
       </ui-context-menu>`;
     await Promise.resolve();
     await Promise.resolve();
-    const target = document.querySelector<HTMLElement>("#target")!;
-    const menu = document.querySelector("ui-menu")!;
-    const popup = document.querySelector("ui-menu-popup")!;
+    const target = must(document.querySelector<HTMLElement>("#target"));
+    const menu = must(document.querySelector("ui-menu"));
+    const popup = must(document.querySelector("ui-menu-popup"));
     return { target, menu, popup };
   }
 
   it("opens the menu at the pointer on contextmenu and focuses the first item", async () => {
     const { target, popup } = await mount();
     const onSelect = vi.fn<(detail: { value: string }) => void>();
-    document
-      .querySelector("ui-menu")!
-      .addEventListener("menu-select", (e) =>
-        onSelect((e as CustomEvent<{ value: string }>).detail),
-      );
+    must(document.querySelector("ui-menu")).addEventListener("menu-select", (e) =>
+      onSelect((e as CustomEvent<{ value: string }>).detail),
+    );
 
     target.dispatchEvent(
       new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 120, clientY: 60 }),
@@ -272,7 +271,7 @@ describe("ui-context-menu", () => {
 
     // Enter activates the focused item.
     key(popup, "Enter");
-    expect(onSelect.mock.calls[0][0].value).toBe("cut");
+    expect(must(must(onSelect.mock.calls[0])[0]).value).toBe("cut");
     expect(popup.hasAttribute("data-open")).toBe(false);
   });
 
@@ -300,9 +299,9 @@ describe("ui-menubar orientation", () => {
     await Promise.resolve();
     await Promise.resolve();
     return {
-      bar: document.querySelector("ui-menubar")!,
-      file: document.querySelector<HTMLButtonElement>("#v-file")!,
-      edit: document.querySelector<HTMLButtonElement>("#v-edit")!,
+      bar: must(document.querySelector("ui-menubar")),
+      file: must(document.querySelector<HTMLButtonElement>("#v-file")),
+      edit: must(document.querySelector<HTMLButtonElement>("#v-edit")),
     };
   }
 
@@ -330,6 +329,6 @@ describe("ui-menubar orientation", () => {
 
     key(edit, "ArrowRight");
     expect(edit.getAttribute("aria-expanded")).toBe("true");
-    expect(document.activeElement!.textContent!.trim()).toBe("Undo");
+    expect(must(must(document.activeElement).textContent).trim()).toBe("Undo");
   });
 });

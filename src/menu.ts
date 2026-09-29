@@ -24,6 +24,7 @@
  */
 import { rectAt, type VirtualElement } from "./anchor.ts";
 import { define } from "./define.ts";
+import { closestFrom } from "./internal/closest.ts";
 import { UIPopupElement } from "./popup.ts";
 import { isRTL } from "./direction.ts";
 import { labelFrom, nextId } from "./id.ts";
@@ -45,7 +46,7 @@ export interface MenuSelectDetail {
  * open (checkbox / radio items toggle in place). */
 interface ItemSelectDetail {
   readonly value: string;
-  readonly close?: boolean;
+  readonly close?: boolean | undefined;
 }
 
 const SELECT = "ui:menu-item-select";
@@ -139,7 +140,7 @@ export class UIMenu extends LightDomElement {
     // (see {@link onPointerMoved}).
     onPointerMoved(this.#popup, this.#onPointerMove, { capture: true });
 
-    this.addEventListener(SELECT, this.#onItemSelect as EventListener);
+    this.addEventListener(SELECT, this.#onItemSelect);
 
     // Assign stable ids to this popup's own items (present at wire time).
     this.#allItems().forEach((el) => {
@@ -227,10 +228,12 @@ export class UIMenu extends LightDomElement {
     this.#open(reason);
     this.focusFirst();
   }
-  focusFirst() {
+  /** Move the highlight to the first enabled item. */
+  focusFirst(): void {
     if (this.#items().length) this.#setActive(0);
   }
-  focusLast() {
+  /** Move the highlight to the last enabled item. */
+  focusLast(): void {
     const items = this.#items();
     if (items.length) this.#setActive(items.length - 1);
   }
@@ -259,7 +262,11 @@ export class UIMenu extends LightDomElement {
     return this.#allItems().filter((el) => !isDisabled(el));
   }
 
-  #onItemSelect = (e: CustomEvent<ItemSelectDetail>) => {
+  #onItemSelect = (e: Event) => {
+    if (!(e instanceof CustomEvent)) return;
+    const detail: ItemSelectDetail = e.detail;
+    const item = e.target;
+    if (!(item instanceof UIMenuItem)) return;
     // Consume the internal event at the nearest root so a selection inside a
     // submenu isn't re-handled by every ancestor menu (which would fire
     // `menu-select` once per level and run competing focus restores).
@@ -267,13 +274,13 @@ export class UIMenu extends LightDomElement {
     this.dispatchEvent(
       new CustomEvent<MenuSelectDetail>("menu-select", {
         bubbles: true,
-        detail: { value: e.detail.value, item: e.target as UIMenuItem },
+        detail: { value: detail.value, item },
       }),
     );
     // Checkbox / radio items toggle in place (`close:false`); plain items close
     // the whole tree from the outermost root, so focus lands on the top-level
     // trigger and every descendant submenu closes with it.
-    if (e.detail.close !== false) this.#outermostMenu().#close();
+    if (detail.close !== false) this.#outermostMenu().#close();
   };
 
   /** The top-level `<ui-menu>` root (self when not nested in another menu). */
@@ -381,7 +388,7 @@ export class UIMenu extends LightDomElement {
 
   #onPopupKeydown = (e: KeyboardEvent) => {
     // Ignore keydowns bubbling up from a nested submenu popup.
-    if ((e.target as Element)?.closest?.("ui-menu-popup") !== this.#popup) return;
+    if (closestFrom(e, "ui-menu-popup") !== this.#popup) return;
     if (this.#isSubmenu) {
       // Collapse the submenu toward its parent: ArrowLeft in LTR, ArrowRight
       // in RTL (the mirror of the open key).
@@ -415,8 +422,8 @@ export class UIMenu extends LightDomElement {
     }
   }
 
-  #onPointerMove = (e: PointerEvent) => {
-    const item = (e.target as Element).closest?.(ITEM_SELECTOR) as UIMenuItem | null;
+  #onPointerMove = (e: MouseEvent) => {
+    const item = closestFrom<UIMenuItem>(e, ITEM_SELECTOR);
     if (!item || isDisabled(item)) return;
     const idx = this.#items().indexOf(item);
     if (idx !== -1 && idx !== this.#activeIndex) this.#setActive(idx);
@@ -562,7 +569,8 @@ export class UIMenuCheckboxItem extends UICheckedMenuItem {
 /** A single-select menu item (`role=menuitemradio`); its owning
  * `<ui-menu-radio-group>` coordinates the checked state. */
 export class UIMenuRadioItem extends UICheckedMenuItem {
-  get value() {
+  /** The value this item reports when selected. */
+  get value(): string {
     return this._value();
   }
 
@@ -593,7 +601,8 @@ export class UIMenuRadioGroup extends HTMLElement {
     });
   }
 
-  get value() {
+  /** The checked item's value, or `null` when none is selected. */
+  get value(): string | null {
     return this.getAttribute("value");
   }
   set value(next: string | null) {

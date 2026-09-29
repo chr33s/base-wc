@@ -1,18 +1,17 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import "./elements.ts";
+import { key, must } from "./test-utils.ts";
 
-const key = (target: EventTarget, k: string) =>
-  target.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
-
+/** Narrow a lookup the fixture guarantees is present. */
 async function mount(attrs = 'value="40" min="0" max="100" step="1"') {
   document.body.innerHTML = `
     <ui-slider name="volume" ${attrs}>
       <ui-slider-track><ui-slider-thumb></ui-slider-thumb></ui-slider-track>
     </ui-slider>`;
   await Promise.resolve();
-  const slider = document.querySelector("ui-slider")!;
-  const thumb = document.querySelector("ui-slider-thumb")!;
+  const slider = must(document.querySelector("ui-slider"));
+  const thumb = must(document.querySelector("ui-slider-thumb"));
   return { slider, thumb };
 }
 
@@ -95,11 +94,13 @@ describe("ui-slider — adopts a native range input (no-JS fallback)", () => {
         </ui-slider>
       </form>`;
     await Promise.resolve();
-    const form = document.querySelector("form")!;
-    const slider = document.querySelector<
-      HTMLElement & { value: number | number[]; range: boolean }
-    >("ui-slider")!;
-    const input = document.querySelector<HTMLInputElement>("input")!;
+    const form = must(document.querySelector("form"));
+    const slider = must(
+      document.querySelector<HTMLElement & { value: number | number[]; range: boolean }>(
+        "ui-slider",
+      ),
+    );
+    const input = must(document.querySelector<HTMLInputElement>("input"));
     return { form, slider, input };
   }
 
@@ -152,11 +153,13 @@ describe("ui-slider — range (multiple thumbs)", () => {
         </ui-slider-track>
       </ui-slider>`;
     await Promise.resolve();
-    const slider = document.querySelector<
-      HTMLElement & { value: number | number[]; range: boolean }
-    >("ui-slider")!;
-    const lo = document.querySelector<HTMLElement>("#lo")!;
-    const hi = document.querySelector<HTMLElement>("#hi")!;
+    const slider = must(
+      document.querySelector<HTMLElement & { value: number | number[]; range: boolean }>(
+        "ui-slider",
+      ),
+    );
+    const lo = must(document.querySelector<HTMLElement>("#lo"));
+    const hi = must(document.querySelector<HTMLElement>("#hi"));
     return { slider, lo, hi };
   }
 

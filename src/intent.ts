@@ -20,6 +20,7 @@
  * user actually performed from one the page performed *at* them.
  */
 
+/** Timing and callbacks for one {@link hoverIntent} surface. */
 export interface HoverIntentOptions {
   /** Whether the surface is currently open (read per event, never cached). */
   isOpen: () => boolean;
@@ -37,6 +38,7 @@ export interface HoverIntentOptions {
   armed?: boolean;
 }
 
+/** Controls for a hover surface's open/close timers, returned by {@link hoverIntent}. */
 export interface HoverIntent {
   /** Pointer entered the trigger: cancel a pending close, schedule the open. */
   scheduleOpen(): void;
@@ -55,7 +57,7 @@ export interface HoverIntent {
 }
 
 /** Create the hover-intent open/close timer pair for one hover surface. */
-export function hoverIntent(options: HoverIntentOptions) {
+export function hoverIntent(options: HoverIntentOptions): HoverIntent {
   let armed = options.armed ?? true;
   let openTimer = 0;
   let closeTimer = 0;
@@ -112,12 +114,12 @@ function ensure(name: string) {
 }
 
 /** True while `name`'s group is warm (a member is open or just closed). */
-export function isGroupWarm(name: string | null) {
+export function isGroupWarm(name: string | null): boolean {
   return name != null && (groups.get(name)?.warm ?? false);
 }
 
 /** Mark a group warm because one of its members opened. */
-export function openGroup(name: string | null) {
+export function openGroup(name: string | null): void {
   if (name == null) return;
   const group = ensure(name);
   group.warm = true;
@@ -125,7 +127,7 @@ export function openGroup(name: string | null) {
 }
 
 /** A member closed: keep the group warm for `cooldown` ms, then cool it. */
-export function closeGroup(name: string | null, cooldown: number) {
+export function closeGroup(name: string | null, cooldown: number): void {
   if (name == null) return;
   const group = ensure(name);
   clearTimeout(group.timer);
@@ -150,13 +152,14 @@ export function closeGroup(name: string | null, cooldown: number) {
  */
 export function onPointerMoved(
   target: EventTarget,
-  handler: (e: PointerEvent) => void,
+  handler: (e: MouseEvent) => void,
   options?: AddEventListenerOptions,
-) {
+): () => void {
   let lastX: number | null = null;
   let lastY: number | null = null;
   const onMove = (event: Event) => {
-    const e = event as PointerEvent;
+    if (!(event instanceof MouseEvent)) return;
+    const e = event;
     if (e.clientX === lastX && e.clientY === lastY) return;
     lastX = e.clientX;
     lastY = e.clientY;

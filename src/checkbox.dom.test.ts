@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import "./elements.ts";
+import { must } from "./test-utils.ts";
 
+/** The value, or a failure naming the missing element. */
 afterEach(() => {
   document.body.innerHTML = "";
 });
@@ -10,9 +12,9 @@ describe("ui-checkbox (enhances a native checkbox)", () => {
   async function mount(inputAttrs = "") {
     document.body.innerHTML = `<form><ui-checkbox><input type="checkbox" name="tos" value="agreed" ${inputAttrs} /></ui-checkbox></form>`;
     await Promise.resolve();
-    const form = document.querySelector("form")!;
-    const el = document.querySelector("ui-checkbox")!;
-    const input = document.querySelector<HTMLInputElement>("input")!;
+    const form = must(document.querySelector("form"));
+    const el = must(document.querySelector("ui-checkbox"));
+    const input = must(document.querySelector<HTMLInputElement>("input"));
     return { form, el, input };
   }
 
@@ -65,7 +67,7 @@ describe("ui-checkbox (enhances a native checkbox)", () => {
   it("no-ops without an authored native control", async () => {
     document.body.innerHTML = `<ui-checkbox></ui-checkbox>`;
     await Promise.resolve();
-    const el = document.querySelector("ui-checkbox")!;
+    const el = must(document.querySelector("ui-checkbox"));
     expect(el.checked).toBe(false);
     expect(el.getAttribute("data-state")).toBe(null);
   });
@@ -82,9 +84,9 @@ describe("ui-checkbox-group (select-all master over native children)", () => {
       </ui-checkbox-group>`;
     await Promise.resolve();
     const boxes = [...document.querySelectorAll("ui-checkbox")];
-    const master = boxes[0];
+    const master = must(boxes[0]);
     const children = boxes.slice(1);
-    const inputOf = (box: Element) => box.querySelector<HTMLInputElement>("input")!;
+    const inputOf = (box: Element) => must(box.querySelector<HTMLInputElement>("input"));
     return { master, children, inputOf };
   }
 
@@ -95,7 +97,7 @@ describe("ui-checkbox-group (select-all master over native children)", () => {
 
   it("derives an indeterminate master when only some children are checked", async () => {
     const { master, children, inputOf } = await mount();
-    inputOf(children[0]).click();
+    inputOf(must(children[0])).click();
     expect(master.getAttribute("data-state")).toBe("indeterminate");
   });
 
@@ -118,7 +120,7 @@ describe("ui-checkbox-group (select-all master over native children)", () => {
   it("clicking a partial master reached from all-checked selects all (not clears)", async () => {
     const { master, children, inputOf } = await mount();
     for (const child of children) inputOf(child).click(); // all checked → master checked
-    inputOf(children[0]).click(); // uncheck one → master indeterminate
+    inputOf(must(children[0])).click(); // uncheck one → master indeterminate
     expect(master.getAttribute("data-state")).toBe("indeterminate");
     // A native indeterminate checkbox toggles from its underlying `checked`; the
     // master must have normalized `checked` to false so this click selects all.

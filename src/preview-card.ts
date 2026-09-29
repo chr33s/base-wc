@@ -15,12 +15,12 @@ import { define } from "./define.ts";
 import { HoverCardElement } from "./hover-card.ts";
 import { overlay } from "./overlay.ts";
 import { UIPopupElement } from "./popup.ts";
+import { queryPair } from "./query.ts";
 
+/** Hover-intent card whose interactive content stays open while the pointer is over it. */
 export class UIPreviewCard extends HoverCardElement {
-  protected override parts() {
-    const trigger = this.querySelector<HTMLElement>("[data-preview-trigger]");
-    const content = this.querySelector<HTMLElement>("ui-preview-card-content");
-    return trigger && content ? ([trigger, content] as const) : null;
+  protected override parts(): readonly [HTMLElement, HTMLElement] | null {
+    return queryPair(this, "[data-preview-trigger]", "ui-preview-card-content");
   }
 
   protected override listen(trigger: HTMLElement, content: HTMLElement) {
@@ -41,19 +41,20 @@ export class UIPreviewCard extends HoverCardElement {
 
   protected override createOverlay(trigger: HTMLElement, content: HTMLElement) {
     return overlay(content, {
-      anchor: { ref: () => trigger, options: { offset: 6, padding: 8 }, pair: "preview" },
+      anchor: { ref: () => trigger, pair: "preview" },
       trigger: { element: trigger, controls: "ui-preview-card" },
       events: this,
     });
   }
 
   #onFocusOut = (e: FocusEvent) => {
-    const next = e.relatedTarget as Node | null;
-    if (next && this.contains(next)) return; // focus stayed within trigger/card
+    const next = e.relatedTarget;
+    if (next instanceof Node && this.contains(next)) return; // focus stayed within trigger/card
     this.hide();
   };
 }
 
+/** Custom element `ui-preview-card-content`: the interactive top-layer card surface. */
 export class UIPreviewCardContent extends UIPopupElement {}
 
 define("ui-preview-card", UIPreviewCard);

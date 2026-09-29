@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { arrowOffset } from "./anchor.ts";
 import "./elements.ts";
+import { must } from "./test-utils.ts";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -10,14 +11,14 @@ afterEach(() => {
 describe("ui-arrow", () => {
   it("is decorative with a default side", async () => {
     document.body.innerHTML = `<ui-arrow></ui-arrow>`;
-    const arrow = document.querySelector("ui-arrow")!;
+    const arrow = must(document.querySelector("ui-arrow"));
     expect(arrow.getAttribute("aria-hidden")).toBe("true");
     expect(arrow.getAttribute("data-side")).toBe("bottom");
   });
 
   it("keeps an explicit side", async () => {
     document.body.innerHTML = `<ui-arrow data-side="top"></ui-arrow>`;
-    expect(document.querySelector("ui-arrow")!.getAttribute("data-side")).toBe("top");
+    expect(must(document.querySelector("ui-arrow")).getAttribute("data-side")).toBe("top");
   });
 });
 

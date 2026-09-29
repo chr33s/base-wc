@@ -21,6 +21,7 @@
  * viewport) so a `bottom` drawer can lift its content above the keyboard.
  */
 import { define } from "./define.ts";
+import { closestFrom } from "./internal/closest.ts";
 import { UIModalPopupElement } from "./popup.ts";
 import { LightDomElement } from "./lifecycle.ts";
 import { type Overlay, overlay } from "./overlay.ts";
@@ -35,6 +36,7 @@ import { type DragDirection, type PointerDragOptions, trackPointerDrag } from ".
  */
 const SWIPE_SLOP = 8;
 
+/** Edge-anchored modal sheet that opens from a side and can be dragged closed (or swiped open from its edge). */
 export class UIDrawer extends LightDomElement {
   #trigger: HTMLElement | null = null;
   #popup: HTMLElement | null = null;
@@ -48,14 +50,16 @@ export class UIDrawer extends LightDomElement {
   #disposeHandleDrag: (() => void) | null = null;
   #disposeSwipeDrag: (() => void) | null = null;
 
-  get open() {
+  /** Whether the drawer is currently open. */
+  get open(): boolean {
     return this.#overlay?.open ?? false;
   }
   /** When set, suppress Escape + outside-press dismissal (same as `ui-dialog`). */
   get static() {
     return this.hasAttribute("static");
   }
-  get side() {
+  /** Edge the drawer slides from; unknown values fall back to `"right"`. */
+  get side(): "left" | "right" | "top" | "bottom" {
     const s = this.getAttribute("side");
     return s === "left" || s === "top" || s === "bottom" ? s : "right";
   }
@@ -83,7 +87,7 @@ export class UIDrawer extends LightDomElement {
     this.#trigger?.addEventListener("click", () => this.#toggle());
     this.#popup.addEventListener("keydown", this.#onKeydown);
     this.#popup.addEventListener("click", (e) => {
-      if ((e.target as Element).closest("[data-drawer-close]")) this.hide("close-press");
+      if (closestFrom(e, "[data-drawer-close]")) this.hide("close-press");
     });
     // Drag the in-panel handle toward the edge to dismiss; drag inward from the
     // edge swipe zone to reveal and open. Both are the shared slop/axis-locked
@@ -119,7 +123,8 @@ export class UIDrawer extends LightDomElement {
     this.#endDrag();
   }
 
-  show(reason: ChangeReason = "none") {
+  /** Open the drawer, tagging the resulting event with `reason`. */
+  show(reason: ChangeReason = "none"): void {
     // Wire synchronously if `show()` is called in the same task as connection,
     // before the deferred wiring microtask has run — otherwise #popup is still
     // null and the open would silently no-op.
@@ -129,7 +134,8 @@ export class UIDrawer extends LightDomElement {
     this.#trackKeyboard();
   }
 
-  hide(reason: ChangeReason = "none") {
+  /** Close the drawer, tagging the resulting event with `reason`. */
+  hide(reason: ChangeReason = "none"): void {
     this.#close(reason);
   }
 
@@ -326,7 +332,9 @@ export class UIDrawer extends LightDomElement {
   }
 }
 
+/** The drawer's top-layer sheet (`role=dialog`, focus-trapped). */
 export class UIDrawerPopup extends UIModalPopupElement {}
+/** Dimming layer behind the drawer popup. */
 export class UIDrawerBackdrop extends HTMLElement {}
 
 define("ui-drawer", UIDrawer);

@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import "./elements.ts";
+import { must } from "./test-utils.ts";
 
+/** Narrow a lookup the fixture guarantees is present. */
 const pointer = (el: EventTarget, type: "pointerenter" | "pointerleave") =>
   el.dispatchEvent(new Event(type));
 
@@ -12,9 +14,9 @@ async function mount() {
       <ui-preview-card-content><a href="#" id="follow">Follow</a></ui-preview-card-content>
     </ui-preview-card>`;
   await Promise.resolve();
-  const card = document.querySelector("ui-preview-card")!;
-  const trigger = document.querySelector<HTMLElement>("[data-preview-trigger]")!;
-  const content = document.querySelector("ui-preview-card-content")!;
+  const card = must(document.querySelector("ui-preview-card"));
+  const trigger = must(document.querySelector<HTMLElement>("[data-preview-trigger]"));
+  const content = must(document.querySelector("ui-preview-card-content"));
   return { card, trigger, content };
 }
 

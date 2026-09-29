@@ -10,21 +10,22 @@
  */
 import { scopedFirst } from "./query.ts";
 
+/** Options for {@link ensureButton}. */
 export interface EnsureButtonOptions {
   /** Marker attribute identifying the button; set on a generated one. */
   marker: string;
   /** `aria-label` for a generated button. */
   label: string;
   /** Text content (glyph) for a generated button. */
-  text?: string;
+  text?: string | undefined;
   /** Extra attribute set only on a generated button (e.g. so it can be removed later). */
-  generatedMarker?: string;
+  generatedMarker?: string | undefined;
   /** Where a generated button is inserted; defaults to appending to `host`. */
-  insert?: (button: HTMLButtonElement) => void;
+  insert?: ((button: HTMLButtonElement) => void) | undefined;
 }
 
 /** Adopt the authored `[marker]` element owned by `host`, or generate a button. */
-export function ensureButton(host: HTMLElement, options: EnsureButtonOptions) {
+export function ensureButton(host: HTMLElement, options: EnsureButtonOptions): HTMLElement {
   const authored = scopedFirst<HTMLElement>(host, `[${options.marker}]`);
   if (authored) return authored;
   const btn = document.createElement("button");

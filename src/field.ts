@@ -57,6 +57,7 @@ export type FieldValidate = (
 /** When {@link FieldValidate} runs. */
 export type FieldValidationMode = "submit" | "change" | "blur";
 
+/** Form field wrapper: wires label, description and error to a control and runs native plus custom validation with live state hooks. */
 export class UIField extends LightDomElement {
   #control: Validatable | null = null;
   #label: HTMLElement | null = null;
@@ -128,8 +129,8 @@ export class UIField extends LightDomElement {
     this.#label = this.querySelector<HTMLElement>("[data-field-label]");
     if (this.#label) {
       if (!this.#label.id) this.#label.id = nextId("ui-field-label");
-      if (this.#label.tagName === "LABEL" && !this.#label.hasAttribute("for")) {
-        (this.#label as HTMLLabelElement).htmlFor = this.#control.id;
+      if (this.#label instanceof HTMLLabelElement && !this.#label.hasAttribute("for")) {
+        this.#label.htmlFor = this.#control.id;
       }
       this.#control.setAttribute("aria-labelledby", this.#label.id);
     }
@@ -168,7 +169,7 @@ export class UIField extends LightDomElement {
   #value() {
     const value = this.#control?.value;
     if (value == null) return "";
-    return Array.isArray(value) ? value.join(",") : String(value as string | number);
+    return Array.isArray(value) ? value.join(",") : String(value);
   }
 
   #isValid() {
@@ -351,9 +352,9 @@ export class UIField extends LightDomElement {
   }
 }
 
-/** Narrow an unknown validation result to a thenable. */
+/** Narrow a validation result to a promise. */
 function isPromise<T>(value: T | Promise<T>): value is Promise<T> {
-  return typeof (value as Promise<T> | undefined)?.then === "function";
+  return value instanceof Promise;
 }
 
 /**

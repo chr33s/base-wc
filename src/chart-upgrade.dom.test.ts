@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { expect, it } from "vite-plus/test";
+import { flush, must } from "./test-utils.ts";
 
-const flush = () => new Promise((r) => setTimeout(r, 0));
-
+/** Narrow a lookup the fixture guarantees is present. */
 // Regression: a chart child is upgraded by its own module (`chart-axis.ts`),
 // which `chart.ts` imports — so the child's definition always lands *before*
 // `ui-chart`'s. Wiring against the container in that window used to call
@@ -29,7 +29,7 @@ it("wires chart children authored before ui-chart is defined", async () => {
   await flush();
   await flush();
 
-  const chart = document.querySelector("ui-chart")!;
+  const chart = must(document.querySelector("ui-chart"));
   expect(chart.getAttribute("data-state")).toBe("rendered");
   // The axis registered (it draws its own ticks) …
   expect(chart.querySelectorAll('[data-part="tick"]').length).toBeGreaterThan(0);

@@ -23,11 +23,13 @@ import { numberAttribute } from "./math.ts";
 import type { Overlay } from "./overlay.ts";
 import type { ChangeReason } from "./reasons.ts";
 
+/** Shared base for hover-triggered surfaces (tooltip, preview card): intent timers, delay groups and the overlay lifecycle. */
 export abstract class HoverCardElement extends LightDomElement {
   #overlay: Overlay | null = null;
   #intent: HoverIntent | null = null;
 
-  get open() {
+  /** Whether the surface is currently open. */
+  get open(): boolean {
     return this.#overlay?.open ?? false;
   }
 

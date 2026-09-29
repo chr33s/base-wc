@@ -1,10 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import "./elements.ts";
+import { key, must } from "./test-utils.ts";
 
-const key = (target: EventTarget, k: string) =>
-  target.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
-
+/** The value, or a failure naming the missing element. */
 async function mount(attrs = "") {
   document.body.innerHTML = `
     <ui-drawer ${attrs}>
@@ -17,9 +16,9 @@ async function mount(attrs = "") {
       </ui-drawer-popup>
     </ui-drawer>`;
   await Promise.resolve();
-  const drawer = document.querySelector("ui-drawer")!;
-  const trigger = document.querySelector<HTMLButtonElement>("#open")!;
-  const popup = document.querySelector("ui-drawer-popup")!;
+  const drawer = must(document.querySelector("ui-drawer"));
+  const trigger = must(document.querySelector<HTMLButtonElement>("#open"));
+  const popup = must(document.querySelector("ui-drawer-popup"));
   return { drawer, trigger, popup };
 }
 
@@ -65,7 +64,7 @@ describe("ui-drawer", () => {
   it("closes on a [data-drawer-close] click", async () => {
     const { drawer, trigger } = await mount();
     trigger.click();
-    document.querySelector<HTMLButtonElement>("#close")!.click();
+    must(document.querySelector<HTMLButtonElement>("#close")).click();
     expect(drawer.open).toBe(false);
   });
 
@@ -98,9 +97,9 @@ describe("ui-drawer — swipe to open", () => {
         <ui-drawer-popup><button id="ok">OK</button></ui-drawer-popup>
       </ui-drawer>`;
     await Promise.resolve();
-    const drawer = document.querySelector("ui-drawer")!;
-    const swipe = document.querySelector<HTMLElement>("#swipe")!;
-    const popup = document.querySelector("ui-drawer-popup")!;
+    const drawer = must(document.querySelector("ui-drawer"));
+    const swipe = must(document.querySelector<HTMLElement>("#swipe"));
+    const popup = must(document.querySelector("ui-drawer-popup"));
     return { drawer, swipe, popup };
   }
   const down = (el: EventTarget, x: number, y = 0) =>
@@ -165,9 +164,9 @@ describe("ui-drawer — swipe to open", () => {
         <ui-drawer-popup id="popup"><button id="ok">OK</button></ui-drawer-popup>
       </ui-drawer>`;
     await Promise.resolve();
-    const drawer = document.querySelector("ui-drawer")!;
-    const swipe = document.querySelector<HTMLElement>("#swipe")!;
-    const popup = document.querySelector<HTMLElement>("#popup")!;
+    const drawer = must(document.querySelector("ui-drawer"));
+    const swipe = must(document.querySelector<HTMLElement>("#swipe"));
+    const popup = must(document.querySelector<HTMLElement>("#popup"));
     const events: string[] = [];
     for (const type of ["open", "close"]) drawer.addEventListener(type, () => events.push(type));
 
@@ -189,9 +188,9 @@ describe("ui-drawer — swipe to open", () => {
         </ui-drawer-popup>
       </ui-drawer>`;
     await Promise.resolve();
-    const drawer = document.querySelector("ui-drawer")!;
-    const handle = document.querySelector<HTMLElement>("#handle")!;
-    const popup = document.querySelector<HTMLElement>("#popup")!;
+    const drawer = must(document.querySelector("ui-drawer"));
+    const handle = must(document.querySelector<HTMLElement>("#handle"));
+    const popup = must(document.querySelector<HTMLElement>("#popup"));
     drawer.show();
 
     down(handle, 0, 300);
@@ -234,9 +233,9 @@ describe("ui-drawer — swipe to open", () => {
         </ui-drawer-popup>
       </ui-drawer>`;
     await Promise.resolve();
-    const drawer = document.querySelector("ui-drawer")!;
-    const popup = document.querySelector<HTMLElement>("#popup")!;
-    const handle = document.querySelector<HTMLElement>("#handle")!;
+    const drawer = must(document.querySelector("ui-drawer"));
+    const popup = must(document.querySelector<HTMLElement>("#popup"));
+    const handle = must(document.querySelector<HTMLElement>("#handle"));
     Object.defineProperty(popup, "scrollHeight", { value: 800 });
     Object.defineProperty(popup, "clientHeight", { value: 300 });
     popup.scrollTop = 40; // content scrolled away from the closing edge

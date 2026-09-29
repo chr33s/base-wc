@@ -3,11 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { UIToast, UIToastViewport } from "./toast.ts";
 import { toast, updateToast } from "./toast.ts";
 import "./elements.ts";
+import { must } from "./test-utils.ts";
 
+/** Narrow a lookup the fixture guarantees is present. */
 async function mount() {
   document.body.innerHTML = `<ui-toast-viewport></ui-toast-viewport>`;
   await Promise.resolve();
-  const viewport = document.querySelector<UIToastViewport>("ui-toast-viewport")!;
+  const viewport = must(document.querySelector<UIToastViewport>("ui-toast-viewport"));
   return { viewport };
 }
 
@@ -31,8 +33,8 @@ describe("ui-toast-viewport", () => {
     const t = viewport.add({ title: "Saved", description: "Your changes are live." });
     expect(t.getAttribute("role")).toBe("status");
     expect(t.getAttribute("aria-live")).toBe("polite");
-    const title = t.querySelector("[data-toast-title]")!;
-    const desc = t.querySelector("[data-toast-description]")!;
+    const title = must(t.querySelector("[data-toast-title]"));
+    const desc = must(t.querySelector("[data-toast-description]"));
     expect(t.getAttribute("aria-labelledby")).toBe(title.id);
     expect(t.getAttribute("aria-describedby")).toBe(desc.id);
     expect(title.textContent).toBe("Saved");
@@ -99,7 +101,7 @@ describe("ui-toast-viewport", () => {
     const t = viewport.add({ title: "Close me", duration: 0 });
     const onDismiss = vi.fn<() => void>();
     t.addEventListener("dismiss", onDismiss);
-    t.querySelector<HTMLButtonElement>("[data-toast-close]")!.click();
+    must(t.querySelector<HTMLButtonElement>("[data-toast-close]")).click();
     expect(onDismiss).toHaveBeenCalledTimes(1);
     expect(t.isConnected).toBe(false);
   });
@@ -109,7 +111,7 @@ describe("ui-toast-viewport", () => {
     const t = viewport.add({ title: "Undo?", action: "Undo", duration: 0 });
     const onAction = vi.fn<() => void>();
     t.addEventListener("action", onAction);
-    const btn = t.querySelector<HTMLButtonElement>("[data-toast-action]")!;
+    const btn = must(t.querySelector<HTMLButtonElement>("[data-toast-action]"));
     expect(btn.textContent).toBe("Undo");
     btn.click();
     expect(onAction).toHaveBeenCalledTimes(1);
@@ -132,7 +134,7 @@ describe("ui-toast-viewport", () => {
     const t = toast({ title: "Hi" }) as UIToast;
     expect(t).not.toBeNull();
     expect(t.isConnected).toBe(true);
-    expect(t.querySelector("[data-toast-title]")!.textContent).toBe("Hi");
+    expect(must(t.querySelector("[data-toast-title]")).textContent).toBe("Hi");
   });
 
   describe("stacking", () => {
@@ -171,11 +173,11 @@ describe("ui-toast-viewport", () => {
     it("hides toasts past the visible limit while collapsed", async () => {
       document.body.innerHTML = `<ui-toast-viewport visible="2"></ui-toast-viewport>`;
       await Promise.resolve();
-      const viewport = document.querySelector<UIToastViewport>("ui-toast-viewport")!;
+      const viewport = must(document.querySelector<UIToastViewport>("ui-toast-viewport"));
       viewport.add({ title: "A", duration: 0 }); // index 2 → hidden
       viewport.add({ title: "B", duration: 0 }); // index 1
       const c = viewport.add({ title: "C", duration: 0 }); // index 0 (front)
-      const a = viewport.querySelector<UIToast>("ui-toast")!; // first child = oldest
+      const a = must(viewport.querySelector<UIToast>("ui-toast")); // first child = oldest
       expect(a.hasAttribute("data-hidden")).toBe(true);
       expect(c.hasAttribute("data-hidden")).toBe(false);
     });
@@ -183,15 +185,19 @@ describe("ui-toast-viewport", () => {
     it("expands on pointer enter (revealing hidden toasts) and collapses on leave", async () => {
       document.body.innerHTML = `<ui-toast-viewport visible="1"></ui-toast-viewport>`;
       await Promise.resolve();
-      const viewport = document.querySelector<UIToastViewport>("ui-toast-viewport")!;
+      const viewport = must(document.querySelector<UIToastViewport>("ui-toast-viewport"));
       viewport.add({ title: "A", duration: 0 });
       const b = viewport.add({ title: "B", duration: 0 });
-      expect(viewport.querySelector<UIToast>("ui-toast")!.hasAttribute("data-hidden")).toBe(true);
+      expect(must(viewport.querySelector<UIToast>("ui-toast")).hasAttribute("data-hidden")).toBe(
+        true,
+      );
 
       viewport.dispatchEvent(new Event("pointerenter"));
       expect(viewport.hasAttribute("data-expanded")).toBe(true);
       // Nothing is hidden once expanded.
-      expect(viewport.querySelector<UIToast>("ui-toast")!.hasAttribute("data-hidden")).toBe(false);
+      expect(must(viewport.querySelector<UIToast>("ui-toast")).hasAttribute("data-hidden")).toBe(
+        false,
+      );
       expect(b.hasAttribute("data-hidden")).toBe(false);
 
       viewport.dispatchEvent(new Event("pointerleave"));
@@ -234,7 +240,7 @@ describe("ui-toast-viewport", () => {
       expect(c.style.getPropertyValue("--index")).toBe("0");
       viewport.dismiss(c.id); // drop the front
       await Promise.resolve(); // MutationObserver relayout
-      const b = viewport.querySelectorAll<UIToast>("ui-toast")[1];
+      const b = must(viewport.querySelectorAll<UIToast>("ui-toast")[1]);
       expect(b.style.getPropertyValue("--index")).toBe("0"); // B is the new front
       expect(a.style.getPropertyValue("--index")).toBe("1");
     });
@@ -330,8 +336,8 @@ describe("ui-toast-viewport update", () => {
 
     const same = viewport.update(t.id, { description: "100%" });
     expect(same).toBe(t); // the same element, not a replacement
-    expect(t.querySelector("[data-toast-title]")!.textContent).toBe("Uploading");
-    expect(t.querySelector("[data-toast-description]")!.textContent).toBe("100%");
+    expect(must(t.querySelector("[data-toast-title]")).textContent).toBe("Uploading");
+    expect(must(t.querySelector("[data-toast-description]")).textContent).toBe("100%");
   });
 
   it("derives the patch from what the toast currently shows", async () => {
@@ -339,7 +345,7 @@ describe("ui-toast-viewport update", () => {
     const t = viewport.add({ title: "Saving" });
 
     viewport.update(t.id, (current) => ({ title: `${current.title!} — done` }));
-    expect(t.querySelector("[data-toast-title]")!.textContent).toBe("Saving — done");
+    expect(must(t.querySelector("[data-toast-title]")).textContent).toBe("Saving — done");
   });
 
   it("adds a missing part ahead of the close button, and removes one", async () => {
@@ -350,7 +356,7 @@ describe("ui-toast-viewport update", () => {
     viewport.update(t.id, { description: "3 files" });
     const parts = [...t.children].map((c) => c.getAttribute("data-toast-description") ?? c.tagName);
     // The close button stays last.
-    expect(t.lastElementChild!.hasAttribute("data-toast-close")).toBe(true);
+    expect(must(t.lastElementChild).hasAttribute("data-toast-close")).toBe(true);
     expect(parts).toContain("");
 
     viewport.update(t.id, { description: undefined });
@@ -389,6 +395,6 @@ describe("ui-toast-viewport update", () => {
     const { viewport } = await mount();
     const t = viewport.add({ title: "One", id: "fixed" });
     updateToast("fixed", { title: "Two" });
-    expect(t.querySelector("[data-toast-title]")!.textContent).toBe("Two");
+    expect(must(t.querySelector("[data-toast-title]")).textContent).toBe("Two");
   });
 });

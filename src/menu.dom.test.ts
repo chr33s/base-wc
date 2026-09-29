@@ -2,10 +2,9 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { MenuSelectDetail } from "./menu.ts";
 import "./elements.ts";
+import { key, must } from "./test-utils.ts";
 
-const key = (target: EventTarget, k: string) =>
-  target.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
-
+/** The value, or a failure naming the missing element. */
 async function mount() {
   document.body.innerHTML = `
     <ui-menu>
@@ -18,9 +17,9 @@ async function mount() {
       </ui-menu-popup>
     </ui-menu>`;
   await Promise.resolve(); // let the deferred wiring microtask run
-  const menu = document.querySelector("ui-menu")!;
-  const trigger = document.querySelector<HTMLButtonElement>("[data-menu-trigger]")!;
-  const popup = document.querySelector("ui-menu-popup")!;
+  const menu = must(document.querySelector("ui-menu"));
+  const trigger = must(document.querySelector<HTMLButtonElement>("[data-menu-trigger]"));
+  const popup = must(document.querySelector("ui-menu-popup"));
   const items = [...document.querySelectorAll("ui-menu-item")];
   return { menu, trigger, popup, items };
 }
@@ -37,7 +36,7 @@ describe("ui-menu", () => {
     expect(trigger.getAttribute("aria-controls")).toBe(popup.id);
     expect(popup.getAttribute("role")).toBe("menu");
     expect(items.every((i) => i.getAttribute("role") === "menuitem")).toBe(true);
-    expect(items[2].getAttribute("aria-disabled")).toBe("true"); // archive
+    expect(must(items[2]).getAttribute("aria-disabled")).toBe("true"); // archive
   });
 
   it("opens on trigger click and highlights the first item", async () => {
@@ -45,7 +44,7 @@ describe("ui-menu", () => {
     trigger.click();
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
     expect(popup.hasAttribute("data-open")).toBe(true);
-    expect(items[0].hasAttribute("data-highlighted")).toBe(true);
+    expect(must(items[0]).hasAttribute("data-highlighted")).toBe(true);
     expect(document.activeElement).toBe(items[0]);
   });
 
@@ -53,28 +52,28 @@ describe("ui-menu", () => {
     const { trigger, popup, items } = await mount();
     trigger.click(); // active = Edit (0)
     key(popup, "ArrowDown"); // → Duplicate
-    expect(items[1].hasAttribute("data-highlighted")).toBe(true);
+    expect(must(items[1]).hasAttribute("data-highlighted")).toBe(true);
     key(popup, "ArrowDown"); // → Delete (skips disabled Archive)
-    expect(items[2].hasAttribute("data-highlighted")).toBe(false); // Archive
-    expect(items[3].hasAttribute("data-highlighted")).toBe(true); // Delete
+    expect(must(items[2]).hasAttribute("data-highlighted")).toBe(false); // Archive
+    expect(must(items[3]).hasAttribute("data-highlighted")).toBe(true); // Delete
   });
 
   it("wraps with arrow keys and supports Home/End", async () => {
     const { trigger, popup, items } = await mount();
     trigger.click();
     key(popup, "ArrowUp"); // wrap from first → last enabled (Delete)
-    expect(items[3].hasAttribute("data-highlighted")).toBe(true);
+    expect(must(items[3]).hasAttribute("data-highlighted")).toBe(true);
     key(popup, "Home");
-    expect(items[0].hasAttribute("data-highlighted")).toBe(true);
+    expect(must(items[0]).hasAttribute("data-highlighted")).toBe(true);
     key(popup, "End");
-    expect(items[3].hasAttribute("data-highlighted")).toBe(true);
+    expect(must(items[3]).hasAttribute("data-highlighted")).toBe(true);
   });
 
   it("typeahead jumps to a matching item", async () => {
     const { trigger, popup, items } = await mount();
     trigger.click(); // active = Edit
     key(popup, "d"); // next match starting with "d" → Duplicate
-    expect(items[1].hasAttribute("data-highlighted")).toBe(true);
+    expect(must(items[1]).hasAttribute("data-highlighted")).toBe(true);
   });
 
   it("Enter activates the highlighted item and closes", async () => {
@@ -87,7 +86,10 @@ describe("ui-menu", () => {
     key(popup, "ArrowDown"); // Duplicate
     key(popup, "Enter");
     expect(onSelect).toHaveBeenCalledTimes(1);
-    expect(onSelect.mock.calls[0][0]).toMatchObject({ value: "duplicate", item: items[1] });
+    expect(must(must(onSelect.mock.calls[0])[0])).toMatchObject({
+      value: "duplicate",
+      item: items[1],
+    });
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
   });
 
@@ -98,11 +100,11 @@ describe("ui-menu", () => {
       onSelect((e as CustomEvent<MenuSelectDetail>).detail),
     );
     trigger.click();
-    items[2].click(); // Archive (disabled) — no select
+    must(items[2]).click(); // Archive (disabled) — no select
     expect(onSelect).not.toHaveBeenCalled();
-    items[3].click(); // Delete
+    must(items[3]).click(); // Delete
     expect(onSelect).toHaveBeenCalledTimes(1);
-    expect(onSelect.mock.calls[0][0].value).toBe("delete");
+    expect(must(must(onSelect.mock.calls[0])[0]).value).toBe("delete");
   });
 
   it("Space extends a pending typeahead search instead of activating", async () => {
@@ -115,16 +117,16 @@ describe("ui-menu", () => {
         </ui-menu-popup>
       </ui-menu>`;
     await Promise.resolve();
-    const menu = document.querySelector("ui-menu")!;
-    const trigger = document.querySelector<HTMLButtonElement>("[data-menu-trigger]")!;
-    const popup = document.querySelector("ui-menu-popup")!;
+    const menu = must(document.querySelector("ui-menu"));
+    const trigger = must(document.querySelector<HTMLButtonElement>("[data-menu-trigger]"));
+    const popup = must(document.querySelector("ui-menu-popup"));
     const items = [...document.querySelectorAll("ui-menu-item")];
     const onSelect = vi.fn<(e: Event) => void>();
     menu.addEventListener("menu-select", onSelect);
     trigger.click(); // active = New File
     for (const ch of ["n", "e", "w", " ", "w"]) key(popup, ch);
     expect(onSelect).not.toHaveBeenCalled(); // Space searched, didn't activate
-    expect(items[1].hasAttribute("data-highlighted")).toBe(true); // "New Window"
+    expect(must(items[1]).hasAttribute("data-highlighted")).toBe(true); // "New Window"
     expect(popup.hasAttribute("data-open")).toBe(true);
   });
 
@@ -136,10 +138,10 @@ describe("ui-menu", () => {
           <ui-menu-item value="copy">Copy</ui-menu-item>
         </ui-menu-popup>
       </ui-menu>`;
-    const menu = document.querySelector("ui-menu")!;
+    const menu = must(document.querySelector("ui-menu"));
     menu.openAt(40, 20); // no microtask wait — must wire synchronously
     expect(menu.open).toBe(true);
-    expect(document.querySelector("ui-menu-popup")!.hasAttribute("data-open")).toBe(true);
+    expect(must(document.querySelector("ui-menu-popup")).hasAttribute("data-open")).toBe(true);
     expect(document.activeElement).toBe(document.querySelector("ui-menu-item"));
   });
 
@@ -175,10 +177,10 @@ describe("ui-menu — checkbox / radio items and groups", () => {
       </ui-menu>`;
     await Promise.resolve();
     await Promise.resolve(); // group microtask
-    const menu = document.querySelector("ui-menu")!;
-    const trigger = document.querySelector<HTMLButtonElement>("[data-menu-trigger]")!;
-    const popup = document.querySelector("ui-menu-popup")!;
-    const $ = (id: string) => document.querySelector<HTMLElement>(`#${id}`)!;
+    const menu = must(document.querySelector("ui-menu"));
+    const trigger = must(document.querySelector<HTMLButtonElement>("[data-menu-trigger]"));
+    const popup = must(document.querySelector("ui-menu-popup"));
+    const $ = (id: string) => must(document.querySelector<HTMLElement>(`#${id}`));
     return { menu, trigger, popup, $ };
   }
 
@@ -190,8 +192,8 @@ describe("ui-menu — checkbox / radio items and groups", () => {
     expect($("md").getAttribute("role")).toBe("menuitemradio");
     expect($("md").getAttribute("aria-checked")).toBe("true"); // group value=md
     expect($("sm").getAttribute("aria-checked")).toBe("false");
-    const group = popup.querySelector("ui-menu-group")!;
-    const label = popup.querySelector("ui-menu-group-label")!;
+    const group = must(popup.querySelector("ui-menu-group"));
+    const label = must(popup.querySelector("ui-menu-group-label"));
     expect(group.getAttribute("role")).toBe("group");
     expect(group.getAttribute("aria-labelledby")).toBe(label.id);
   });
@@ -228,7 +230,7 @@ describe("ui-menu — checkbox / radio items and groups", () => {
     expect($("md").getAttribute("aria-checked")).toBe("false"); // previous released
     expect($("sm").getAttribute("aria-checked")).toBe("false");
     expect(popup.hasAttribute("data-open")).toBe(true);
-    const group = popup.querySelector<HTMLElement & { value: string }>("ui-menu-radio-group")!;
+    const group = must(popup.querySelector<HTMLElement & { value: string }>("ui-menu-radio-group"));
     expect(group.value).toBe("lg");
   });
 });
@@ -249,15 +251,15 @@ describe("ui-menu — disabled", () => {
       </ui-menu>`;
     await Promise.resolve();
     await Promise.resolve();
-    const menu = document.querySelector("ui-menu")!;
-    const trigger = document.querySelector<HTMLButtonElement>("#t")!;
+    const menu = must(document.querySelector("ui-menu"));
+    const trigger = must(document.querySelector<HTMLButtonElement>("#t"));
     return { menu, trigger };
   }
 
   it("hides the group label from the accessibility tree while still naming the group", async () => {
     await mount();
-    const label = document.querySelector("#gl")!;
-    const group = document.querySelector("ui-menu-group")!;
+    const label = must(document.querySelector("#gl"));
+    const group = must(document.querySelector("ui-menu-group"));
     // aria-hidden does not suppress a name computed via aria-labelledby, so the
     // group keeps its label — spoken once, as the group's name, rather than
     // again as a node sitting among the menu items.
@@ -278,7 +280,7 @@ describe("ui-menu — disabled", () => {
     expect(menu.hasAttribute("data-disabled")).toBe(true);
     expect(trigger.getAttribute("aria-disabled")).toBe("true");
     for (const id of ["#a", "#b", "#c"]) {
-      const item = document.querySelector(id)!;
+      const item = must(document.querySelector(id));
       expect(item.getAttribute("aria-disabled")).toBe("true");
       expect(item.hasAttribute("data-disabled")).toBe(true);
     }
@@ -288,41 +290,39 @@ describe("ui-menu — disabled", () => {
     const { menu, trigger } = await mount("disabled");
     menu.removeAttribute("disabled");
     expect(trigger.hasAttribute("aria-disabled")).toBe(false);
-    expect(document.querySelector("#a")!.hasAttribute("aria-disabled")).toBe(false);
+    expect(must(document.querySelector("#a")).hasAttribute("aria-disabled")).toBe(false);
     // B carries its own `disabled`, and C was announced disabled by the author
     // without one — neither is ours to clear.
-    expect(document.querySelector("#b")!.getAttribute("aria-disabled")).toBe("true");
-    expect(document.querySelector("#c")!.getAttribute("aria-disabled")).toBe("true");
+    expect(must(document.querySelector("#b")).getAttribute("aria-disabled")).toBe("true");
+    expect(must(document.querySelector("#c")).getAttribute("aria-disabled")).toBe("true");
   });
 
   it("skips aria-disabled items when navigating, not just [disabled] ones", async () => {
     const { menu, trigger } = await mount();
     trigger.click();
     expect(menu.open).toBe(true);
-    const popup = document.querySelector("ui-menu-popup")!;
+    const popup = must(document.querySelector("ui-menu-popup"));
     // A is highlighted on open; ArrowDown must land past both B ([disabled])
     // and C (aria-disabled) — which, being the only remaining item, wraps to A.
-    expect(document.querySelector("#a")!.hasAttribute("data-highlighted")).toBe(true);
+    expect(must(document.querySelector("#a")).hasAttribute("data-highlighted")).toBe(true);
     popup.dispatchEvent(
       new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
     );
-    expect(document.querySelector("#b")!.hasAttribute("data-highlighted")).toBe(false);
-    expect(document.querySelector("#c")!.hasAttribute("data-highlighted")).toBe(false);
+    expect(must(document.querySelector("#b")).hasAttribute("data-highlighted")).toBe(false);
+    expect(must(document.querySelector("#c")).hasAttribute("data-highlighted")).toBe(false);
   });
 
   it("re-enables an item whose `disabled` is removed at runtime", async () => {
     const { menu, trigger } = await mount();
-    const b = document.querySelector<HTMLElement>("#b")!;
+    const b = must(document.querySelector<HTMLElement>("#b"));
     b.removeAttribute("disabled");
     expect(b.hasAttribute("aria-disabled")).toBe(false);
     expect(b.hasAttribute("data-disabled")).toBe(false);
     trigger.click();
     expect(menu.open).toBe(true);
-    document
-      .querySelector("ui-menu-popup")!
-      .dispatchEvent(
-        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
-      );
+    must(document.querySelector("ui-menu-popup")).dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+    );
     // A stale aria-disabled left behind by the one-shot connect reflection
     // would keep the item out of navigation and swallow its clicks forever.
     expect(b.hasAttribute("data-highlighted")).toBe(true);
@@ -336,20 +336,20 @@ describe("ui-menu — hover highlight", () => {
   it("ignores a pointermove that reports the same coordinates as the last one", async () => {
     const { menu, popup, items } = await mount();
     menu.show();
-    hover(items[0], 10, 10);
-    expect(items[0].hasAttribute("data-highlighted")).toBe(true);
+    hover(must(items[0]), 10, 10);
+    expect(must(items[0]).hasAttribute("data-highlighted")).toBe(true);
 
     // Arrow-key navigation scrolls a long menu, sliding a new item under a
     // resting cursor — and Safari reports that as a pointermove at unchanged
     // coordinates. Acting on it would drag the highlight back off whatever the
     // keyboard just reached.
     key(popup, "ArrowDown");
-    expect(items[1].hasAttribute("data-highlighted")).toBe(true);
-    hover(items[0], 10, 10);
-    expect(items[1].hasAttribute("data-highlighted")).toBe(true);
+    expect(must(items[1]).hasAttribute("data-highlighted")).toBe(true);
+    hover(must(items[0]), 10, 10);
+    expect(must(items[1]).hasAttribute("data-highlighted")).toBe(true);
 
     // A pointer that genuinely moved still highlights.
-    hover(items[0], 11, 10);
-    expect(items[0].hasAttribute("data-highlighted")).toBe(true);
+    hover(must(items[0]), 11, 10);
+    expect(must(items[0]).hasAttribute("data-highlighted")).toBe(true);
   });
 });

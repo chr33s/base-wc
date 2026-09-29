@@ -36,11 +36,12 @@ import { runExit, setOpenState } from "./transitions.ts";
 
 /**
  * Read an option that may be given as a value or as a per-`show()` thunk.
- * `AnchorOptions` is never callable, so the `typeof` narrow is unambiguous.
+ * `AnchorOptions` is never callable, so the `instanceof` narrow is unambiguous.
  */
 const resolve = <T>(value: T | (() => T)): T =>
-  typeof value === "function" ? (value as () => T)() : value;
+  value instanceof Function ? (value as () => T)() : value;
 
+/** Trigger ARIA wiring for {@link overlay}. */
 export interface OverlayTriggerOptions {
   /** The trigger element (`null` tolerated — e.g. a context-menu-driven menu). */
   element: HTMLElement | null;
@@ -48,15 +49,16 @@ export interface OverlayTriggerOptions {
    * `aria-haspopup` token to set on the trigger (`"menu"`, `"listbox"`,
    * `"dialog"`). Omit to leave `aria-haspopup` alone (e.g. preview cards).
    */
-  haspopup?: string;
+  haspopup?: string | undefined;
   /**
    * Prefix for the popup's generated id (assigned only when it has none),
    * pointed at by the trigger's `aria-controls`. `false` skips the id/controls
    * wiring. Default `"ui-popup"`.
    */
-  controls?: string | false;
+  controls?: string | false | undefined;
 }
 
+/** Configuration for {@link overlay}; every part is optional and additive. */
 export interface OverlayOptions {
   /**
    * Reference for JS positioning. By default it runs only as the fallback when
@@ -69,44 +71,49 @@ export interface OverlayOptions {
    * `always` already holds at creation — an always-JS popup never uses the CSS
    * pairing).
    */
-  anchor?: {
-    ref: () => Element | VirtualElement | null | undefined;
-    options?: AnchorOptions | (() => AnchorOptions | undefined);
-    always?: boolean | (() => boolean);
-    pair?: string | false;
-  };
+  anchor?:
+    | {
+        ref: () => Element | VirtualElement | null | undefined;
+        options?: AnchorOptions | (() => AnchorOptions | undefined) | undefined;
+        always?: boolean | (() => boolean) | undefined;
+        pair?: string | false | undefined;
+      }
+    | undefined;
   /**
    * Light-dismiss: `within` lists the elements treated as "inside". `enabled`
    * is read on each `show()` so a per-open policy (e.g. a `static` dialog) can
    * suppress dismissal without rebuilding the controller.
    */
-  dismiss?: {
-    within: () => (Element | null | undefined)[];
-    onDismiss: () => void;
-    enabled?: () => boolean;
-  };
+  dismiss?:
+    | {
+        within: () => (Element | null | undefined)[];
+        onDismiss: () => void;
+        enabled?: (() => boolean) | undefined;
+      }
+    | undefined;
   /**
    * Trigger ARIA wiring, applied at creation: `type="button"` on a bare
    * `<button>` (so it never submits an enclosing form), `aria-haspopup`,
    * `aria-controls` → generated popup id, and `aria-expanded` kept in sync
    * with open state.
    */
-  trigger?: OverlayTriggerOptions;
+  trigger?: OverlayTriggerOptions | undefined;
   /**
    * Modal composition: {@link trapFocus} (focus cycle + focus restore) and
    * {@link lockScroll} (reference-counted background lock) while open.
    * `hide({ restoreFocus: false })` releases the trap without restoring focus
    * (e.g. teardown on disconnect).
    */
-  modal?: boolean;
+  modal?: boolean | undefined;
   /**
    * Host element that dispatches bubbling `open`/`close` CustomEvents as the
    * overlay's state changes, so components stop hand-rolling the dispatch.
    * Each carries an {@link OpenChangeDetail} naming what caused the change.
    */
-  events?: HTMLElement;
+  events?: HTMLElement | undefined;
 }
 
+/** Handle returned by {@link overlay}: show, hide and the live open state. */
 export interface Overlay {
   /**
    * Lift the popup into the top layer, position it, and arm light-dismiss.
@@ -119,11 +126,12 @@ export interface Overlay {
    * modal focus trap's restore.
    */
   hide(options?: { restoreFocus?: boolean; reason?: ChangeReason }): boolean;
+  /** Whether the popup is currently open. */
   readonly open: boolean;
 }
 
 /** Create a lifecycle controller for a `popover="manual"` popup element. */
-export function overlay(popup: HTMLElement, options: OverlayOptions = {}) {
+export function overlay(popup: HTMLElement, options: OverlayOptions = {}): Overlay {
   let isOpen = false;
   let stopPosition: (() => void) | null = null;
   let stopDismiss: (() => void) | null = null;

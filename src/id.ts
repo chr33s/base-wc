@@ -10,7 +10,7 @@
 let counter = 0;
 
 /** Returns a document-unique id of the form `${prefix}-${n}`. */
-export function nextId(prefix: string) {
+export function nextId(prefix: string): string {
   return `${prefix}-${++counter}`;
 }
 
@@ -26,7 +26,7 @@ export function labelFrom(
   attr: "aria-labelledby" | "aria-describedby",
   part: Element | null,
   prefix: string,
-) {
+): void {
   if (!part) return;
   if (!part.id) part.id = nextId(prefix);
   surface.setAttribute(attr, part.id);

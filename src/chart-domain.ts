@@ -10,6 +10,7 @@
  */
 import {
   type AxisRegistration,
+  type ChartDimension,
   type ChartRow,
   type SeriesRegistration,
   type StackedValue,
@@ -19,6 +20,7 @@ import {
 } from "./chart-core.ts";
 import {
   type CategoryValue,
+  type Scale,
   bandScale,
   categoryKey,
   continuousScale,
@@ -33,7 +35,7 @@ const BAND_PADDING = { paddingInner: 0.3, paddingOuter: 0.15 };
 export const DEFAULT_TICK_COUNT = 6;
 
 /** The distinct non-null values of `key` across `data`, in first-seen order: a band/point axis's domain. Categories are compared by {@link categoryKey}, so two `Date` cells for the same instant are one category. */
-export function categoricalDomain(data: readonly ChartRow[], key: string) {
+export function categoricalDomain(data: readonly ChartRow[], key: string): CategoryValue[] {
   const seen = new Set<string | number>();
   const domain: CategoryValue[] = [];
   for (const row of data) {
@@ -59,7 +61,7 @@ export function categoryRows(
   data: readonly ChartRow[],
   key: string,
   domain: readonly CategoryValue[],
-) {
+): number[] {
   const first = new Map<string | number, number>();
   data.forEach((row, i) => {
     const raw = row[key];
@@ -78,7 +80,7 @@ export function categoryRows(
 export function seriesExtremum(
   registration: SeriesRegistration,
   data: readonly ChartRow[],
-  dim: "x" | "y",
+  dim: ChartDimension,
   stacked: readonly StackedValue[] | undefined,
 ): [number, number] | null {
   const type = getSeriesType(registration.type);
@@ -98,12 +100,16 @@ export function seriesExtremum(
   return type.getExtremum(data, registration, dim);
 }
 
+/** Inputs for resolving one axis's scale in {@link axisScale}. */
 export interface AxisScaleOptions {
+  /** The axis being resolved. */
   axis: AxisRegistration;
+  /** The dataset rows. */
   data: readonly ChartRow[];
   /** The pixel range this axis maps onto, already oriented (a y-axis passes `[bottom, top]`). */
   range: readonly [number, number];
-  dim: "x" | "y";
+  /** Which dimension this axis runs along. */
+  dim: ChartDimension;
   /** The series contributing to this axis's domain — the visible ones only, so hiding a series rescales the axis. */
   series: readonly SeriesRegistration[];
   /** Each series' stacked edges, when it stacks (see `chart.ts`, which computes them once per render). */
@@ -119,7 +125,13 @@ export interface AxisScaleOptions {
  * land precisely on the plot's own pixel edge, where its mark's stroke/radius,
  * centered on that point, spills past the plot box.
  */
-function dataExtent({ axis, data, dim, series, stacks }: AxisScaleOptions) {
+function dataExtent({
+  axis,
+  data,
+  dim,
+  series,
+  stacks,
+}: AxisScaleOptions): [number, number] | null {
   const extent = axis.key
     ? numericExtent(data, axis.key)
     : mergeExtent(...series.map((s) => seriesExtremum(s, data, dim, stacks.get(s))));
@@ -162,7 +174,7 @@ function resolveExtent(options: AxisScaleOptions): [number, number] {
  * categories, or a continuous scale over the numeric extent {@link
  * resolveExtent} settles on.
  */
-export function axisScale(options: AxisScaleOptions) {
+export function axisScale(options: AxisScaleOptions): Scale {
   const { axis, data, range } = options;
 
   if (axis.scaleType === "band" || axis.scaleType === "point") {

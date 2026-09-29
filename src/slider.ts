@@ -27,7 +27,9 @@ import { FormAssociatedElement, type FormControlOptions } from "./form-control.t
 import { clamp, clampSnap, numberAttribute, toNumber } from "./math.ts";
 import { adoptedControl } from "./native.ts";
 import { trackPointerDrag } from "./pointer-drag.ts";
+import type { ChangeNotification } from "./reasons.ts";
 
+/** Form-associated slider with one or more thumbs (or an adopted native range). */
 export class UISlider extends FormAssociatedElement {
   protected override formControlOptions(): FormControlOptions {
     return {
@@ -39,7 +41,7 @@ export class UISlider extends FormAssociatedElement {
   protected override onFormDisabled() {
     this.#thumbs.forEach((thumb) => (thumb.tabIndex = this.disabled ? -1 : 0));
   }
-  #track!: HTMLElement;
+  #track: HTMLElement | null = null;
   #thumbs: HTMLElement[] = [];
   #values: number[] = [];
   /** The adopted native `<input type="range">` (native-first), or `null`. */
@@ -47,53 +49,58 @@ export class UISlider extends FormAssociatedElement {
   #dragIndex = -1;
   #disposeDrag: (() => void) | null = null;
 
-  override get form() {
+  override get form(): HTMLFormElement | null {
     return this.#native ? this.#native.form : this.formControl.form;
   }
-  override get name() {
+  override get name(): string | null {
     return this.#native ? this.#native.name : this.getAttribute("name");
   }
   /** Whether this is a multi-thumb range slider (never in native mode). */
-  get range() {
+  get range(): boolean {
     return this.#thumbs.length > 1;
   }
-  get value() {
+  /** The current value: a number, or an array of numbers for a multi-thumb range. */
+  get value(): number | number[] {
     if (this.#native) return Number(this.#native.value);
     return this.range ? [...this.#values] : (this.#values[0] ?? this.min);
   }
   set value(next: number | number[]) {
     if (this.#native) {
       // Programmatic set — like a native control's, it dispatches no events.
-      this.#native.value = String(Array.isArray(next) ? next[0] : next);
+      this.#native.value = String(Array.isArray(next) ? (next[0] ?? "") : next);
       this.#reflectNative();
       return;
     }
-    this.#applyValues(Array.isArray(next) ? next : [next], false);
+    this.#applyValues(Array.isArray(next) ? next : [next], "silent");
   }
   /**
    * A bound read from the adopted native range's property, or from the host's
    * own attribute. Both go through the shared parse rule, which keeps a
    * legitimate 0 (e.g. `max="0"` on a negative range) and falls back on a NaN.
    */
-  #bound(attr: "min" | "max" | "step", fallback: number) {
+  #bound(attr: "min" | "max" | "step", fallback: number): number {
     return this.#native
       ? toNumber(this.#native[attr], fallback)
       : numberAttribute(this, attr, fallback);
   }
-  get min() {
+  /** Lower bound (default 0). */
+  get min(): number {
     return this.#bound("min", 0);
   }
-  get max() {
+  /** Upper bound (default 100). */
+  get max(): number {
     return this.#bound("max", 100);
   }
-  get step() {
+  /** Snap increment (default 1). */
+  get step(): number {
     return this.#bound("step", 1);
   }
   /** Minimum gap kept between adjacent thumbs (range). */
-  get minDistance() {
+  get minDistance(): number {
     return numberAttribute(this, "min-distance", 0);
   }
-  get orientation() {
+  /** Track axis from the `orientation` attribute. */
+  get orientation(): "horizontal" | "vertical" {
     return this.getAttribute("orientation") === "vertical" ? "vertical" : "horizontal";
   }
 
@@ -130,12 +137,12 @@ export class UISlider extends FormAssociatedElement {
         const v = this.#pointerValue(e);
         this.#dragIndex = v == null ? 0 : this.#nearestThumb(v);
         this.#thumbs[this.#dragIndex]?.focus();
-        if (v != null) this.#setThumb(this.#dragIndex, v, true);
+        if (v != null) this.#setThumb(this.#dragIndex, v, "emit");
       },
       onMove: (e) => {
         if (this.#dragIndex < 0) return;
         const v = this.#pointerValue(e);
-        if (v != null) this.#setThumb(this.#dragIndex, v, true);
+        if (v != null) this.#setThumb(this.#dragIndex, v, "emit");
       },
       onEnd: () => {
         this.#dragIndex = -1;
@@ -143,7 +150,7 @@ export class UISlider extends FormAssociatedElement {
     });
 
     this.#ready = true;
-    this.#applyValues(this.#initialValues(), false);
+    this.#applyValues(this.#initialValues(), "silent");
     return true;
   }
 
@@ -167,7 +174,7 @@ export class UISlider extends FormAssociatedElement {
       // same reset pass; republish the fill fraction once it has.
       queueMicrotask(() => this.#reflectNative());
     } else {
-      this.#applyValues(this.#initialValues(), false);
+      this.#applyValues(this.#initialValues(), "silent");
     }
   }
 
@@ -181,6 +188,11 @@ export class UISlider extends FormAssociatedElement {
     this.style.setProperty("--slider-end", String(frac));
   };
 
+  /** Thumb `index`'s value; `min` for a missing thumb. */
+  #valueAt(index: number): number {
+    return this.#values[index] ?? this.min;
+  }
+
   #clampSnap(n: number) {
     return clampSnap(n, { min: this.min, max: this.max, step: this.step });
   }
@@ -190,39 +202,42 @@ export class UISlider extends FormAssociatedElement {
   }
 
   /** Bulk-set every thumb value: snap, order ascending, keep min-distance. */
-  #applyValues(next: number[], emit: boolean) {
+  #applyValues(next: number[], notify: ChangeNotification) {
     if (!this.#ready) return;
     const n = this.#thumbs.length;
     const vals = this.#values.slice();
     for (let i = 0; i < n; i++) {
-      if (i < next.length && Number.isFinite(next[i])) vals[i] = this.#clampSnap(next[i]);
+      const candidate = next[i];
+      if (candidate !== undefined && Number.isFinite(candidate))
+        vals[i] = this.#clampSnap(candidate);
     }
+    const at = (i: number) => vals[i] ?? this.min;
     // Push apart to keep min-distance, clamping back into [min, max] on each
     // pass so the forward pass can't shove a thumb past max (nor the backward
     // pass below min); the backward pass then slides the group down to fit.
     for (let i = 1; i < n; i++)
-      vals[i] = Math.min(this.max, Math.max(vals[i], vals[i - 1] + this.minDistance));
+      vals[i] = Math.min(this.max, Math.max(at(i), at(i - 1) + this.minDistance));
     for (let i = n - 2; i >= 0; i--)
-      vals[i] = Math.max(this.min, Math.min(vals[i], vals[i + 1] - this.minDistance));
-    this.#writeValues(vals, emit);
+      vals[i] = Math.max(this.min, Math.min(at(i), at(i + 1) - this.minDistance));
+    this.#writeValues(vals, notify);
   }
 
   /** Move one thumb, clamped between its neighbors (thumbs cannot cross). */
-  #setThumb(index: number, n: number, emit: boolean) {
-    const lo = index > 0 ? this.#values[index - 1] + this.minDistance : this.min;
+  #setThumb(index: number, n: number, notify: ChangeNotification) {
+    const lo = index > 0 ? this.#valueAt(index - 1) + this.minDistance : this.min;
     const hi =
-      index < this.#values.length - 1 ? this.#values[index + 1] - this.minDistance : this.max;
+      index < this.#values.length - 1 ? this.#valueAt(index + 1) - this.minDistance : this.max;
     const v = clamp(this.#clampSnap(n), lo, Math.max(lo, hi));
     const vals = this.#values.slice();
     vals[index] = v;
-    this.#writeValues(vals, emit);
+    this.#writeValues(vals, notify);
   }
 
-  #writeValues(vals: number[], emit: boolean) {
+  #writeValues(vals: number[], notify: ChangeNotification) {
     const changed = vals.some((v, i) => v !== this.#values[i]);
     this.#values = vals;
     this.#reflect();
-    if (emit && changed) {
+    if (notify === "emit" && changed) {
       this.dispatchEvent(
         new CustomEvent("change", { bubbles: true, detail: { value: this.value } }),
       );
@@ -232,16 +247,16 @@ export class UISlider extends FormAssociatedElement {
   #reflect() {
     const n = this.#values.length;
     this.#thumbs.forEach((thumb, i) => {
-      const v = this.#values[i];
+      const v = this.#valueAt(i);
       thumb.setAttribute("aria-valuenow", String(v));
-      thumb.setAttribute("aria-valuemin", String(i > 0 ? this.#values[i - 1] : this.min));
-      thumb.setAttribute("aria-valuemax", String(i < n - 1 ? this.#values[i + 1] : this.max));
+      thumb.setAttribute("aria-valuemin", String(i > 0 ? this.#valueAt(i - 1) : this.min));
+      thumb.setAttribute("aria-valuemax", String(i < n - 1 ? this.#valueAt(i + 1) : this.max));
       const offset = `${this.#fraction(v) * 100}%`;
       if (this.orientation === "vertical") thumb.style.bottom = offset;
       else thumb.style.left = offset;
     });
-    const first = this.#fraction(this.#values[0]);
-    const last = this.#fraction(this.#values[n - 1]);
+    const first = this.#fraction(this.#valueAt(0));
+    const last = this.#fraction(this.#valueAt(n - 1));
     this.style.setProperty("--slider", String(first));
     this.style.setProperty("--slider-start", String(first));
     this.style.setProperty("--slider-end", String(last));
@@ -257,33 +272,33 @@ export class UISlider extends FormAssociatedElement {
   #onKeydown(e: KeyboardEvent, index: number) {
     if (this.disabled) return;
     const large = Math.max(this.step, (this.max - this.min) / 10);
-    const at = this.#values[index];
+    const at = this.#valueAt(index);
     switch (e.key) {
       case "ArrowRight":
       case "ArrowUp":
         e.preventDefault();
-        this.#setThumb(index, at + this.step, true);
+        this.#setThumb(index, at + this.step, "emit");
         break;
       case "ArrowLeft":
       case "ArrowDown":
         e.preventDefault();
-        this.#setThumb(index, at - this.step, true);
+        this.#setThumb(index, at - this.step, "emit");
         break;
       case "PageUp":
         e.preventDefault();
-        this.#setThumb(index, at + large, true);
+        this.#setThumb(index, at + large, "emit");
         break;
       case "PageDown":
         e.preventDefault();
-        this.#setThumb(index, at - large, true);
+        this.#setThumb(index, at - large, "emit");
         break;
       case "Home":
         e.preventDefault();
-        this.#setThumb(index, this.min, true);
+        this.#setThumb(index, this.min, "emit");
         break;
       case "End":
         e.preventDefault();
-        this.#setThumb(index, this.max, true);
+        this.#setThumb(index, this.max, "emit");
         break;
     }
   }
@@ -302,6 +317,7 @@ export class UISlider extends FormAssociatedElement {
   }
 
   #pointerValue(e: PointerEvent) {
+    if (!this.#track) return null;
     const rect = this.#track.getBoundingClientRect();
     const size = this.orientation === "vertical" ? rect.height : rect.width;
     if (size <= 0) return null; // no layout (e.g. under test) — ignore
@@ -313,7 +329,9 @@ export class UISlider extends FormAssociatedElement {
   }
 }
 
+/** Custom element `ui-slider-track`: the pressable rail thumbs travel along. */
 export class UISliderTrack extends HTMLElement {}
+/** Custom element `ui-slider-thumb`: a draggable, keyboard-operable `role="slider"` handle. */
 export class UISliderThumb extends HTMLElement {}
 
 define("ui-slider", UISlider);

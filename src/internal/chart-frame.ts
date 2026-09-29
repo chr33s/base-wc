@@ -1,15 +1,18 @@
 /** Resolve one chart frame without mutating the DOM or the chart store. */
 import {
+  type AxisRegistration,
+  type ChartRow,
   type ChartState,
   type SeriesRegistration,
   type SeriesRenderContext,
   type StackOffset,
+  type StackedValue,
   getSeriesType,
   stackSeries,
 } from "../chart-core.ts";
 import { DEFAULT_TICK_COUNT, axisScale, categoryRows } from "../chart-domain.ts";
 import type { GridSpec } from "../chart-plot.ts";
-import { isDiscreteScale } from "../chart-scale.ts";
+import { type Scale, isDiscreteScale } from "../chart-scale.ts";
 import { round } from "../chart-shape.ts";
 
 /**
@@ -47,11 +50,38 @@ function groupSlots(visible: readonly SeriesRegistration[]) {
   return slots;
 }
 
+/** Everything one chart render needs, resolved once from the store without touching the DOM. */
+export interface ChartFrame {
+  /** The plot area in local SVG coordinates (origin at the top-left). */
+  readonly box: { x: number; y: number; width: number; height: number };
+  /** The dataset rows the frame was resolved from. */
+  readonly data: ChartRow[];
+  /** Series that are not hidden, in paint order. */
+  readonly visible: SeriesRegistration[];
+  /** The shared index (bottom/top) axis, if one is registered. */
+  readonly indexAxis: AxisRegistration | undefined;
+  /** The value (left/right) axis, if one is registered. */
+  readonly valueAxis: AxisRegistration | undefined;
+  /** Horizontal scale derived from the index axis. */
+  readonly xScale: Scale | undefined;
+  /** Vertical scale derived from the value axis. */
+  readonly yScale: Scale | undefined;
+  /** Dataset row behind each category of a discrete x scale (empty otherwise). */
+  readonly bandRows: number[];
+  /** Grid lines to draw: one per requested dimension that has a continuous scale. */
+  readonly gridSpecs: GridSpec[];
+  /** Per-series render context, keyed by registration. */
+  readonly contexts: Map<SeriesRegistration, SeriesRenderContext>;
+  /** Series that take a palette colour (annotations excluded), hidden ones included. */
+  readonly palette: SeriesRegistration[];
+}
+
+/** Resolve the frame for the current store state, or `null` while the plot has no area. */
 export function prepareChartFrame(
   state: ChartState,
   stackOffset: StackOffset,
   grids: ReadonlyMap<"x" | "y", number>,
-) {
+): ChartFrame | null {
   const width = round(state.width);
   const height = round(state.height);
   if (width <= 0 || height <= 0) return null;
@@ -62,7 +92,11 @@ export function prepareChartFrame(
     (series) => series.stack !== undefined && getSeriesType(series.type)?.stacks,
   );
   const stacked = stackSeries(data, stackable, stackOffset);
-  const stacks = new Map(stackable.map((series, index) => [series, stacked[index]!]));
+  const stacks = new Map<SeriesRegistration, StackedValue[]>();
+  for (const [index, series] of stackable.entries()) {
+    const values = stacked[index];
+    if (values) stacks.set(series, values);
+  }
   const indexAxis = state.axes.find(
     (axis) => axis.position === "bottom" || axis.position === "top",
   );
@@ -119,5 +153,3 @@ export function prepareChartFrame(
     palette,
   };
 }
-
-export type ChartFrame = NonNullable<ReturnType<typeof prepareChartFrame>>;

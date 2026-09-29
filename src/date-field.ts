@@ -16,6 +16,7 @@ import { type CalendarChangeDetail, UICalendar, UICalendarPopup } from "./calend
 import { adoptedControl, fireNativeChange } from "./native.ts";
 import { type PopoverField, popoverField } from "./popover-field.ts";
 
+/** Enhancer of a native `input[type=date]` that adds a `ui-calendar` popover picker. */
 export class UIDateField extends LightDomElement {
   #input!: HTMLInputElement;
   #field: PopoverField | null = null;
@@ -52,13 +53,15 @@ export class UIDateField extends LightDomElement {
     input.addEventListener("change", () => {
       if (!this.#field?.open) calendar.value = input.value || null;
     });
-    calendar.addEventListener("change", this.#onPick as EventListener);
+    calendar.addEventListener("change", this.#onPick);
     return true;
   }
 
-  #onPick = (e: CustomEvent<CalendarChangeDetail>) => {
+  #onPick = (e: Event) => {
+    if (!(e instanceof CustomEvent)) return;
     e.stopPropagation(); // the field's public change is the native input's, below
-    this.#input.value = e.detail.value ?? "";
+    const detail: CalendarChangeDetail = e.detail;
+    this.#input.value = detail.value ?? "";
     fireNativeChange(this.#input);
     this.#field?.close(true);
   };

@@ -22,6 +22,16 @@ import { UIPopupElement } from "./popup.ts";
 import { numberAttribute } from "./math.ts";
 import { FormAssociatedElement, type FormControlOptions } from "./form-control.ts";
 import { nextId } from "./id.ts";
+import { closestFrom } from "./internal/closest.ts";
+
+/** Where a selection change came from, which decides whether `change` fires and whether the `value` attribute is rewritten. */
+type SelectSource =
+  /** Property set or form reset: reflect to the attribute, no `change` event. */
+  | "programmatic"
+  /** The `value` attribute itself changed: already reflected, no `change` event. */
+  | "attribute"
+  /** A user pick: reflect to the attribute and fire `change`. */
+  | "user";
 
 interface YMD {
   y: number;
@@ -32,7 +42,7 @@ interface YMD {
 const pad = (n: number) => String(n).padStart(2, "0");
 const toISO = ({ y, m, d }: YMD) => `${y}-${pad(m + 1)}-${pad(d)}`;
 
-function parseISO(s: string | null | undefined) {
+function parseISO(s: string | null | undefined): YMD | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s ?? "");
   if (!match) return null;
   const y = Number(match[1]);
@@ -63,11 +73,13 @@ const today = () => {
   return { y: now.getFullYear(), m: now.getMonth(), d: now.getDate() };
 };
 
+/** Detail of the calendar's `change` event. */
 export interface CalendarChangeDetail {
   /** Selected date as ISO `yyyy-mm-dd`, or `null` when cleared. */
   readonly value: string | null;
 }
 
+/** A form-associated month-grid date picker with 2D roving focus. */
 export class UICalendar extends FormAssociatedElement {
   static observedAttributes = ["value", "min", "max", "disabled"];
 
@@ -75,7 +87,7 @@ export class UICalendar extends FormAssociatedElement {
     return {
       value: () => this.value,
       onReset: () => {
-        if (this.wired) this.#select(parseISO(this.#default), false);
+        if (this.wired) this.#select(parseISO(this.#default), "programmatic");
       },
     };
   }
@@ -93,11 +105,12 @@ export class UICalendar extends FormAssociatedElement {
   #wantFocus = false;
   #reflectingValue = false;
 
-  get value() {
+  /** Selected date as ISO `yyyy-mm-dd`, or `null` when nothing is selected. */
+  get value(): string | null {
     return this.#selected ? toISO(this.#selected) : null;
   }
   set value(next: string | null) {
-    this.#select(parseISO(next), false);
+    this.#select(parseISO(next), "programmatic");
   }
 
   #min() {
@@ -116,7 +129,7 @@ export class UICalendar extends FormAssociatedElement {
   attributeChangedCallback(name: string) {
     if (!this.wired || this.#reflectingValue) return;
     if (name === "value") {
-      this.#select(parseISO(this.getAttribute("value")), false, false);
+      this.#select(parseISO(this.getAttribute("value")), "attribute");
       return;
     }
     this.#render();
@@ -282,7 +295,8 @@ export class UICalendar extends FormAssociatedElement {
     this.#render();
   }
 
-  #select(date: YMD | null, emit: boolean, reflectValue = true) {
+  #select(date: YMD | null, source: SelectSource) {
+    const reflectValue = source !== "attribute";
     this.#selected = date;
     if (date) {
       this.#focus = date;
@@ -307,7 +321,7 @@ export class UICalendar extends FormAssociatedElement {
       }
     }
     this.#render();
-    if (emit) {
+    if (source === "user") {
       this.dispatchEvent(
         new CustomEvent<CalendarChangeDetail>("change", {
           bubbles: true,
@@ -318,9 +332,9 @@ export class UICalendar extends FormAssociatedElement {
   }
 
   #onGridClick = (e: MouseEvent) => {
-    const btn = (e.target as Element).closest<HTMLButtonElement>("[data-calendar-day]");
+    const btn = closestFrom<HTMLButtonElement>(e, "[data-calendar-day]");
     if (!btn || btn.disabled) return;
-    this.#select(parseISO(btn.getAttribute("data-calendar-day")), true);
+    this.#select(parseISO(btn.getAttribute("data-calendar-day")), "user");
   };
 
   #onGridKeydown = (e: KeyboardEvent) => {
@@ -361,7 +375,7 @@ export class UICalendar extends FormAssociatedElement {
       case "Enter":
       case " ":
         e.preventDefault();
-        if (!this.#isDisabled(this.#focus)) this.#select(this.#focus, true);
+        if (!this.#isDisabled(this.#focus)) this.#select(this.#focus, "user");
         break;
     }
   };

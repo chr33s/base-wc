@@ -84,11 +84,13 @@ function parseHex(input: string | null | undefined): [number, number, number] | 
   return [parseInt(s.slice(0, 2), 16), parseInt(s.slice(2, 4), 16), parseInt(s.slice(4, 6), 16)];
 }
 
+/** Detail of the picker's `change` event. */
 export interface ColorChangeDetail {
   /** The selected color as `#rrggbb`. */
   readonly value: string;
 }
 
+/** HSV color picker (saturation/value area, hue slider, hex input) that submits its color as `#rrggbb`. */
 export class UIColorPicker extends FormAssociatedElement {
   static observedAttributes = ["value", "disabled"];
 
@@ -111,7 +113,8 @@ export class UIColorPicker extends FormAssociatedElement {
   #hex!: HTMLInputElement;
   #disposeDrag: (() => void) | null = null;
 
-  get value() {
+  /** The current color as `#rrggbb`; setting ignores unparsable input. */
+  get value(): string {
     return hsvToHex(this.#hsv);
   }
   set value(next: string) {
@@ -286,6 +289,7 @@ export class UIColorPicker extends FormAssociatedElement {
 /** The popover shell around a `<ui-color-picker>` (top layer). */
 export class UIColorPickerPopup extends UIPopupElement {}
 
+/** Enhancer of a native `input[type=color]` that swaps the OS picker for a `ui-color-picker` popover. */
 export class UIColorField extends LightDomElement {
   #input!: HTMLInputElement;
   #field: PopoverField | null = null;
@@ -295,9 +299,9 @@ export class UIColorField extends LightDomElement {
     if (!input) return false;
     this.#input = input;
 
-    const picker = document.createElement("ui-color-picker") as UIColorPicker;
+    const picker = document.createElement("ui-color-picker");
     picker.value = input.value || "#000000";
-    const popup = document.createElement("ui-color-picker-popup") as UIColorPickerPopup;
+    const popup = document.createElement("ui-color-picker-popup");
     popup.append(picker);
 
     this.#field = popoverField(this, {
@@ -314,7 +318,7 @@ export class UIColorField extends LightDomElement {
       },
       initialFocus: () => picker.querySelector<HTMLElement>("[data-color-area]"),
     });
-    picker.addEventListener("change", this.#onPick as EventListener);
+    picker.addEventListener("change", this.#onPick);
     this.#syncSwatch();
     return true;
   }
@@ -323,9 +327,11 @@ export class UIColorField extends LightDomElement {
     this.#field?.trigger.style.setProperty("--color", this.#input.value || "#000000");
   }
 
-  #onPick = (e: CustomEvent<ColorChangeDetail>) => {
+  #onPick = (e: Event) => {
+    if (!(e instanceof CustomEvent)) return;
     e.stopPropagation(); // the field's public change is the native input's, below
-    this.#input.value = e.detail.value;
+    const detail: ColorChangeDetail = e.detail;
+    this.#input.value = detail.value;
     fireNativeChange(this.#input);
     this.#syncSwatch();
   };

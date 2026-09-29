@@ -2,10 +2,9 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { SelectChangeDetail } from "./select.ts";
 import "./elements.ts";
+import { key, must } from "./test-utils.ts";
 
-const key = (target: EventTarget, k: string) =>
-  target.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
-
+/** Narrow an indexed lookup the fixture guarantees is present. */
 async function mount(attrs = "") {
   document.body.innerHTML = `
     <ui-select name="fruit" ${attrs}>
@@ -18,10 +17,10 @@ async function mount(attrs = "") {
       </ui-select-popup>
     </ui-select>`;
   await Promise.resolve();
-  const select = document.querySelector("ui-select")!;
-  const trigger = document.querySelector<HTMLButtonElement>("[data-select-trigger]")!;
-  const valueEl = document.querySelector<HTMLElement>("[data-select-value]")!;
-  const popup = document.querySelector("ui-select-popup")!;
+  const select = must(document.querySelector("ui-select"));
+  const trigger = must(document.querySelector<HTMLButtonElement>("[data-select-trigger]"));
+  const valueEl = must(document.querySelector<HTMLElement>("[data-select-value]"));
+  const popup = must(document.querySelector("ui-select-popup"));
   const options = [...document.querySelectorAll("ui-select-option")];
   return { select, trigger, valueEl, popup, options };
 }
@@ -46,7 +45,7 @@ describe("ui-select", () => {
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
     expect(popup.hasAttribute("data-open")).toBe(true);
     expect(document.activeElement).toBe(popup);
-    expect(popup.getAttribute("aria-activedescendant")).toBe(options[0].id);
+    expect(popup.getAttribute("aria-activedescendant")).toBe(must(options[0]).id);
   });
 
   it("navigates with arrows, skipping disabled options, and commits on Enter", async () => {
@@ -58,19 +57,19 @@ describe("ui-select", () => {
     trigger.click(); // active = Apple
     key(popup, "ArrowDown"); // → Banana
     key(popup, "ArrowDown"); // → Date (skips disabled Cherry)
-    expect(popup.getAttribute("aria-activedescendant")).toBe(options[3].id);
+    expect(popup.getAttribute("aria-activedescendant")).toBe(must(options[3]).id);
     key(popup, "Enter");
     expect(select.value).toBe("date");
     expect(valueEl.textContent).toBe("Date");
-    expect(options[3].getAttribute("aria-selected")).toBe("true");
+    expect(must(options[3]).getAttribute("aria-selected")).toBe("true");
     expect(trigger.getAttribute("aria-expanded")).toBe("false"); // closed
-    expect(onChange.mock.calls[0][0]).toMatchObject({ value: "date", label: "Date" });
+    expect(must(onChange.mock.calls[0])[0]).toMatchObject({ value: "date", label: "Date" });
   });
 
   it("commits on option click", async () => {
     const { select, trigger, valueEl, options } = await mount();
     trigger.click();
-    options[1].click(); // Banana
+    must(options[1]).click(); // Banana
     expect(select.value).toBe("banana");
     expect(valueEl.textContent).toBe("Banana");
   });
@@ -79,17 +78,17 @@ describe("ui-select", () => {
     const { trigger, popup, options } = await mount();
     trigger.click();
     key(popup, "d"); // → Date
-    expect(popup.getAttribute("aria-activedescendant")).toBe(options[3].id);
+    expect(popup.getAttribute("aria-activedescendant")).toBe(must(options[3]).id);
   });
 
   it("clamps arrow navigation at the ends (no wrap)", async () => {
     const { trigger, popup, options } = await mount();
     trigger.click(); // active = Apple (first)
     key(popup, "ArrowUp"); // clamped — stays on the first option
-    expect(popup.getAttribute("aria-activedescendant")).toBe(options[0].id);
+    expect(popup.getAttribute("aria-activedescendant")).toBe(must(options[0]).id);
     key(popup, "End"); // → Date (last enabled)
     key(popup, "ArrowDown"); // clamped — stays on the last option
-    expect(popup.getAttribute("aria-activedescendant")).toBe(options[3].id);
+    expect(popup.getAttribute("aria-activedescendant")).toBe(must(options[3]).id);
   });
 
   it("Space extends a pending typeahead search instead of committing", async () => {
@@ -102,14 +101,16 @@ describe("ui-select", () => {
         </ui-select-popup>
       </ui-select>`;
     await Promise.resolve();
-    const select = document.querySelector<HTMLElement & { value: string | null }>("ui-select")!;
-    const trigger = document.querySelector<HTMLButtonElement>("[data-select-trigger]")!;
+    const select = must(
+      document.querySelector<HTMLElement & { value: string | null }>("ui-select"),
+    );
+    const trigger = must(document.querySelector<HTMLButtonElement>("[data-select-trigger]"));
     trigger.click();
-    const popup = document.querySelector("ui-select-popup")!;
+    const popup = must(document.querySelector("ui-select-popup"));
     const options = [...document.querySelectorAll("ui-select-option")];
     for (const ch of ["n", "e", "w", " ", "o"]) key(popup, ch);
     expect(select.value).toBe(null); // Space searched, didn't commit
-    expect(popup.getAttribute("aria-activedescendant")).toBe(options[1].id); // "New Orleans"
+    expect(popup.getAttribute("aria-activedescendant")).toBe(must(options[1]).id); // "New Orleans"
     expect(popup.hasAttribute("data-open")).toBe(true);
   });
 
@@ -117,7 +118,7 @@ describe("ui-select", () => {
     const { select, valueEl, options } = await mount();
     expect(select.value).toBe(null);
     select.value = "banana";
-    expect(options[1].getAttribute("aria-selected")).toBe("true");
+    expect(must(options[1]).getAttribute("aria-selected")).toBe("true");
     expect(valueEl.textContent).toBe("Banana");
   });
 
@@ -139,8 +140,8 @@ describe("ui-select", () => {
         </ui-select-popup>
       </ui-select>`;
     await Promise.resolve();
-    const select = document.querySelector("ui-select")!;
-    const valueEl = document.querySelector<HTMLElement>("[data-select-value]")!;
+    const select = must(document.querySelector("ui-select"));
+    const valueEl = must(document.querySelector<HTMLElement>("[data-select-value]"));
     expect(select.value).toBe("banana"); // preselected from markup
     select.value = "apple";
     select.formResetCallback();
@@ -196,8 +197,10 @@ describe("ui-select — groups and item indicator", () => {
         </ui-select-popup>
       </ui-select>`;
     await Promise.resolve();
-    const select = document.querySelector<HTMLElement & { value: string | null }>("ui-select")!;
-    const trigger = document.querySelector<HTMLButtonElement>("[data-select-trigger]")!;
+    const select = must(
+      document.querySelector<HTMLElement & { value: string | null }>("ui-select"),
+    );
+    const trigger = must(document.querySelector<HTMLButtonElement>("[data-select-trigger]"));
     const groups = [...document.querySelectorAll("ui-select-group")];
     const options = [...document.querySelectorAll("ui-select-option")];
     return { select, trigger, groups, options };
@@ -206,7 +209,7 @@ describe("ui-select — groups and item indicator", () => {
   it("labels each group from its group-label", async () => {
     const { groups } = await mount();
     for (const g of groups) {
-      const label = g.querySelector("ui-select-group-label")!;
+      const label = must(g.querySelector("ui-select-group-label"));
       expect(g.getAttribute("role")).toBe("group");
       // Hidden from the a11y tree rather than presentational: the group already
       // announces this text through aria-labelledby, and aria-hidden does not
@@ -221,14 +224,14 @@ describe("ui-select — groups and item indicator", () => {
   it("navigates options across groups and marks the selected one with data-selected", async () => {
     const { select, trigger, options } = await mount();
     trigger.click();
-    const popup = document.querySelector("ui-select-popup")!;
+    const popup = must(document.querySelector("ui-select-popup"));
     key(popup, "ArrowDown"); // London → Paris
     key(popup, "ArrowDown"); // Paris → Tokyo (crosses group boundary)
-    expect(popup.getAttribute("aria-activedescendant")).toBe(options[2].id);
+    expect(popup.getAttribute("aria-activedescendant")).toBe(must(options[2]).id);
     key(popup, "Enter");
     expect(select.value).toBe("tyo");
-    expect(options[2].hasAttribute("data-selected")).toBe(true);
-    expect(options[0].hasAttribute("data-selected")).toBe(false);
+    expect(must(options[2]).hasAttribute("data-selected")).toBe(true);
+    expect(must(options[0]).hasAttribute("data-selected")).toBe(false);
   });
 });
 
@@ -245,11 +248,11 @@ describe("ui-select — adopts an authored native <select> (no-JS fallback)", ()
         </ui-select>
       </form>`;
     await Promise.resolve();
-    const form = document.querySelector("form")!;
-    const host = document.querySelector<HTMLElement & { value: string | string[] | null }>(
-      "ui-select",
-    )!;
-    const native = document.querySelector<HTMLSelectElement>("select")!;
+    const form = must(document.querySelector("form"));
+    const host = must(
+      document.querySelector<HTMLElement & { value: string | string[] | null }>("ui-select"),
+    );
+    const native = must(document.querySelector<HTMLSelectElement>("select"));
     return { form, host, native };
   }
 
@@ -280,7 +283,7 @@ describe("ui-select — adopts an authored native <select> (no-JS fallback)", ()
     "reflects native %s without emitting another change",
     async (eventType) => {
       const { host, native, form } = await mount();
-      const onChange = vi.fn();
+      const onChange = vi.fn<(event: Event) => void>();
       host.addEventListener("change", onChange);
       native.value = "apple";
       // Reads come from the native control even before an event updates the UI.
@@ -302,19 +305,19 @@ describe("ui-select — adopts an authored native <select> (no-JS fallback)", ()
     await Promise.resolve();
     expect(host.querySelector("[data-select-value]")?.textContent).toBe("Apple, Cherry");
     host.value = ["banana"];
-    expect(
-      [...native.options].filter((option) => option.selected).map((option) => option.value),
-    ).toEqual(["banana"]);
+    expect(Array.from(native.selectedOptions, (option) => option.value)).toEqual(["banana"]);
   });
 
   it("writes a new choice back to the native control so the form submits it", async () => {
     const { form, host } = await mount();
-    const trigger = host.querySelector<HTMLButtonElement>("[data-select-trigger]")!;
-    const valueEl = host.querySelector<HTMLElement>("[data-select-value]")!;
+    const trigger = must(host.querySelector<HTMLButtonElement>("[data-select-trigger]"));
+    const valueEl = must(host.querySelector<HTMLElement>("[data-select-value]"));
     trigger.click();
-    const apple = [...host.querySelectorAll<HTMLElement>("ui-select-option")].find(
-      (o) => o.getAttribute("value") === "apple",
-    )!;
+    const apple = must(
+      [...host.querySelectorAll<HTMLElement>("ui-select-option")].find(
+        (o) => o.getAttribute("value") === "apple",
+      ),
+    );
     apple.click();
     expect(host.value).toBe("apple");
     expect(valueEl.textContent).toBe("Apple");
@@ -327,11 +330,13 @@ describe("ui-select — adopts an authored native <select> (no-JS fallback)", ()
     const onChange = vi.fn<() => void>();
     native.addEventListener("input", onInput);
     native.addEventListener("change", onChange);
-    const trigger = host.querySelector<HTMLButtonElement>("[data-select-trigger]")!;
+    const trigger = must(host.querySelector<HTMLButtonElement>("[data-select-trigger]"));
     trigger.click();
-    const apple = [...host.querySelectorAll<HTMLElement>("ui-select-option")].find(
-      (o) => o.getAttribute("value") === "apple",
-    )!;
+    const apple = must(
+      [...host.querySelectorAll<HTMLElement>("ui-select-option")].find(
+        (o) => o.getAttribute("value") === "apple",
+      ),
+    );
     apple.click();
     // A real <select> fires both on a user selection; a listener bound to
     // `input` on the adopted control must not be left out.
@@ -342,7 +347,7 @@ describe("ui-select — adopts an authored native <select> (no-JS fallback)", ()
 
   it("carries the native <select>'s aria-label onto the generated trigger", async () => {
     const { host } = await mount('aria-label="Favourite fruit"');
-    const trigger = host.querySelector<HTMLButtonElement>("[data-select-trigger]")!;
+    const trigger = must(host.querySelector<HTMLButtonElement>("[data-select-trigger]"));
     expect(trigger.getAttribute("aria-label")).toBe("Favourite fruit");
   });
 
@@ -354,9 +359,9 @@ describe("ui-select — adopts an authored native <select> (no-JS fallback)", ()
         </ui-select>
       </label>`;
     await Promise.resolve();
-    const host = document.querySelector("ui-select")!;
-    const label = document.querySelector("label")!;
-    const trigger = host.querySelector<HTMLButtonElement>("[data-select-trigger]")!;
+    const host = must(document.querySelector("ui-select"));
+    const label = must(document.querySelector("label"));
+    const trigger = must(host.querySelector<HTMLButtonElement>("[data-select-trigger]"));
     expect(trigger.id).toBeTruthy();
     expect(label.htmlFor).toBe(trigger.id); // clicking the label now targets the trigger
   });
@@ -374,22 +379,24 @@ describe("ui-select — adopts an authored native <select> (no-JS fallback)", ()
         </select>
       </ui-select>`;
     await Promise.resolve();
-    const host = document.querySelector("ui-select")!;
+    const host = must(document.querySelector("ui-select"));
     const groups = host.querySelectorAll("ui-select-group");
     expect(groups.length).toBe(2);
-    expect(groups[0].querySelector("ui-select-group-label")?.textContent).toBe("Europe");
-    expect(groups[0].getAttribute("aria-labelledby")).toBe(
-      groups[0].querySelector("ui-select-group-label")?.id,
+    expect(must(groups[0]).querySelector("ui-select-group-label")?.textContent).toBe("Europe");
+    expect(must(groups[0]).getAttribute("aria-labelledby")).toBe(
+      must(groups[0]).querySelector("ui-select-group-label")?.id,
     );
   });
 
   it("formResetCallback re-seeds from the restored native <select>", async () => {
     const { host, native } = await mount();
-    const trigger = host.querySelector<HTMLButtonElement>("[data-select-trigger]")!;
+    const trigger = must(host.querySelector<HTMLButtonElement>("[data-select-trigger]"));
     trigger.click();
-    const apple = [...host.querySelectorAll<HTMLElement>("ui-select-option")].find(
-      (o) => o.getAttribute("value") === "apple",
-    )!;
+    const apple = must(
+      [...host.querySelectorAll<HTMLElement>("ui-select-option")].find(
+        (o) => o.getAttribute("value") === "apple",
+      ),
+    );
     apple.click();
     expect(host.value).toBe("apple");
     // Emulate `form.reset()`: the browser restores the retired <select>'s
@@ -397,7 +404,7 @@ describe("ui-select — adopts an authored native <select> (no-JS fallback)", ()
     // because happy-dom's defaultSelected doesn't track the attribute), then
     // invokes the host's formResetCallback.
     for (const o of native.options) o.selected = o.value === "banana";
-    document.querySelector("ui-select")!.formResetCallback();
+    must(document.querySelector("ui-select")).formResetCallback();
     await Promise.resolve(); // the re-seed waits for the reset pass to finish
     expect(host.value).toBe("banana");
     expect(
@@ -407,12 +414,14 @@ describe("ui-select — adopts an authored native <select> (no-JS fallback)", ()
 
   it("adopts <select multiple> and writes every choice back to the native control", async () => {
     const { host, native } = await mount("multiple");
-    const trigger = host.querySelector<HTMLButtonElement>("[data-select-trigger]")!;
+    const trigger = must(host.querySelector<HTMLButtonElement>("[data-select-trigger]"));
     trigger.click();
     const byValue = (v: string) =>
-      [...host.querySelectorAll<HTMLElement>("ui-select-option")].find(
-        (o) => o.getAttribute("value") === v,
-      )!;
+      must(
+        [...host.querySelectorAll<HTMLElement>("ui-select-option")].find(
+          (o) => o.getAttribute("value") === v,
+        ),
+      );
     byValue("apple").click(); // add apple (banana already selected from markup)
     expect(host.value).toEqual(["apple", "banana"]);
     // Both choices are written back to the native control, so submission carries
@@ -434,12 +443,14 @@ describe("ui-select — multiple", () => {
         </ui-select-popup>
       </ui-select>`;
     await Promise.resolve();
-    const select = document.querySelector<
-      HTMLElement & { value: string | string[] | null; multiple: boolean }
-    >("ui-select")!;
-    const trigger = document.querySelector<HTMLButtonElement>("[data-select-trigger]")!;
-    const valueEl = document.querySelector<HTMLElement>("[data-select-value]")!;
-    const popup = document.querySelector("ui-select-popup")!;
+    const select = must(
+      document.querySelector<HTMLElement & { value: string | string[] | null; multiple: boolean }>(
+        "ui-select",
+      ),
+    );
+    const trigger = must(document.querySelector<HTMLButtonElement>("[data-select-trigger]"));
+    const valueEl = must(document.querySelector<HTMLElement>("[data-select-value]"));
+    const popup = must(document.querySelector("ui-select-popup"));
     const options = [...document.querySelectorAll<HTMLElement>("ui-select-option")];
     return { select, trigger, valueEl, popup, options };
   }
@@ -461,33 +472,33 @@ describe("ui-select — multiple", () => {
       onChange((e as CustomEvent<SelectChangeDetail>).detail),
     );
     trigger.click();
-    options[0].click(); // TS
+    must(options[0]).click(); // TS
     expect(popup.hasAttribute("data-open")).toBe(true); // stays open
-    options[2].click(); // Rust
+    must(options[2]).click(); // Rust
     expect(select.value).toEqual(["ts", "rs"]);
-    expect(options[0].getAttribute("aria-selected")).toBe("true");
-    expect(options[2].hasAttribute("data-selected")).toBe(true);
+    expect(must(options[0]).getAttribute("aria-selected")).toBe("true");
+    expect(must(options[2]).hasAttribute("data-selected")).toBe(true);
     expect(onChange.mock.calls.at(-1)?.[0]).toMatchObject({ value: "rs", values: ["ts", "rs"] });
   });
 
   it("summarizes the selection in the trigger and restores the placeholder", async () => {
     const { trigger, valueEl, options } = await mount();
     trigger.click();
-    options[0].click();
-    options[1].click();
+    must(options[0]).click();
+    must(options[1]).click();
     expect(valueEl.textContent).toBe("TypeScript, Go"); // DOM order
-    options[0].click(); // remove TS
+    must(options[0]).click(); // remove TS
     expect(valueEl.textContent).toBe("Go");
-    options[1].click(); // remove Go → empty
+    must(options[1]).click(); // remove Go → empty
     expect(valueEl.textContent).toBe("Choose…"); // placeholder restored
   });
 
   it("accepts an array via the value setter", async () => {
     const { select, valueEl, options } = await mount();
     select.value = ["go", "rs"];
-    expect(options[1].getAttribute("aria-selected")).toBe("true");
-    expect(options[2].getAttribute("aria-selected")).toBe("true");
-    expect(options[0].getAttribute("aria-selected")).toBe("false");
+    expect(must(options[1]).getAttribute("aria-selected")).toBe("true");
+    expect(must(options[2]).getAttribute("aria-selected")).toBe("true");
+    expect(must(options[0]).getAttribute("aria-selected")).toBe("false");
     expect(valueEl.textContent).toBe("Go, Rust");
   });
 });
@@ -558,7 +569,7 @@ describe("ui-select orientation", () => {
 describe("ui-select change reasons", () => {
   it("names an option press as the cause", async () => {
     const { select, trigger, popup } = await mount();
-    const onChange = vi.fn();
+    const onChange = vi.fn<(reason: string) => void>();
     select.addEventListener("change", (e) =>
       onChange((e as CustomEvent<SelectChangeDetail>).detail.reason),
     );
@@ -591,10 +602,10 @@ describe("ui-select press-drag-release", () => {
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
 
     // Dragging over an option highlights it…
-    options[1].dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
-    expect(options[1].hasAttribute("data-highlighted")).toBe(true);
+    must(options[1]).dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
+    expect(must(options[1]).hasAttribute("data-highlighted")).toBe(true);
 
-    release(options[1]); // …and releasing there chooses it
+    release(must(options[1])); // …and releasing there chooses it
     expect(select.value).toBe("banana");
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
   });
@@ -634,7 +645,7 @@ describe("ui-select press-drag-release", () => {
   it("commits nothing on a drag release while readonly", async () => {
     const { select, trigger, options } = await mount("readonly");
     press(trigger);
-    release(options[1]);
+    release(must(options[1]));
     expect(select.value).toBe(null);
   });
 });

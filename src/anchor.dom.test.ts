@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { anchor } from "./anchor.ts";
+import { must } from "./test-utils.ts";
 
 const original = Object.getOwnPropertyDescriptor(window, "visualViewport");
 
@@ -20,8 +21,8 @@ function fakeViewport(props: { scale: number; width: number; height: number; off
 
 function mount() {
   document.body.innerHTML = `<button id="ref">ref</button><div id="pop">pop</div>`;
-  const reference = document.querySelector<HTMLElement>("#ref")!;
-  const floating = document.querySelector<HTMLElement>("#pop")!;
+  const reference = must(document.querySelector<HTMLElement>("#ref"));
+  const floating = must(document.querySelector<HTMLElement>("#pop"));
   // happy-dom reports a zero rect; give the reference a definite one so the
   // placement arithmetic has something real to work with.
   reference.getBoundingClientRect = () =>

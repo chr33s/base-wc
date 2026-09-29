@@ -16,16 +16,19 @@ import { LightDomElement } from "./lifecycle.ts";
 import { adoptedControl, fireNativeChange } from "./native.ts";
 import { ensureButton } from "./parts.ts";
 
+/** Detail of the bubbling `search` event. */
 export interface SearchDetail {
   readonly value: string;
 }
 
+/** Native-first search input with a clear button, `data-empty` state and a debounced `search` event. */
 export class UISearchField extends LightDomElement {
-  #input!: HTMLInputElement;
+  #input: HTMLInputElement | null = null;
   #clear: HTMLElement | null = null;
   #timer = 0;
 
-  get value() {
+  /** Current text of the adopted input (`""` before wiring). */
+  get value(): string {
     return this.#input?.value ?? "";
   }
   set value(next: string) {
@@ -89,14 +92,15 @@ export class UISearchField extends LightDomElement {
 
   #onClear = () => {
     this.#clearValue();
-    this.#input.focus();
+    this.#input?.focus();
   };
 
   #clearValue() {
-    if (this.value === "") return;
-    this.#input.value = "";
+    const input = this.#input;
+    if (!input || this.value === "") return;
+    input.value = "";
     this.#reflect();
-    fireNativeChange(this.#input);
+    fireNativeChange(input);
     clearTimeout(this.#timer);
     this.#emit();
   }

@@ -4,6 +4,7 @@ import "./chart.ts";
 import "./chart-bar.ts";
 import "./chart-legend.ts";
 import "./chart-scatter.ts";
+import { flush, must } from "./test-utils.ts";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -15,14 +16,10 @@ afterEach(() => {
 // coalesced render — so tests assert on settled DOM. The legend itself
 // re-renders synchronously on every registry notification, so only assertions
 // on the chart's *plot* need a flush after a mutation.
-function flush() {
-  return new Promise((resolve) => setTimeout(resolve));
-}
-
 async function mountChart(inner: string) {
   document.body.innerHTML = `<ui-chart width="400" height="200">${inner}</ui-chart>`;
   await flush();
-  return document.querySelector("ui-chart")!;
+  return must(document.querySelector("ui-chart"));
 }
 
 const TABLE = `
@@ -45,7 +42,7 @@ const TWO_SERIES = `
 describe("ui-chart-legend", () => {
   it("has role=list on the host", async () => {
     const chart = await mountChart(TWO_SERIES);
-    const legend = chart.querySelector("ui-chart-legend")!;
+    const legend = must(chart.querySelector("ui-chart-legend"));
     expect(legend.getAttribute("role")).toBe("list");
   });
 
@@ -55,8 +52,8 @@ describe("ui-chart-legend", () => {
     // the on/off semantics this legend relies on would never reach assistive
     // tech. The listitem role has to live on something else.
     const chart = await mountChart(TWO_SERIES);
-    const legend = chart.querySelector("ui-chart-legend")!;
-    const button = legend.querySelector<HTMLButtonElement>("button")!;
+    const legend = must(chart.querySelector("ui-chart-legend"));
+    const button = must(legend.querySelector<HTMLButtonElement>("button"));
 
     expect(button.hasAttribute("role")).toBe(false);
     expect(button.getAttribute("aria-pressed")).toBe("true");
@@ -66,35 +63,35 @@ describe("ui-chart-legend", () => {
 
   it("renders one listitem button per registered series, in document order", async () => {
     const chart = await mountChart(TWO_SERIES);
-    const legend = chart.querySelector("ui-chart-legend")!;
+    const legend = must(chart.querySelector("ui-chart-legend"));
     const buttons = legend.querySelectorAll<HTMLButtonElement>("button");
 
     expect(buttons.length).toBe(2);
-    expect(buttons[0]!.textContent).toBe("Revenue ($)");
-    expect(buttons[1]!.textContent).toBe("Cost");
+    expect(must(buttons[0]).textContent).toBe("Revenue ($)");
+    expect(must(buttons[1]).textContent).toBe("Cost");
   });
 
   it("labels fall back to the key attribute when no label attribute is authored", async () => {
     const chart = await mountChart(TWO_SERIES);
-    const legend = chart.querySelector("ui-chart-legend")!;
+    const legend = must(chart.querySelector("ui-chart-legend"));
     const buttons = legend.querySelectorAll<HTMLButtonElement>("button");
-    expect(buttons[1]!.textContent).toBe("Cost");
+    expect(must(buttons[1]).textContent).toBe("Cost");
   });
 
   it("assigns --series-index to each swatch matching discovery order", async () => {
     const chart = await mountChart(TWO_SERIES);
-    const legend = chart.querySelector("ui-chart-legend")!;
+    const legend = must(chart.querySelector("ui-chart-legend"));
     const swatches = legend.querySelectorAll<HTMLElement>('[data-part="swatch"]');
 
     expect(swatches.length).toBe(2);
-    expect(swatches[0]!.style.getPropertyValue("--series-index")).toBe("0");
-    expect(swatches[1]!.style.getPropertyValue("--series-index")).toBe("1");
+    expect(must(swatches[0]).style.getPropertyValue("--series-index")).toBe("0");
+    expect(must(swatches[1]).style.getPropertyValue("--series-index")).toBe("1");
   });
 
   it("starts a visible series with aria-pressed=true and no data-hidden", async () => {
     const chart = await mountChart(TWO_SERIES);
-    const legend = chart.querySelector("ui-chart-legend")!;
-    const button = legend.querySelector<HTMLButtonElement>("button")!;
+    const legend = must(chart.querySelector("ui-chart-legend"));
+    const button = must(legend.querySelector<HTMLButtonElement>("button"));
 
     // Pressed is the "on" state (`ui-toggle`'s convention): shown = pressed.
     expect(button.getAttribute("aria-pressed")).toBe("true");
@@ -103,9 +100,9 @@ describe("ui-chart-legend", () => {
 
   it("clicking an item calls chart.setSeriesHidden and flips aria-pressed/data-hidden", async () => {
     const chart = await mountChart(TWO_SERIES);
-    const legend = chart.querySelector("ui-chart-legend")!;
-    const revenueSeries = chart.querySelector<HTMLElement>("ui-chart-bar")!;
-    const button = legend.querySelector<HTMLButtonElement>("button")!;
+    const legend = must(chart.querySelector("ui-chart-legend"));
+    const revenueSeries = must(chart.querySelector<HTMLElement>("ui-chart-bar"));
+    const button = must(legend.querySelector<HTMLButtonElement>("button"));
 
     expect(chart.isSeriesHidden(revenueSeries)).toBe(false);
     button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -114,22 +111,22 @@ describe("ui-chart-legend", () => {
 
     // The item is updated in place, but re-query anyway so this asserts the
     // rendered state rather than a stale reference.
-    const rebuilt = legend.querySelector<HTMLButtonElement>("button")!;
+    const rebuilt = must(legend.querySelector<HTMLButtonElement>("button"));
     expect(rebuilt.getAttribute("aria-pressed")).toBe("false");
     expect(rebuilt.hasAttribute("data-hidden")).toBe(true);
 
     // Clicking again toggles it back to visible.
     rebuilt.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(chart.isSeriesHidden(revenueSeries)).toBe(false);
-    const rebuiltAgain = legend.querySelector<HTMLButtonElement>("button")!;
+    const rebuiltAgain = must(legend.querySelector<HTMLButtonElement>("button"));
     expect(rebuiltAgain.getAttribute("aria-pressed")).toBe("true");
     expect(rebuiltAgain.hasAttribute("data-hidden")).toBe(false);
   });
 
   it("dispatches a toggle event with the series' key and new hidden state", async () => {
     const chart = await mountChart(TWO_SERIES);
-    const legend = chart.querySelector("ui-chart-legend")!;
-    const button = legend.querySelector<HTMLButtonElement>("button")!;
+    const legend = must(chart.querySelector("ui-chart-legend"));
+    const button = must(legend.querySelector<HTMLButtonElement>("button"));
 
     const events: unknown[] = [];
     legend.addEventListener("toggle", (event: Event) => events.push((event as CustomEvent).detail));
@@ -137,7 +134,7 @@ describe("ui-chart-legend", () => {
     button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(events).toEqual([{ series: "Revenue", hidden: true }]);
 
-    const rebuilt = legend.querySelector<HTMLButtonElement>("button")!;
+    const rebuilt = must(legend.querySelector<HTMLButtonElement>("button"));
     rebuilt.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(events).toEqual([
       { series: "Revenue", hidden: true },
@@ -147,8 +144,8 @@ describe("ui-chart-legend", () => {
 
   it("sets the chart's highlight to the hovered series, and clears it when the pointer leaves", async () => {
     const chart = await mountChart(TWO_SERIES);
-    const legend = chart.querySelector("ui-chart-legend")!;
-    const button = legend.querySelectorAll<HTMLButtonElement>("button")[1]!;
+    const legend = must(chart.querySelector("ui-chart-legend"));
+    const button = must(legend.querySelectorAll<HTMLButtonElement>("button")[1]);
 
     const events: unknown[] = [];
     chart.addEventListener("highlight", (e) => events.push((e as CustomEvent).detail));
@@ -166,8 +163,8 @@ describe("ui-chart-legend", () => {
     // activating an item destroyed the very button the user was on and dropped
     // keyboard focus to the document.
     const chart = await mountChart(TWO_SERIES);
-    const legend = chart.querySelector("ui-chart-legend")!;
-    const button = legend.querySelector<HTMLButtonElement>("button")!;
+    const legend = must(chart.querySelector("ui-chart-legend"));
+    const button = must(legend.querySelector<HTMLButtonElement>("button"));
 
     button.focus();
     button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -180,7 +177,7 @@ describe("ui-chart-legend", () => {
 
   it("re-renders its item list when a series element is added to the chart", async () => {
     const chart = await mountChart(TWO_SERIES);
-    const legend = chart.querySelector("ui-chart-legend")!;
+    const legend = must(chart.querySelector("ui-chart-legend"));
     expect(legend.querySelectorAll("button").length).toBe(2);
 
     const scatter = document.createElement("ui-chart-scatter");
@@ -197,18 +194,18 @@ describe("ui-chart-legend", () => {
 
   it("re-renders its item list when a series element is removed from the chart", async () => {
     const chart = await mountChart(TWO_SERIES);
-    const legend = chart.querySelector("ui-chart-legend")!;
-    chart.querySelector('ui-chart-bar[key="Cost"]')!.remove();
+    const legend = must(chart.querySelector("ui-chart-legend"));
+    must(chart.querySelector('ui-chart-bar[key="Cost"]')).remove();
     await flush();
 
     const buttons = legend.querySelectorAll<HTMLButtonElement>("button");
     expect(buttons.length).toBe(1);
-    expect(buttons[0]!.textContent).toBe("Revenue ($)");
+    expect(must(buttons[0]).textContent).toBe("Revenue ($)");
   });
 
   it("renders no items when the chart has no series", async () => {
     const chart = await mountChart(`${TABLE}<ui-chart-legend></ui-chart-legend>`);
-    const legend = chart.querySelector("ui-chart-legend")!;
+    const legend = must(chart.querySelector("ui-chart-legend"));
     expect(legend.querySelectorAll("button").length).toBe(0);
   });
 
@@ -217,8 +214,8 @@ describe("ui-chart-legend", () => {
     // every highlight re-renders the plot, so hovering the chart tore every
     // button out and rebuilt it, dropping focus and hover state mid-gesture.
     const chart = await mountChart(TWO_SERIES);
-    const legend = chart.querySelector("ui-chart-legend")!;
-    const button = legend.querySelector<HTMLButtonElement>("button")!;
+    const legend = must(chart.querySelector("ui-chart-legend"));
+    const button = must(legend.querySelector<HTMLButtonElement>("button"));
 
     chart.setHighlight({ index: 1, series: null });
     await flush();
@@ -229,7 +226,7 @@ describe("ui-chart-legend", () => {
 
   it("keeps swatch slots in step with the chart's own series indices", async () => {
     const chart = await mountChart(TWO_SERIES);
-    const legend = chart.querySelector("ui-chart-legend")!;
+    const legend = must(chart.querySelector("ui-chart-legend"));
     const swatchSlots = () =>
       [...legend.querySelectorAll<HTMLElement>('[data-part="swatch"]')].map((s) =>
         s.style.getPropertyValue("--series-index"),
@@ -243,7 +240,7 @@ describe("ui-chart-legend", () => {
     expect(groupSlots()).toEqual(["0", "1"]);
 
     // Hiding the first series must not renumber the second one anywhere.
-    chart.setSeriesHidden(chart.querySelector<HTMLElement>("ui-chart-bar")!, true);
+    chart.setSeriesHidden(must(chart.querySelector<HTMLElement>("ui-chart-bar")), true);
     await flush();
     expect(swatchSlots()).toEqual(["0", "1"]);
     expect(groupSlots()).toEqual(["1"]);
@@ -251,9 +248,9 @@ describe("ui-chart-legend", () => {
 
   it("updates an item's label when the series' attribute changes", async () => {
     const chart = await mountChart(TWO_SERIES);
-    const legend = chart.querySelector("ui-chart-legend")!;
-    chart.querySelector("ui-chart-bar")!.setAttribute("label", "Net revenue");
+    const legend = must(chart.querySelector("ui-chart-legend"));
+    must(chart.querySelector("ui-chart-bar")).setAttribute("label", "Net revenue");
     const buttons = legend.querySelectorAll<HTMLButtonElement>("button");
-    expect(buttons[0]!.textContent).toBe("Net revenue");
+    expect(must(buttons[0]).textContent).toBe("Net revenue");
   });
 });

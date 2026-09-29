@@ -7,6 +7,7 @@ import "./chart-bar.ts";
 import "./chart-legend.ts";
 import "./chart-reference-line.ts";
 import type { UIChart } from "./chart.ts";
+import { flush, must } from "./test-utils.ts";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -17,14 +18,10 @@ afterEach(() => {
 // and any later mutation defers its re-render the same way. A zero-delay
 // macrotask drains all of it (wiring, registrations, observer deliveries and
 // the coalesced render), so tests assert on settled DOM.
-function flush() {
-  return new Promise((resolve) => setTimeout(resolve));
-}
-
 async function mountChart(inner: string, size = true) {
   document.body.innerHTML = `<ui-chart${size ? ' width="400" height="200"' : ""}>${inner}</ui-chart>`;
   await flush();
-  return document.querySelector("ui-chart")!;
+  return must(document.querySelector("ui-chart"));
 }
 
 function referenceLineGroup(chart: UIChart) {
@@ -59,7 +56,7 @@ describe("ui-chart-reference-line (registration + geometry)", () => {
     `);
     const group = referenceLineGroup(chart);
     expect(group).not.toBeNull();
-    const line = group!.querySelector('[data-part="line"]')!;
+    const line = must(must(group).querySelector('[data-part="line"]'));
     expect(line.tagName.toLowerCase()).toBe("path");
     // height=200, domain [0,200] → range [200,0] → y(100) = 100.
     expect(line.getAttribute("d")).toBe("M0,100L400,100");
@@ -75,7 +72,7 @@ describe("ui-chart-reference-line (registration + geometry)", () => {
     `);
     const group = referenceLineGroup(chart);
     expect(group).not.toBeNull();
-    const line = group!.querySelector('[data-part="line"]')!;
+    const line = must(must(group).querySelector('[data-part="line"]'));
     // width=400, domain [0,10] → range [0,400] → x(5) = 200; spans full height.
     expect(line.getAttribute("d")).toBe("M200,0L200,200");
   });
@@ -85,13 +82,13 @@ describe("ui-chart-reference-line (registration + geometry)", () => {
       <ui-chart-axis position="left" min="0" max="200"></ui-chart-axis>
       <ui-chart-reference-line axis="y" value="100" label="Target"></ui-chart-reference-line>
     `);
-    const group = referenceLineGroup(chart)!;
+    const group = must(referenceLineGroup(chart));
     const label = group.querySelector('[data-part="label"]');
     expect(label).not.toBeNull();
-    expect(label!.tagName.toLowerCase()).toBe("text");
-    expect(label!.textContent).toBe("Target");
-    expect(label!.getAttribute("x")).toBe("4");
-    expect(label!.getAttribute("y")).toBe("96");
+    expect(must(label).tagName.toLowerCase()).toBe("text");
+    expect(must(label).textContent).toBe("Target");
+    expect(must(label).getAttribute("x")).toBe("4");
+    expect(must(label).getAttribute("y")).toBe("96");
   });
 
   it("omits the label mark when no label attribute is present", async () => {
@@ -99,7 +96,7 @@ describe("ui-chart-reference-line (registration + geometry)", () => {
       <ui-chart-axis position="left" min="0" max="200"></ui-chart-axis>
       <ui-chart-reference-line axis="y" value="100"></ui-chart-reference-line>
     `);
-    const group = referenceLineGroup(chart)!;
+    const group = must(referenceLineGroup(chart));
     expect(group.querySelector('[data-part="label"]')).toBeNull();
   });
 
@@ -108,8 +105,8 @@ describe("ui-chart-reference-line (registration + geometry)", () => {
       <ui-chart-axis position="left" scale="time" min="0" max="1000"></ui-chart-axis>
       <ui-chart-reference-line axis="y" value="1970-01-01T00:00:00.500Z"></ui-chart-reference-line>
     `);
-    const group = referenceLineGroup(chart)!;
-    const line = group.querySelector('[data-part="line"]')!;
+    const group = must(referenceLineGroup(chart));
+    const line = must(group.querySelector('[data-part="line"]'));
     // domain [0,1000]ms, height=200 → y(500) = 100.
     expect(line.getAttribute("d")).toBe("M0,100L400,100");
   });
@@ -118,7 +115,7 @@ describe("ui-chart-reference-line (registration + geometry)", () => {
     const chart = await mountChart(`
       <ui-chart-reference-line axis="y" value="100"></ui-chart-reference-line>
     `);
-    expect(referenceLineGroup(chart)!.querySelectorAll("*").length).toBe(0);
+    expect(must(referenceLineGroup(chart)).querySelectorAll("*").length).toBe(0);
   });
 
   it("renders nothing for an unparsable value", async () => {
@@ -126,7 +123,7 @@ describe("ui-chart-reference-line (registration + geometry)", () => {
       <ui-chart-axis position="left" min="0" max="200"></ui-chart-axis>
       <ui-chart-reference-line axis="y" value="not-a-number"></ui-chart-reference-line>
     `);
-    expect(referenceLineGroup(chart)!.querySelectorAll("*").length).toBe(0);
+    expect(must(referenceLineGroup(chart)).querySelectorAll("*").length).toBe(0);
   });
 
   it("registers via chart.registerSeries under its own type, and never distorts axis extrema", async () => {
@@ -159,11 +156,11 @@ describe("ui-chart-reference-line (registration + geometry)", () => {
 
     const group = referenceLineGroup(chart);
     expect(group).not.toBeNull();
-    expect(group!.getAttribute("data-series")).toMatch(/^reference-line-/);
+    expect(must(group).getAttribute("data-series")).toMatch(/^reference-line-/);
 
     // The y-axis domain must come from the real series' data ([50, 80]), not
     // be widened to include the reference line's out-of-range value (5000).
-    const axis = chart.querySelector("ui-chart-axis")!;
+    const axis = must(chart.querySelector("ui-chart-axis"));
     const ticks = [...axis.querySelectorAll<HTMLElement>('[data-part="tick"]')].map((t) =>
       Number(t.textContent),
     );
@@ -193,12 +190,12 @@ describe("ui-chart-reference-line (registration + geometry)", () => {
     // The annotation's own group carries no palette slot at all.
     expect((referenceLineGroup(chart) as HTMLElement).dataset.seriesIndex).toBeUndefined();
 
-    const legend = chart.querySelector("ui-chart-legend")!;
+    const legend = must(chart.querySelector("ui-chart-legend"));
     const buttons = [...legend.querySelectorAll<HTMLButtonElement>("button")];
     expect(buttons.length).toBe(1);
-    expect(buttons[0]!.getAttribute("data-series")).toBe("Revenue");
+    expect(must(buttons[0]).getAttribute("data-series")).toBe("Revenue");
     expect(
-      buttons[0]!
+      must(buttons[0])
         .querySelector<HTMLElement>('[data-part="swatch"]')!
         .style.getPropertyValue("--series-index"),
     ).toBe("0");
@@ -220,8 +217,8 @@ describe("ui-chart-reference-line (registration + geometry)", () => {
       <ui-chart-reference-line axis="y" value="60"></ui-chart-reference-line>
       <ui-chart-bar key="Revenue"></ui-chart-bar>
     `);
-    const bar = chart.querySelector<HTMLElement>("ui-chart-bar")!;
-    const group = referenceLineGroup(chart)!;
+    const bar = must(chart.querySelector<HTMLElement>("ui-chart-bar"));
+    const group = must(referenceLineGroup(chart));
 
     chart.setHighlight({ index: 0, series: bar });
     expect(group.hasAttribute("data-faded")).toBe(false);
